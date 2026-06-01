@@ -1,8 +1,4 @@
-"""Broker Executor per Alpaca (paper/live trading) – alpaca-py.
-
-Sostituisce il precedente mock di get_account_status() e execute_weights()
-con chiamate reali al Trading API di Alpaca via alpaca-py.
-"""
+"""Broker Executor per Alpaca (paper/live trading) – alpaca-py."""
 import os
 import json
 import logging
@@ -11,15 +7,12 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import (
-    MarketOrderRequest,
-    GetAssetsRequest,
-)
+from alpaca.trading.requests import MarketOrderRequest, GetAssetsRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
 
 from src.strategy.weight_interface import PortfolioWeights
+from src.data.alpaca_feed import AlpacaFeed
 
-# Setup logging
 logs_dir = Path("logs/execution")
 logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -34,13 +27,6 @@ logging.basicConfig(
 
 
 class BrokerExecutor:
-    """Executor Alpaca deployment-aware (paper + live).
-
-    Usa alpaca-py TradingClient per:
-    - get_account_status()  → dati reali account
-    - execute_weights()     → ordini reali a mercato
-    """
-
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -65,6 +51,11 @@ class BrokerExecutor:
             paper=self.paper_trading,
         )
 
+        self.alpaca_feed = AlpacaFeed(
+            api_key=self.api_key,
+            api_secret=self.api_secret,
+        )
+
         self.state_file = Path("logs/execution/broker_state.json")
         self.state = {
             "last_execution_time": None,
@@ -72,13 +63,7 @@ class BrokerExecutor:
             "portfolio_value": 100000,
         }
         self._load_state()
-        self.logger.info(
-            f"✅ BrokerExecutor inizializzato – paper={paper_trading}"
-        )
-
-    # ------------------------------------------------------------------
-    # State persistence
-    # ------------------------------------------------------------------
+        self.logger.info(f"✅ BrokerExecutor inizializzato – paper={paper_trading}")
 
     def _load_state(self):
         if self.state_file.exists():
@@ -96,12 +81,7 @@ class BrokerExecutor:
         with open(self.state_file, "w") as f:
             json.dump(self.state, f)
 
-    # ------------------------------------------------------------------
-    # Account
-    # ------------------------------------------------------------------
-
     def get_account_status(self) -> Dict:
-        """Dati reali account Alpaca (no mock)."""
         try:
             account = self.trading_client.get_account()
             data = {
@@ -117,7 +97,6 @@ class BrokerExecutor:
             return data
         except Exception as e:
             self.logger.error(f"get_account_status error: {e}")
-            # Fallback sui valori persistiti
             return {
                 "cash": 0.0,
                 "portfolio_value": self.state.get("portfolio_value", 100000),
@@ -125,12 +104,7 @@ class BrokerExecutor:
                 "equity": self.state.get("portfolio_value", 100000),
             }
 
-    # ------------------------------------------------------------------
-    # Posizioni correnti
-    # ------------------------------------------------------------------
-
     def get_positions(self) -> Dict[str, Dict]:
-        """Restituisce {ticker: {qty, market_value, avg_entry_price}}."""
         try:
             positions = self.trading_client.get_all_positions()
             return {
@@ -146,29 +120,18 @@ class BrokerExecutor:
             self.logger.error(f"get_positions error: {e}")
             return {}
 
-    # ------------------------------------------------------------------
-    # Esecuzione ordini
-    # ------------------------------------------------------------------
-
     def execute_weights(
         self,
         weights: PortfolioWeights,
         min_notional: float = 1.0,
     ) -> Dict:
-        """Converte weights target in ordini a mercato su Alpaca.
-
-        Calcola le quantità in dollari sulla base di portfolio_value.
-        Invia solo ordini con valore nominale >= min_notional.
-        """
-        self.logger.info(
-            f"📤 Executing weights for {len(weights.tickers)} assets"
-        )
+        self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
         portfolio_value = account["portfolio_value"]
 
-        # Prezzi correnti per calcolare qty
-        prices = self._get_current_prices(weights.tickers)
+        # Usa prezzi da AlpacaFeed (bars ultimo giorno)
+        prices = self._get_prices_from_bars(weights.tickers)
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
@@ -231,7 +194,6 @@ class BrokerExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
-        # Aggiorna hub_state.json
         try:
             hub = Path("logs/hub_state.json")
             hub.parent.mkdir(parents=True, exist_ok=True)
@@ -253,26 +215,16 @@ class BrokerExecutor:
         self.logger.info(f"✅ Eseguiti {len(orders_executed)} ordini")
         return result
 
-    # ------------------------------------------------------------------
-    # Prezzi correnti (best-effort per calcolo qty)
-    # ------------------------------------------------------------------
-
-    def _get_current_prices(self, tickers: List[str]) -> Dict[str, float]:
-        """Usa alpaca-py StockLatestQuoteRequest per prezzi mid."""
+    def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:
+        """Ottieni prezzi Close ultimi bars da Alpaca."""
         try:
-            from alpaca.data.historical import StockHistoricalDataClient
-            from alpaca.data.requests import StockLatestQuoteRequest
-
-            data_client = StockHistoricalDataClient(
-                api_key=self.api_key, secret_key=self.api_secret
-            )
-            req = StockLatestQuoteRequest(symbol_or_symbols=tickers)
-            quotes = data_client.get_stock_latest_quote(req)
-            return {
-                t: round((float(q.ask_price) + float(q.bid_price)) / 2, 4)
-                for t, q in quotes.items()
-                if q.ask_price and q.bid_price
-            }
+            bars_df = self.alpaca_feed.get_bars(tickers, days=2)
+            prices = {}
+            for ticker in tickers:
+                close_col = f"Close_{ticker}"
+                if close_col in bars_df.columns:
+                    prices[ticker] = float(bars_df[close_col].iloc[-1])
+            return prices
         except Exception as e:
-            self.logger.warning(f"_get_current_prices fallback: {e}")
+            self.logger.warning(f"_get_prices_from_bars fallback: {e}")
             return {}

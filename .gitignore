@@ -10,3 +10,7 @@ data/raw/*.csv
 data/processed/*.csv
 logs/*.log
 *.log
+.python-version
+test_alpaca.py
+test_alpaca_long.py
+trade_ppo.py

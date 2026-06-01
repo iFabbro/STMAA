@@ -1,102 +1,25 @@
 {
-  "timestamp": "2026-06-01T19:51:06.885014",
-  "portfolio_value": 100000.0,
-  "cash": 50000.0,
-  "equity": 100000.0,
-  "equity_curve": [
-    500000.0,
-    100000.0
-  ],
+  "timestamp": "2026-06-02T00:21:07.997216",
+  "portfolio_value": 500000.0,
+  "cash": 250000.0,
+  "equity": 500000.0,
+  "equity_curve": [500000.0, 500000.0, 500000.0, 500000.0, 500000.0,
+                   500000.0, 500000.0, 500000.0, 500000.0, 500000.0],
   "orders": [
-    {
-      "ticker": "AAPL",
-      "side": "buy",
-      "quantity": 0.1311705501864705,
-      "order_id": null
-    },
-    {
-      "ticker": "GOOGL",
-      "side": "buy",
-      "quantity": 0.1859921035434713,
-      "order_id": null
-    },
-    {
-      "ticker": "MSFT",
-      "side": "buy",
-      "quantity": 0.057031925564007185,
-      "order_id": null
-    },
-    {
-      "ticker": "AMZN",
-      "side": "buy",
-      "quantity": 0.1603932781394312,
-      "order_id": null
-    },
-    {
-      "ticker": "TSLA",
-      "side": "buy",
-      "quantity": 0.26058721744660895,
-      "order_id": null
-    },
-    {
-      "ticker": "NVDA",
-      "side": "buy",
-      "quantity": 0.01423211749405438,
-      "order_id": null
-    },
-    {
-      "ticker": "META",
-      "side": "buy",
-      "quantity": 0.19059280762595657,
-      "order_id": null
-    }
+    {"ticker": "MSFT", "side": "buy", "quantity": 30.4228, "price": 465.00, "timestamp": "2026-06-02T00:21:07"},
+    {"ticker": "NVDA", "side": "buy", "quantity": 60.5202, "price": 216.85, "timestamp": "2026-06-02T00:21:07"},
+    {"ticker": "META", "side": "buy", "quantity": 20.5368, "price": 586.88, "timestamp": "2026-06-02T00:21:07"}
   ],
-  "last_result": {
-    "orders": [
-      {
-        "ticker": "AAPL",
-        "side": "buy",
-        "quantity": 0.1311705501864705,
-        "order_id": null
-      },
-      {
-        "ticker": "GOOGL",
-        "side": "buy",
-        "quantity": 0.1859921035434713,
-        "order_id": null
-      },
-      {
-        "ticker": "MSFT",
-        "side": "buy",
-        "quantity": 0.057031925564007185,
-        "order_id": null
-      },
-      {
-        "ticker": "AMZN",
-        "side": "buy",
-        "quantity": 0.1603932781394312,
-        "order_id": null
-      },
-      {
-        "ticker": "TSLA",
-        "side": "buy",
-        "quantity": 0.26058721744660895,
-        "order_id": null
-      },
-      {
-        "ticker": "NVDA",
-        "side": "buy",
-        "quantity": 0.01423211749405438,
-        "order_id": null
-      },
-      {
-        "ticker": "META",
-        "side": "buy",
-        "quantity": 0.19059280762595657,
-        "order_id": null
-      }
-    ],
-    "portfolio_value": 100000,
-    "timestamp": "2026-06-01T19:51:06.884895"
+  "metrics": {
+    "portfolio_value": 500000.0,
+    "total_return": 0.0,
+    "annualized_return": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe_ratio": 0.0,
+    "sortino_ratio": 0.0,
+    "calmar_ratio": 0.0,
+    "exposure": 0.5,
+    "regime": "sideways",
+    "positions_count": 3
   }
 }

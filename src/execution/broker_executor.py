@@ -7,11 +7,12 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, GetAssetsRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
 
 from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
+from src.utils.metrics import PortfolioMetrics
 
 logs_dir = Path("logs/execution")
 logs_dir.mkdir(parents=True, exist_ok=True)
@@ -33,11 +34,13 @@ class BrokerExecutor:
         api_secret: Optional[str] = None,
         base_url: str = "https://paper-api.alpaca.markets",
         paper_trading: bool = True,
+        initial_capital: float = 500000.0,
     ):
         self.api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self.api_secret = api_secret or os.getenv("ALPACA_API_SECRET", "")
         self.base_url = base_url
         self.paper_trading = paper_trading
+        self.initial_capital = initial_capital
         self.logger = logging.getLogger(__name__)
 
         if not self.api_key or not self.api_secret:
@@ -56,11 +59,13 @@ class BrokerExecutor:
             api_secret=self.api_secret,
         )
 
+        self.metrics = PortfolioMetrics(initial_capital=initial_capital)
+
         self.state_file = Path("logs/execution/broker_state.json")
         self.state = {
             "last_execution_time": None,
             "total_orders": 0,
-            "portfolio_value": 100000,
+            "portfolio_value": initial_capital,
         }
         self._load_state()
         self.logger.info(f"✅ BrokerExecutor inizializzato – paper={paper_trading}")
@@ -99,9 +104,9 @@ class BrokerExecutor:
             self.logger.error(f"get_account_status error: {e}")
             return {
                 "cash": 0.0,
-                "portfolio_value": self.state.get("portfolio_value", 100000),
+                "portfolio_value": self.state.get("portfolio_value", self.initial_capital),
                 "buying_power": 0.0,
-                "equity": self.state.get("portfolio_value", 100000),
+                "equity": self.state.get("portfolio_value", self.initial_capital),
             }
 
     def get_positions(self) -> Dict[str, Dict]:
@@ -120,15 +125,12 @@ class BrokerExecutor:
             self.logger.error(f"get_positions error: {e}")
             return {}
 
-    def execute_weights(
-        self,
-        weights: PortfolioWeights,
-        min_notional: float = 1.0,
-    ) -> Dict:
+    def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
         portfolio_value = account["portfolio_value"]
+        positions = self.get_positions()
 
         prices = self._get_prices_from_bars(weights.tickers)
 
@@ -136,7 +138,6 @@ class BrokerExecutor:
         for ticker, target_weight in zip(weights.tickers, weights.weights):
             target_notional = portfolio_value * float(target_weight)
             if abs(target_notional) < min_notional:
-                self.logger.debug(f"Skip {ticker}: notional {target_notional:.2f} < {min_notional}")
                 continue
 
             side = OrderSide.BUY if target_notional > 0 else OrderSide.SELL
@@ -167,9 +168,7 @@ class BrokerExecutor:
                     "price": price,
                 }
                 orders_executed.append(order_info)
-                self.logger.info(
-                    f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}"
-                )
+                self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
             except Exception as e:
                 self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")
                 orders_executed.append({
@@ -187,10 +186,16 @@ class BrokerExecutor:
         self.state["total_orders"] += len(orders_executed)
         self._save_state()
 
+        # Aggiorna metrics
+        new_positions = self.get_positions()
+        self.metrics.update(portfolio_value, new_positions)
+        metrics = self.metrics.get_all_metrics()
+
         result = {
             "orders": orders_executed,
             "portfolio_value": portfolio_value,
             "timestamp": datetime.now().isoformat(),
+            "metrics": metrics,
         }
 
         try:
@@ -204,14 +209,17 @@ class BrokerExecutor:
                         "portfolio_value": portfolio_value,
                         "cash": account.get("cash", 0),
                         "equity": account.get("equity", portfolio_value),
+                        "metrics": metrics,
                     },
                     indent=2,
+                    default=str,
                 )
             )
         except Exception as e:
             self.logger.error(f"Hub state write failed: {e}")
 
         self.logger.info(f"✅ Eseguiti {len(orders_executed)} ordini")
+        self.logger.info(f"📊 Metrics: DD={metrics['max_drawdown']:.2%}, Sharpe={metrics['sharpe_ratio']:.2f}, Regime={metrics['regime']}")
         return result
 
     def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:

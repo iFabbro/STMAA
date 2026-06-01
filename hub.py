@@ -6,7 +6,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 import os
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,15 +15,15 @@ HUB_STATE = Path("logs/hub_state.json")
 
 
 class Colors:
-    HEADER    = '\033[94m'
-    TITLE     = '\033[36m'
-    POS       = '\033[92m'
-    NEG       = '\033[91m'
-    ACCENT    = '\033[93m'
-    MUTED     = '\033[90m'
-    ENDC      = '\033[0m'
-    BOLD      = '\033[1m'
-    UNDERLINE = '\033[4m'
+    HEADER    = '\\033[94m'
+    TITLE     = '\\033[36m'
+    POS       = '\\033[92m'
+    NEG       = '\\033[91m'
+    ACCENT    = '\\033[93m'
+    MUTED     = '\\033[90m'
+    ENDC      = '\\033[0m'
+    BOLD      = '\\033[1m'
+    UNDERLINE = '\\033[4m'
 
 
 SPARKS = "▁▂▃▄▅▆▇█"
@@ -53,9 +53,9 @@ def sparkline(series, width=48):
 
 
 def print_header(text):
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}")
+    print(f"\\n{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{text:^72}{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}\n")
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}\\n")
 
 
 def print_metric(label, value, change=None):
@@ -68,12 +68,6 @@ def print_metric(label, value, change=None):
 
 
 def get_live_quotes(tickers):
-    """Recupera prezzi reali da AlpacaFeed.
-
-    Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
-    In caso di errore (API key mancante, mercato chiuso, ecc.)
-    ritorna un dict con valori a zero e logga l'avviso.
-    """
     api_key    = os.getenv("ALPACA_API_KEY", "")
     api_secret = os.getenv("ALPACA_API_SECRET", "")
 
@@ -98,12 +92,19 @@ def render():
     portfolio_value = float(state.get("portfolio_value", 100000))
     cash            = float(state.get("cash", 50000))
     equity          = float(state.get("equity", portfolio_value))
-    equity_curve    = state.get(
-        "equity_curve",
-        [portfolio_value * (0.99 + i * 0.0005) for i in range(60)],
-    )
+    equity_curve    = state.get("equity_curve", [portfolio_value * (0.99 + i * 0.0005) for i in range(60)])
 
-    # Prezzi live (Fase 1: no np.random)
+    # Metrics
+    metrics = state.get("metrics", {})
+    max_drawdown = metrics.get("max_drawdown", 0)
+    sharpe = metrics.get("sharpe_ratio", 0)
+    sortino = metrics.get("sortino_ratio", 0)
+    calmar = metrics.get("calmar_ratio", 0)
+    exposure = metrics.get("exposure", 0)
+    regime = metrics.get("regime", "unknown")
+    total_return = metrics.get("total_return", 0)
+    annualized_return = metrics.get("annualized_return", 0)
+
     quotes = get_live_quotes(tickers)
 
     clear_screen()
@@ -114,7 +115,6 @@ def render():
     print(f"{Colors.TITLE}Last update:{Colors.ENDC} {last_ts or datetime.now().isoformat()}")
     print(f"{Colors.TITLE}Orders in last cycle:{Colors.ENDC} {len(orders)}")
 
-    # Calcola P&L giornaliero dal state
     prev_equity = equity_curve[-2] if len(equity_curve) >= 2 else equity
     daily_pnl   = equity - prev_equity
     daily_pct   = (daily_pnl / prev_equity * 100) if prev_equity else 0.0
@@ -124,19 +124,27 @@ def render():
     print_metric("Cash Available",  f"${cash:,.2f}")
     print_metric("Total Equity",    f"${equity:,.2f}")
     print_metric("Daily P&L",       f"${daily_pnl:+,.2f}", daily_pct)
+    print_metric("Total Return",    f"{total_return:+.2%}")
+    print_metric("Annualized Return", f"{annualized_return:+.2%}")
+
+    print_header("RISK METRICS")
+    drawdown_color = Colors.NEG if max_drawdown < -0.1 else Colors.POS
+    print(f"  {Colors.TITLE}Max Drawdown:{Colors.ENDC} {drawdown_color}{max_drawdown:.2%}{Colors.ENDC}")
+    sharpe_color = Colors.POS if sharpe > 1 else Colors.MUTED
+    print(f"  {Colors.TITLE}Sharpe Ratio:{Colors.ENDC} {sharpe_color}{sharpe:.2f}{Colors.ENDC}")
+    print(f"  {Colors.TITLE}Sortino Ratio:{Colors.ENDC} {sortino:.2f}")
+    print(f"  {Colors.TITLE}Calmar Ratio:{Colors.ENDC} {calmar:.2f}")
+    print(f"  {Colors.TITLE}Exposure:{Colors.ENDC} {exposure:.2%}")
+    
+    regime_color = Colors.POS if regime == 'bull' else Colors.NEG if regime == 'bear' else Colors.ACCENT
+    print(f"  {Colors.TITLE}Regime:{Colors.ENDC} {regime_color}{regime.upper()}{Colors.ENDC}")
 
     print_header("EQUITY CURVE")
     print(f"{Colors.ACCENT}{sparkline(equity_curve, 48)}{Colors.ENDC}")
-    print(
-        f"{Colors.MUTED}"
-        f"min={min(equity_curve):,.0f}  "
-        f"max={max(equity_curve):,.0f}  "
-        f"last={equity_curve[-1]:,.0f}"
-        f"{Colors.ENDC}"
-    )
+    print(f"{Colors.MUTED}min={min(equity_curve):,.0f}  max={max(equity_curve):,.0f}  last={equity_curve[-1]:,.0f}{Colors.ENDC}")
 
     print_header("MONITORED TICKERS")
-    print(f"\n{Colors.BOLD}{'Ticker':<10} {'Price':>10} {'Change':>10} {'Source':>8}{Colors.ENDC}")
+    print(f"\\n{Colors.BOLD}{'Ticker':<10} {'Price':>10} {'Change':>10} {'Source':>8}{Colors.ENDC}")
     print(f"{Colors.UNDERLINE}{'-'*10} {'-'*10} {'-'*10} {'-'*8}{Colors.ENDC}")
     for ticker in tickers:
         q      = quotes.get(ticker, {"price": 0.0, "change_pct": 0.0})
@@ -153,7 +161,7 @@ def render():
         )
 
     print_header("LAST EXECUTIONS")
-    print(f"\n{Colors.BOLD}{'Time':<8} {'Tk':<6} {'Side':<6} {'Qty':>7} {'Px':>9}{Colors.ENDC}")
+    print(f"\\n{Colors.BOLD}{'Time':<8} {'Tk':<6} {'Side':<6} {'Qty':>7} {'Px':>9}{Colors.ENDC}")
     print(f"{Colors.UNDERLINE}{'-'*8} {'-'*6} {'-'*6} {'-'*7} {'-'*9}{Colors.ENDC}")
 
     if orders:
@@ -176,15 +184,15 @@ def render():
 
     print_header("SYSTEM STATUS")
     print(f"  {Colors.POS}System:{Colors.ENDC} Active")
-    print(f"  {Colors.TITLE}Tickers:{Colors.ENDC} {len(tickers)}")
-    print(f"  {Colors.TITLE}Interval:{Colors.ENDC} 30 seconds")
-    print(f"  {Colors.TITLE}Capital:{Colors.ENDC} $500,000")
-    print(f"  {Colors.TITLE}Environment:{Colors.ENDC} Paper Trading")
-    print(f"  {Colors.TITLE}Feed:{Colors.ENDC} Alpaca (live)")
+    print(f"{Colors.TITLE}Tickers:{Colors.ENDC} {len(tickers)}")
+    print(f"{Colors.TITLE}Interval:{Colors.ENDC} 30 seconds")
+    print(f"{Colors.TITLE}Capital:{Colors.ENDC} $500,000")
+    print(f"{Colors.TITLE}Environment:{Colors.ENDC} Paper Trading")
+    print(f"{Colors.TITLE}Feed:{Colors.ENDC} Alpaca (live)")
 
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}")
+    print(f"\\n{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}")
     print(f"{Colors.ACCENT}Next refresh in 30 seconds...{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}\n")
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*72}{Colors.ENDC}\\n")
 
 
 if __name__ == "__main__":
@@ -193,4 +201,4 @@ if __name__ == "__main__":
             render()
             time.sleep(30)
     except KeyboardInterrupt:
-        print("\nStopped.")
+        print("\\nStopped.")

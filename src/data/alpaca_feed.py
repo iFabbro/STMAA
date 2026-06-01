@@ -1,0 +1,191 @@
+"""AlpacaFeed – dati storici (bars) e snapshot live via alpaca-py.
+
+Sostituisce tutti i mock presenti in trade.py e hub.py.
+Compatibile con la pipeline DataProcessor esistente.
+"""
+import os
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
+
+import pandas as pd
+import numpy as np
+
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+logger = logging.getLogger(__name__)
+
+
+class AlpacaFeed:
+    """Client dati di mercato reali via alpaca-py.
+
+    Usato da PaperTradingBot.get_market_data() e da hub.py
+    per prezzi live al posto dei np.random.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+    ):
+        self.api_key = api_key or os.getenv("ALPACA_API_KEY", "")
+        self.api_secret = api_secret or os.getenv("ALPACA_API_SECRET", "")
+
+        if not self.api_key or not self.api_secret:
+            raise ValueError(
+                "ALPACA_API_KEY e ALPACA_API_SECRET devono essere impostati nel .env"
+            )
+
+        self.client = StockHistoricalDataClient(
+            api_key=self.api_key,
+            secret_key=self.api_secret,
+        )
+        logger.info("✅ AlpacaFeed inizializzato (alpaca-py)")
+
+    # ------------------------------------------------------------------
+    # Dati storici (bars giornalieri)
+    # ------------------------------------------------------------------
+
+    def get_bars(
+        self,
+        tickers: List[str],
+        days: int = 100,
+        timeframe: TimeFrame = TimeFrame(1, TimeFrameUnit.Day),
+    ) -> pd.DataFrame:
+        """Scarica barre OHLCV giornaliere per `days` giorni.
+
+        Returns
+        -------
+        DataFrame con colonne flat: Close_AAPL, RSI_AAPL, MACD_AAPL, …
+        Compatibile con generate_weights() in trade.py.
+        """
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days + 30)  # buffer per indicatori
+
+        request = StockBarsRequest(
+            symbol_or_symbols=tickers,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            limit=None,
+        )
+
+        logger.info(f"⬇️  Scaricamento bars per {tickers} (ultimi {days}gg)…")
+        bars = self.client.get_stock_bars(request).df
+
+        if bars.empty:
+            raise RuntimeError("AlpacaFeed: nessuna barra ricevuta da Alpaca.")
+
+        # Multi-index (symbol, timestamp) → pivot per ticker
+        bars = bars.reset_index()
+        bars.rename(
+            columns={
+                "open": "Open",
+                "high": "High",
+                "low": "Low",
+                "close": "Close",
+                "volume": "Volume",
+                "timestamp": "Date",
+                "symbol": "Symbol",
+            },
+            inplace=True,
+        )
+        bars["Date"] = pd.to_datetime(bars["Date"]).dt.tz_localize(None)
+        bars = bars.set_index("Date")
+
+        # Costruisce DataFrame flat atteso dalla pipeline
+        result = pd.DataFrame()
+        for ticker in tickers:
+            sub = bars[bars["Symbol"] == ticker][["Close", "High", "Low", "Volume"]].copy()
+            sub = sub.sort_index().tail(days)
+
+            result[f"Close_{ticker}"] = sub["Close"]
+
+            # RSI 14
+            delta = sub["Close"].diff()
+            gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+            rs = gain / loss
+            result[f"RSI_{ticker}"] = (100 - 100 / (1 + rs)).reindex(result.index)
+
+            # MACD
+            exp1 = sub["Close"].ewm(span=12, adjust=False).mean()
+            exp2 = sub["Close"].ewm(span=26, adjust=False).mean()
+            result[f"MACD_{ticker}"] = (exp1 - exp2).reindex(result.index)
+
+            # BB middle (SMA 20)
+            result[f"BB_middle_{ticker}"] = (
+                sub["Close"].rolling(20).mean().reindex(result.index)
+            )
+
+            # ATR
+            tr = pd.concat(
+                [
+                    sub["High"] - sub["Low"],
+                    (sub["High"] - sub["Close"].shift(1)).abs(),
+                    (sub["Low"] - sub["Close"].shift(1)).abs(),
+                ],
+                axis=1,
+            ).max(axis=1)
+            result[f"ATR_{ticker}"] = tr.rolling(14).mean().reindex(result.index)
+
+        result.dropna(how="all", inplace=True)
+        logger.info(f"✅ Bars pronte: {len(result)} righe, {len(tickers)} tickers")
+        return result
+
+    # ------------------------------------------------------------------
+    # Snapshot live (prezzi correnti per hub.py)
+    # ------------------------------------------------------------------
+
+    def get_latest_quotes(self, tickers: List[str]) -> dict:
+        """Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
+
+        Usato da hub.py per mostrare prezzi reali invece di np.random.
+        'change_pct' è calcolato come (ask - prev_close) / prev_close * 100,
+        approssimato con bid/ask mid quando prev_close non disponibile.
+        """
+        request = StockLatestQuoteRequest(symbol_or_symbols=tickers)
+        quotes = self.client.get_stock_latest_quote(request)
+
+        result = {}
+        for ticker in tickers:
+            q = quotes.get(ticker)
+            if q is None:
+                result[ticker] = {"price": 0.0, "change_pct": 0.0}
+                continue
+            mid = (float(q.ask_price) + float(q.bid_price)) / 2
+            result[ticker] = {"price": round(mid, 2), "change_pct": 0.0}
+
+        # Tenta di arricchire con variazione % usando barre intraday
+        try:
+            prev = self._get_prev_close(tickers)
+            for ticker in tickers:
+                if ticker in prev and prev[ticker] > 0:
+                    cur = result[ticker]["price"]
+                    result[ticker]["change_pct"] = round(
+                        (cur - prev[ticker]) / prev[ticker] * 100, 2
+                    )
+        except Exception as e:
+            logger.warning(f"change_pct non disponibile: {e}")
+
+        return result
+
+    def _get_prev_close(self, tickers: List[str]) -> dict:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=5)
+        request = StockBarsRequest(
+            symbol_or_symbols=tickers,
+            timeframe=TimeFrame(1, TimeFrameUnit.Day),
+            start=start,
+            end=end,
+        )
+        bars = self.client.get_stock_bars(request).df.reset_index()
+        bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
+        result = {}
+        for ticker in tickers:
+            sub = bars[bars["Symbol"] == ticker]["Close"]
+            if len(sub) >= 2:
+                result[ticker] = float(sub.iloc[-2])
+        return result

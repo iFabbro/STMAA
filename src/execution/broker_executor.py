@@ -130,7 +130,6 @@ class BrokerExecutor:
         account = self.get_account_status()
         portfolio_value = account["portfolio_value"]
 
-        # Usa prezzi da AlpacaFeed (bars ultimo giorno)
         prices = self._get_prices_from_bars(weights.tickers)
 
         orders_executed = []
@@ -216,7 +215,6 @@ class BrokerExecutor:
         return result
 
     def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:
-        """Ottieni prezzi Close ultimi bars da Alpaca."""
         try:
             bars_df = self.alpaca_feed.get_bars(tickers, days=2)
             prices = {}

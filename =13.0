@@ -1,0 +1,10 @@
+Requirement already satisfied: websockets in ./venv/lib/python3.13/site-packages (10.4)
+Collecting websockets
+  Using cached websockets-16.0-cp313-cp313-macosx_10_13_x86_64.whl.metadata (6.8 kB)
+Using cached websockets-16.0-cp313-cp313-macosx_10_13_x86_64.whl (175 kB)
+Installing collected packages: websockets
+  Attempting uninstall: websockets
+    Found existing installation: websockets 10.4
+    Uninstalling websockets-10.4:
+      Successfully uninstalled websockets-10.4
+Successfully installed websockets-16.0

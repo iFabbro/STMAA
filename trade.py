@@ -2,6 +2,8 @@
 """Paper Trading Script - Sistema Multi-Agente STMAA
 
 Collega il sistema trading con Alpaca Paper Trading per operatività reale.
+Fase 1: Dati Alpaca reali
+Fase 2: Agente PPO vero
 """
 import os
 import sys
@@ -24,14 +26,15 @@ from src.execution.broker_executor import BrokerExecutor
 from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
-from src.data.alpaca_feed import AlpacaFeed          # <-- Fase 1
+from src.data.alpaca_feed import AlpacaFeed
 from src.agents.trading_env import TradingEnv
+from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
 
-# Interruzione elegante
 running = True
 
 def signal_handler(sig, frame):
     print("\n🛑 Ricevuto segnale di stop, chiudendo...")
+    global running
     running = False
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -46,7 +49,6 @@ class PaperTradingBot:
         self.initial_capital = initial_capital
         self.equity_curve = [initial_capital]
 
-        # Init broker executor (reale via alpaca-py)
         self.executor = BrokerExecutor(
             api_key=os.getenv('ALPACA_API_KEY'),
             api_secret=os.getenv('ALPACA_API_SECRET'),
@@ -54,7 +56,6 @@ class PaperTradingBot:
             paper_trading=True,
         )
 
-        # Init pipeline
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)
         self.pipeline.set_risk(RiskOverlayModule(
             max_position_size=0.2,
@@ -63,40 +64,39 @@ class PaperTradingBot:
             vix_threshold_low=15,
         ))
 
-        # Data processor (yfinance, usato per training offline)
         self.processor = DataProcessor(Path("data"))
-
-        # Feed dati live Alpaca (Fase 1)
         self.alpaca_feed = AlpacaFeed(
             api_key=os.getenv('ALPACA_API_KEY'),
             api_secret=os.getenv('ALPACA_API_SECRET'),
         )
 
-        print("✅ PaperTradingBot inizializzato (AlpacaFeed attivo)")
+        # Agente PPO (Fase 2)
+        self.ppo_agent = PPOAgent(
+            tickers=tickers,
+            initial_capital=initial_capital,
+        )
 
-    # ------------------------------------------------------------------
+        print("✅ PaperTradingBot inizializzato (Alpaca + PPO attivo)")
 
     def get_market_data(self) -> pd.DataFrame:
-        """Ottieni dati di mercato reali da Alpaca (bars giornaliere).
-
-        Sostituisce il precedente mock np.random.
-        Ritorna DataFrame flat compatibile con generate_weights().
-        """
-        print("📊 Scaricamento dati di mercato da Alpaca...")
+        """Ottieni dati di mercato reali da Alpaca (bars giornaliere)."""
+        print("📊 Scaricamento dati da Alpaca...")
         data = self.alpaca_feed.get_bars(self.tickers, days=100)
-        print(f"✅ Dati ottenuti: {len(data)} righe, {len(self.tickers)} tickers")
+        print(f"✅ Dati: {len(data)} righe, {len(self.tickers)} tickers")
         return data
 
     def generate_weights(self, market_data: pd.DataFrame) -> PortfolioWeights:
-        """Genera weights usando pipeline multi-agente.
+        """Genera weights usando agente PPO reale (Fase 2)."""
+        print("🧠 Generazione weights con PPO...")
 
-        TODO Fase 2: sostituire con agente DRL reale.
-        """
-        print("🧠 Generazione weights con pipeline multi-agente...")
+        # Addestra PPO se non esiste modello
+        model_path = "models/ppo_trading_model.zip"
+        if not Path(model_path).exists():
+            print("⚠️  Nessun modello PPO trovato, addestramento automatico...")
+            self.ppo_agent.train(market_data, total_timesteps=10000)
 
-        # Placeholder: equal-weight normalizzato (più stabile dei random)
-        n = len(self.tickers)
-        weights = np.ones(n) / n
+        # PPO predice weights
+        weights = self.ppo_agent.predict_weights(market_data)
 
         portfolio_weights = PortfolioWeights(
             weights=weights,
@@ -104,7 +104,7 @@ class PaperTradingBot:
             timestamp=datetime.now().isoformat(),
         )
 
-        print(f"✅ Weights generati: {portfolio_weights.to_dict()}")
+        print(f"✅ Weights PPO: {portfolio_weights.to_dict()}")
         return portfolio_weights
 
     def execute_trade(self, weights: PortfolioWeights):
@@ -123,7 +123,6 @@ class PaperTradingBot:
         equity = float(status.get('equity', portfolio_value))
         self.equity_curve.append(portfolio_value)
 
-        # Arricchisce gli ordini con prezzi live se presenti
         orders = result.get('orders', [])
 
         hub_state = {
@@ -193,7 +192,7 @@ def main():
         print("\n📝 Configurazione:")
         print("  1. cp .env.example .env")
         print("  2. nano .env  # Inserisci le tue API keys")
-        print("  3. python trade.py")
+        print("  3. python3 trade.py")
         return
 
     print("✅ API keys configurate")

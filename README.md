@@ -196,7 +196,7 @@ Current operational defaults:
 
 ## Real market data
 
-The next upgrade is to replace the current mock data generation in `trade.py` with a real market data service using Alpaca Market Data API. Alpaca’s official Python SDK supports real-time and historical market data access. [web:89][web:90][web:95]
+The next upgrade is to replace the current mock data generation in `trade.py` with a real market data service using Alpaca Market Data API. Alpaca’s official Python SDK supports real-time and historical market data access.
 
 Recommended approach:
 - create a `MarketDataService`,
@@ -227,7 +227,7 @@ Recommended next metrics:
 - win rate and turnover,
 - trade-level PnL.
 
-These can be added to the backtest engine and to the hub state. Logging metrics in structured form is a standard pattern for trading monitoring systems. [web:106][web:107][web:110]
+These can be added to the backtest engine and to the hub state. Logging metrics in structured form is a standard pattern for trading monitoring systems.
 
 ## Structured logging
 
@@ -235,7 +235,7 @@ The current JSON snapshot is enough for the MVP, but the next step should be str
 - JSON Lines for event streams, or
 - SQLite for queryable historical state.
 
-That makes it easier to build richer dashboards and post-trade analysis. [web:106][web:108][web:110]
+That makes it easier to build richer dashboards and post-trade analysis.
 
 ## Troubleshooting
 
@@ -264,7 +264,7 @@ Check that:
 
 ### API/data issues
 
-If Alpaca market data requests fail, confirm the SDK and credentials. Alpaca’s market data API supports historical and real-time data via Python SDK and HTTP/WebSocket endpoints. [web:89][web:90][web:95]
+If Alpaca market data requests fail, confirm the SDK and credentials. Alpaca’s market data API supports historical and real-time data via Python SDK and HTTP/WebSocket endpoints.
 
 ## Roadmap
 
@@ -289,10 +289,6 @@ If Alpaca market data requests fail, confirm the SDK and credentials. Alpaca’s
 ## Notes
 
 This project is designed as a practical research and execution framework rather than a fully production-hardened trading stack. The architecture is intentionally modular so each layer can be replaced or improved independently.
-
-## License
-
-Add your preferred license here.
 
 ## Author
 

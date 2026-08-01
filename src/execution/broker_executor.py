@@ -14,6 +14,11 @@ from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
 from src.utils.metrics import PortfolioMetrics
 
+RISK_LIMITS = {
+    "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", "0.50")),
+    "max_drawdown": float(os.getenv("MAX_DRAWDOWN", "0.15")),
+}
+
 logs_dir = Path("logs/execution")
 logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -147,6 +152,25 @@ class BrokerExecutor:
     def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
         return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
 
+    def _get_peak_equity(self) -> float:
+        return float(self.state.get("peak_equity", self.initial_capital) or self.initial_capital)
+
+    def _update_peak_equity(self, portfolio_value: float) -> float:
+        peak = max(self._get_peak_equity(), float(portfolio_value))
+        self.state["peak_equity"] = peak
+        return peak
+
+    def _risk_gate(self, portfolio_value: float, tradable_budget: float):
+        peak = self._update_peak_equity(portfolio_value)
+        dd = 0.0 if peak <= 0 else max(0.0, (peak - portfolio_value) / peak)
+        if dd >= RISK_LIMITS["max_drawdown"]:
+            return 0.0, f"max_drawdown:{dd:.2%}"
+        max_exposure = peak * RISK_LIMITS["max_portfolio_exposure"]
+        capped = min(tradable_budget, max_exposure)
+        if capped <= 0:
+            return 0.0, "max_exposure:0.00%"
+        return capped, None
+
     def get_positions(self) -> Dict[str, Dict]:
         try:
             positions = self.trading_client.get_all_positions()
@@ -182,6 +206,10 @@ class BrokerExecutor:
             tradable_budget = min(portfolio_value, max(0.0, buying_power - reserved_notional))
         else:
             tradable_budget = portfolio_value
+
+        tradable_budget, risk_block = self._risk_gate(portfolio_value, tradable_budget)
+        if risk_block:
+            self.logger.warning(f"Risk gate attivo: {risk_block}")
 
         self.logger.info(
             f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "

@@ -88,6 +88,7 @@ def test_reserved_notional_ignores_filled(alpaca_env):
 def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
     executor = BrokerExecutor()
 
+    executor.state["peak_equity"] = 1000.0
     monkeypatch.setattr(
         executor,
         "get_account_status",
@@ -115,3 +116,19 @@ def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
 
     assert len(result["orders"]) == 1
     assert result["orders"][0]["status"] == "failed"
+
+
+def test_risk_gate_blocks_on_drawdown(alpaca_env):
+    executor = BrokerExecutor()
+    executor.state["peak_equity"] = 1000.0
+    capped, block = executor._risk_gate(800.0, 500.0)
+    assert capped == 0.0
+    assert block and block.startswith("max_drawdown")
+
+
+def test_risk_gate_caps_exposure(alpaca_env):
+    executor = BrokerExecutor()
+    executor.state["peak_equity"] = 1000.0
+    capped, block = executor._risk_gate(970.0, 800.0)
+    assert capped <= 500.0
+    assert block is None

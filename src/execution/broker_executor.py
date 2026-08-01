@@ -114,6 +114,39 @@ class BrokerExecutor:
             filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
         )
 
+    def _order_status_value(self, order) -> str:
+        status = getattr(order, "status", "")
+        return str(status).lower()
+
+    def _estimate_order_notional(self, order, prices: Optional[Dict[str, float]] = None) -> float:
+        prices = prices or {}
+        status = self._order_status_value(order)
+        if status in {"filled", "canceled", "expired", "rejected", "replaced", "done_for_day", "suspended"}:
+            return 0.0
+
+        qty = float(getattr(order, "qty", 0) or 0)
+        filled_qty = float(getattr(order, "filled_qty", 0) or 0)
+        remaining_qty = max(qty - filled_qty, 0.0)
+        if remaining_qty <= 0:
+            return 0.0
+
+        limit_price = getattr(order, "limit_price", None)
+        if limit_price not in (None, "", 0):
+            return remaining_qty * float(limit_price)
+
+        symbol = getattr(order, "symbol", None)
+        if symbol and symbol in prices and prices[symbol] > 0:
+            return remaining_qty * float(prices[symbol])
+
+        notional = getattr(order, "notional", None)
+        if notional not in (None, "", 0):
+            return float(notional)
+
+        return 0.0
+
+    def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
+        return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
+
     def get_positions(self) -> Dict[str, Dict]:
         try:
             positions = self.trading_client.get_all_positions()
@@ -136,25 +169,25 @@ class BrokerExecutor:
         account = self.get_account_status()
         portfolio_value = float(account["portfolio_value"])
         buying_power = float(account.get("buying_power", 0.0) or 0.0)
+        prices = self._get_prices_from_bars(weights.tickers)
         open_orders = self._get_open_orders()
-        if open_orders:
-            self.logger.warning(f"Ordini aperti presenti ({len(open_orders)}), salto nuovo ciclo di acquisto")
-            return {
-                "orders": [],
-                "portfolio_value": portfolio_value,
-                "timestamp": datetime.now().isoformat(),
-                "metrics": self.metrics.get_all_metrics(),
-                "open_orders": len(open_orders),
-            }
+        reserved_notional = self._get_reserved_notional(open_orders, prices=prices)
+        if reserved_notional > 0:
+            self.logger.warning(
+                f"Notional già impegnato dagli ordini aperti: {reserved_notional:.2f}"
+            )
 
-        tradable_budget = min(portfolio_value, buying_power) if buying_power > 0 else portfolio_value
+        tradable_budget = portfolio_value
+        if buying_power > 0:
+            tradable_budget = min(portfolio_value, max(0.0, buying_power - reserved_notional))
+        else:
+            tradable_budget = portfolio_value
+
         self.logger.info(
             f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "
             f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
         )
         positions = self.get_positions()
-
-        prices = self._get_prices_from_bars(weights.tickers)
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):

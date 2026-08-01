@@ -1,0 +1,111 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import trade
+from trade import PaperTradingBot
+from src.strategy.weight_interface import PortfolioWeights
+
+
+class DummyExecutor:
+    def __init__(self, *args, **kwargs):
+        self.paper_trading = True
+
+    def execute_weights(self, weights):
+        return {
+            "orders": [
+                {
+                    "ticker": ticker,
+                    "side": "buy",
+                    "quantity": float(weight),
+                    "timestamp": "2026-08-01T12:00:00",
+                    "price": 100.0,
+                }
+                for ticker, weight in zip(weights.tickers, weights.weights)
+            ],
+            "portfolio_value": 123456.0,
+            "timestamp": "2026-08-01T12:00:00",
+            "metrics": {"max_drawdown": 0.0, "sharpe_ratio": 0.0, "regime": "sideways"},
+        }
+
+    def get_account_status(self):
+        return {
+            "cash": 1000.0,
+            "portfolio_value": 123456.0,
+            "equity": 123456.0,
+        }
+
+
+class DummyFeed:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_bars(self, tickers, days=100):
+        idx = pd.date_range("2026-01-01", periods=3, freq="D")
+        data = {}
+        for t in tickers:
+            data[f"Close_{t}"] = [100.0, 101.0, 102.0]
+        return pd.DataFrame(data, index=idx)
+
+
+class DummyProcessor:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class DummyPipeline:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def set_risk(self, *args, **kwargs):
+        return None
+
+
+class DummyRisk:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+@pytest.fixture
+def fake_env(monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+
+
+def test_trade_fallback_writes_hub_state(tmp_path, monkeypatch, fake_env):
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(trade, "BrokerExecutor", DummyExecutor)
+    monkeypatch.setattr(trade, "AlpacaFeed", DummyFeed)
+    monkeypatch.setattr(trade, "DataProcessor", DummyProcessor)
+    monkeypatch.setattr(trade, "WeightCentricPipeline", DummyPipeline)
+    monkeypatch.setattr(trade, "RiskOverlayModule", DummyRisk)
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", False)
+    monkeypatch.setattr(trade, "PPOAgent", None)
+
+    bot = PaperTradingBot(tickers=["AAPL", "MSFT"], initial_capital=100000.0)
+
+    market_data = bot.get_market_data()
+    weights = bot.generate_weights(market_data)
+
+    assert isinstance(weights, PortfolioWeights)
+    assert weights.tickers == ["AAPL", "MSFT"]
+    assert np.allclose(weights.weights, np.array([0.5, 0.5]))
+    assert np.isclose(weights.weights.sum(), 1.0)
+
+    result = bot.execute_trade(weights)
+    bot.update_hub_state(result)
+
+    hub_file = Path("logs/hub_state.json")
+    assert hub_file.exists()
+
+    payload = json.loads(hub_file.read_text())
+    assert payload["portfolio_value"] == 123456.0
+    assert payload["cash"] == 1000.0
+    assert payload["equity"] == 123456.0
+    assert len(payload["orders"]) == 2
+    assert payload["orders"][0]["ticker"] == "AAPL"
+    assert payload["orders"][1]["ticker"] == "MSFT"

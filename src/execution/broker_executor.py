@@ -7,8 +7,8 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
@@ -109,6 +109,11 @@ class BrokerExecutor:
                 "equity": self.state.get("portfolio_value", self.initial_capital),
             }
 
+    def _get_open_orders(self):
+        return self.trading_client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
+        )
+
     def get_positions(self) -> Dict[str, Dict]:
         try:
             positions = self.trading_client.get_all_positions()
@@ -129,14 +134,31 @@ class BrokerExecutor:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
-        portfolio_value = account["portfolio_value"]
+        portfolio_value = float(account["portfolio_value"])
+        buying_power = float(account.get("buying_power", 0.0) or 0.0)
+        open_orders = self._get_open_orders()
+        if open_orders:
+            self.logger.warning(f"Ordini aperti presenti ({len(open_orders)}), salto nuovo ciclo di acquisto")
+            return {
+                "orders": [],
+                "portfolio_value": portfolio_value,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": self.metrics.get_all_metrics(),
+                "open_orders": len(open_orders),
+            }
+
+        tradable_budget = min(portfolio_value, buying_power) if buying_power > 0 else portfolio_value
+        self.logger.info(
+            f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "
+            f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
+        )
         positions = self.get_positions()
 
         prices = self._get_prices_from_bars(weights.tickers)
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
-            target_notional = portfolio_value * float(target_weight)
+            target_notional = tradable_budget * float(target_weight)
             if abs(target_notional) < min_notional:
                 continue
 

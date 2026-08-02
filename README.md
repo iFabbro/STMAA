@@ -19,10 +19,6 @@ Structural Trading Multi-Agent Architecture
 
 STMAA is a modular research and execution framework for algorithmic trading. It unifies backtesting, paper trading, and live execution behind a weight-based architecture with built-in risk controls and monitoring.
 
-<p align="center">
-  <em>Insert a terminal screenshot or short demo GIF of the hub here.</em>
-</p>
-
 ## Demo
 
 <p align="center">

@@ -182,3 +182,8 @@ flowchart LR
     Metrics --> Report[README / logs / reports]
 ```
 
+
+
+## Metrics export
+
+The project serializes performance metrics as JSON for downstream tooling and reporting, and appends a historical CSV row for each execution.

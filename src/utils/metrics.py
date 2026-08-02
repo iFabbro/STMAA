@@ -55,13 +55,26 @@ class Metrics:
             return 0.0
         return float(eq[-1] / eq[0] - 1.0)
 
-
     @staticmethod
     def write_metrics_json(metrics, path):
         from pathlib import Path
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(metrics, indent=2, default=str))
+        return p
+
+    @staticmethod
+    def write_metrics_csv(metrics, path):
+        import csv
+        from pathlib import Path
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        is_new = not p.exists()
+        with p.open('a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=list(metrics.keys()))
+            if is_new:
+                writer.writeheader()
+            writer.writerow(metrics)
         return p
 
 class PortfolioMetrics:
@@ -85,9 +98,7 @@ class PortfolioMetrics:
         }
 
     def write_metrics_json(self, metrics, path):
-        from pathlib import Path
-        import json
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(metrics, indent=2, default=str))
-        return p
+        return Metrics.write_metrics_json(metrics, path)
+
+    def write_metrics_csv(self, metrics, path):
+        return Metrics.write_metrics_csv(metrics, path)

@@ -17,45 +17,52 @@
 
 Structural Trading Multi-Agent Architecture
 
-Sistema di trading/algo-execution con orchestrazione, paper trading, logging, test automatici e controlli di rischio.
+STMAA is a modular research and execution framework for algorithmic trading. It unifies backtesting, paper trading, and live execution behind a weight-based architecture with built-in risk controls and monitoring.
 
-Il repository contiene il flusso operativo principale (`trade.py`), l’hub di orchestrazione (`hub.py`), l’integrazione broker (`src/execution/broker_executor.py`) e componenti di supporto per logging, risk controls e test. Il branch `feature/hardening-and-logs` introduce hardening del paper trading, reconciliation del notional impegnato, risk gate minimale e copertura test estesa.
+<p align="center">
+  <em>Insert a terminal screenshot or short demo GIF of the hub here.</em>
+</p>
 
-## Perché esiste
+## Overview
 
-STMAA serve a far girare un flusso di trading automatizzato con maggiore robustezza operativa. Gli aggiornamenti recenti hanno migliorato il comportamento in assenza di componenti opzionali, l’uso del buying power reale, la protezione contro ordini duplicati e i controlli di rischio prima dell’esecuzione.
+The project is designed to keep strategy logic, portfolio weighting, risk checks, and execution concerns separated. That makes it easier to test, debug, and evolve the system without coupling everything into a single trading script.
 
-## Stato attuale
+STMAA currently focuses on a robust paper-trading workflow, broker execution safeguards, structured logging, and a growing test suite.
 
-Funzionalità e miglioramenti già presenti:
+## Features
 
-- Fallback sicuro quando un componente PPO non è disponibile.
-- Budget di esecuzione più aderente al buying power reale.
-- Reconciliation fine del notional già impegnato da ordini `accepted` e `partially_filled`.
-- Risk gate minimale con cap su exposure massima e blocco per drawdown.
-- Logging SQLite per osservabilità e audit locale.
-- Suite test estesa su broker executor, hub e trade.
-- Branch remoto pubblicato: `origin/feature/hardening-and-logs`.
+- Multi-agent trading architecture.
+- Weight-based execution interface.
+- Backtesting and paper-trading workflow.
+- Broker execution with guardrails.
+- SQLite logging for local observability.
+- Risk controls for exposure and drawdown.
+- Automated test coverage for core modules.
+- CLI support for report generation and validation.
 
-## Architettura rapida
+## Architecture
 
-| Componente | Ruolo |
-|---|---|
-| `trade.py` | Entry point operativo del flusso di trading. |
-| `hub.py` | Orchestrazione generale del sistema. |
-| `src/execution/broker_executor.py` | Accesso al broker, posizioni, open orders, vincoli di esecuzione e risk gate. |
-| `src/utils/sqlite_logger.py` | Logging strutturato locale su SQLite. |
-| `src/tests/` | Test automatici per i moduli principali. |
-| `scripts/` | Script di supporto e verifica locale. |
+```mermaid
+flowchart LR
+    MD[Market Data] --> FE[Feature Engineering]
+    FE --> ST[Strategy]
+    ST --> PW[Portfolio Weights]
+    PW --> RO[Risk Overlay]
+    RO --> BE[Broker Executor]
+    BE --> BR[Broker]
+    BE --> LG[Logger]
+    BE --> HB[Hub]
+```
 
-## Requisiti
+## Quick Start
 
-- Python 3.10+
-- Ambiente virtuale consigliato
-- Dipendenze Python del progetto
-- Credenziali/configurazione del broker per il paper trading
+### Requirements
 
-## Setup rapido
+- Python 3.10 or newer.
+- A virtual environment is recommended.
+- Broker credentials for paper trading if you want to test the execution path.
+
+### Setup
 
 ```bash
 git clone https://github.com/iFabbro/STMAA.git
@@ -65,112 +72,57 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Esecuzione
-
-Flusso principale:
+### Run the main workflow
 
 ```bash
 PYTHONPATH=. python3 trade.py
 ```
 
-Hub/orchestrazione:
+### Run the orchestration hub
 
 ```bash
 PYTHONPATH=. python3 hub.py
 ```
 
-## Test
-
-Esecuzione completa della suite:
+### Run the test suite
 
 ```bash
 PYTHONPATH=. python3 -m pytest src/tests -q
 ```
 
-## Logging e file runtime
+## Usage
 
-Gli artefatti runtime non devono entrare nel repository. Il progetto ignora file come:
+The main entry point is `trade.py`, which executes the trading workflow end to end. The orchestration layer is in `hub.py`, which coordinates the broader system behavior.
 
-- `logs/**/*.json`
-- `logs/*.db`
-- `*.db`
-- `__pycache__/`
-- `.pytest_cache/`
+Core implementation files include:
+- `src/execution/broker_executor.py` for broker access and execution rules.
+- `src/utils/sqlite_logger.py` for structured local logging.
+- `src/tests/` for automated checks around the most important modules.
 
-I file di stato runtime precedentemente tracciati sono stati rimossi dall’indice Git per evitare rumore nei commit futuri.
+## Project Structure
 
-## Budget strumenti e servizi
-
-La tabella sotto separa i costi in due categorie: strumenti esterni realmente usati dal workflow e componenti con costo operativo nullo o variabile. TradingView espone un piano Free a $0 e piani non-professionali da $12.95/mese (Essential), $29.95/mese (Plus), $59.95/mese (Premium) e $199.95/mese (Ultimate), tutti con fatturazione annuale ai prezzi mostrati nella pagina pricing; solo Ultimate è disponibile per utenti professionali. Alpaca indica che il paper trading non richiede denaro reale e che il trading API retail self-directed è in generale commission-free, pur con possibili fee regolamentari o casi specifici legati a partner o fee schedule.
-
-| Strumento / servizio | Uso nel progetto | Budget indicativo |
-|---|---|---|
-| TradingView Free | Analisi base, charting iniziale, osservazione mercati | $0/mese |
-| TradingView Essential | Automazioni leggere, più alert e chart | $12.95/mese, billed annually |
-| TradingView Plus | Operatività più attiva, più chart e alert | $29.95/mese, billed annually |
-| TradingView Premium | Setup avanzato, alert elevati, storico più ampio | $59.95/mese, billed annually |
-| TradingView Ultimate | Uso power/professionale ad alto volume | $199.95/mese, billed annually |
-| Alpaca Paper Trading API | Esecuzione simulata e test broker | Nessun capitale reale richiesto |
-| Alpaca API trading retail | Execution API live/paper | Commission-free in generale per retail self-directed; possibili fee regolamentari o eccezioni |
-| OpenAI API | Supporto AI per analisi, automazioni o tool ausiliari | Variabile a consumo; da definire in base al modello e al volume |
-
-### Budget operativo suggerito
-
-Per un setup lean e pragmatico:
-
-- **Minimo**: TradingView Free + Alpaca Paper Trading = $0/mese di piattaforme core, esclusi eventuali costi AI e dati premium.
-- **Entry serious**: TradingView Essential + Alpaca Paper Trading = $12.95/mese come base ragionevole per alert e charting migliori.
-- **Active builder**: TradingView Plus o Premium + Alpaca = $29.95–$59.95/mese per un flusso più solido lato analisi e monitoraggio.
-
-## Flow decisionale
-
-```mermaid
-flowchart TD
-    MD[Market Data] --> SG[Signal Generation]
-    SG --> RG[Risk Gate]
-    RG --> PC[Portfolio Checks]
-    PC --> BE[Broker Executor]
-    BE --> BR[Broker]
-    BR --> LG[SQLite Logger]
-```
-
-## Risk controls
-
-Il motore include un risk gate minimale con:
-- cap su exposure massima per ciclo;
-- blocco automatico se il drawdown supera la soglia;
-- reconciliation del capitale già impegnato dagli ordini aperti.
-
-I parametri principali sono `MAX_PORTFOLIO_EXPOSURE` e `MAX_DRAWDOWN`, configurabili via ambiente.
-
-## Convenzioni operative
-
-- Eseguire i test prima di ogni push.
-- Non versionare log, database locali e state snapshot runtime.
-- Tenere separato il codice di execution dagli artefatti operativi.
-- Usare branch tematici per ogni hardening o evoluzione del motore.
-
-## Workflow Git consigliato
-
-```bash
-git checkout feature/hardening-and-logs
-git pull
-PYTHONPATH=. python3 -m pytest src/tests -q
-git status
-git add <file>
-git commit -m "Messaggio chiaro"
-git push
-```
+| Component | Role |
+|---|---|
+| `trade.py` | Operational entry point for the trading workflow. |
+| `hub.py` | Main orchestration layer. |
+| `src/execution/broker_executor.py` | Broker access, positions, open orders, and execution constraints. |
+| `src/utils/sqlite_logger.py` | Structured logging to SQLite. |
+| `src/tests/` | Automated tests for the core modules. |
+| `scripts/` | Local helper scripts and validation tools. |
 
 ## Roadmap
 
-Priorità successive già emerse dal lavoro recente:
+- Improve reconciliation of capital already reserved by accepted orders.
+- Expand observability for the execution pipeline.
+- Harden broker state and order lifecycle handling.
+- Add richer reporting and analysis tools.
+- Introduce CI-backed test badges and build verification.
+- Add more examples for paper trading and live trading workflows.
 
-- Reconciliation più fine dei notional già impegnati da ordini `accepted`.
-- Maggiore osservabilità del flusso di execution.
-- Hardening aggiuntivo delle logiche di broker state e order lifecycle.
-- Documentazione operativa più dettagliata per ambienti paper/live.
+## Contributing
 
-## Note
+Contributions are welcome. Please keep changes focused, run the test suite before opening a pull request, and open a separate `CONTRIBUTING.md` file if you want to document a more detailed workflow.
 
-Le sottoscrizioni TradingView possono prevedere tasse aggiuntive in base alla giurisdizione e i market data extra sono acquistabili separatamente dai piani base. Per Alpaca, il paper trading è utile per validare il comportamento del sistema, ma non replica tutti i rischi e le condizioni del trading reale.
+## License
+
+STMAA is released under the MIT License. See the `LICENSE` file for details.

@@ -2,6 +2,18 @@ from pathlib import Path
 import json
 import pandas as pd
 
+def _delta_line(curr, prev, key):
+    if key not in curr or key not in prev:
+        return None
+    try:
+        c = float(curr[key])
+        p = float(prev[key])
+        d = c - p
+        pct = (d / abs(p) * 100.0) if p != 0 else None
+        return (key, c, p, d, pct)
+    except Exception:
+        return None
+
 def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metrics_history.csv", output_path="logs/metrics_report.md"):
     json_p = Path(json_path)
     csv_p = Path(csv_path)
@@ -12,11 +24,34 @@ def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metric
     history = pd.read_csv(csv_p) if csv_p.exists() else pd.DataFrame()
 
     lines = ["# Metrics report", ""]
+
     if current:
         lines += ["## Current snapshot", "", pd.DataFrame([current]).to_markdown(index=False), ""]
+
     if not history.empty:
+        latest = history.iloc[-1].to_dict()
+        previous = history.iloc[-2].to_dict() if len(history) > 1 else {}
         lines += ["## Historical metrics", "", history.tail(10).to_markdown(index=False), ""]
-        summary = history.select_dtypes(include="number").agg(["mean", "min", "max"]).round(4)
+
+        numeric = history.select_dtypes(include="number")
+        summary = numeric.agg(["mean", "min", "max"]).round(4)
         lines += ["## Summary", "", summary.to_markdown(), ""]
+
+        if previous:
+            deltas = []
+            for key in sorted(set(current.keys()) & set(previous.keys())):
+                d = _delta_line(current, previous, key)
+                if d:
+                    k, c, p, delta, pct = d
+                    deltas.append({
+                        "metric": k,
+                        "current": round(c, 6),
+                        "previous": round(p, 6),
+                        "delta": round(delta, 6),
+                        "delta_pct": None if pct is None else round(pct, 2),
+                    })
+            if deltas:
+                lines += ["## Trend", "", pd.DataFrame(deltas).to_markdown(index=False), ""]
+
     out_p.write_text("\n".join(lines))
     return out_p

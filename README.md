@@ -192,3 +192,8 @@ The project serializes performance metrics as JSON for downstream tooling and re
 ## Report generator
 
 The project can generate a markdown report from `logs/metrics.json` and `logs/metrics_history.csv`, combining the latest snapshot with historical rows.
+
+
+## Trend report
+
+The report generator can compare the latest metrics snapshot against the previous run and show deltas for the main performance indicators.

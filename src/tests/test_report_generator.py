@@ -17,3 +17,17 @@ def test_generate_metrics_report(tmp_path):
     assert "# Metrics report" in content
     assert "Current snapshot" in content
     assert "Historical metrics" in content
+
+
+def test_generate_metrics_report_trend(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "metrics.json").write_text(json.dumps({"sharpe_ratio": 2.0, "total_return": 0.4}))
+    pd.DataFrame([
+        {"sharpe_ratio": 1.0, "total_return": 0.2},
+        {"sharpe_ratio": 2.0, "total_return": 0.4},
+    ]).to_csv(logs / "metrics_history.csv", index=False)
+    out = generate_metrics_report(logs / "metrics.json", logs / "metrics_history.csv", logs / "metrics_report.md")
+    content = out.read_text()
+    assert "Trend" in content
+    assert "delta" in content

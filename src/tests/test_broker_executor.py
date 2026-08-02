@@ -132,3 +132,19 @@ def test_risk_gate_caps_exposure(alpaca_env):
     capped, block = executor._risk_gate(970.0, 800.0)
     assert capped <= 500.0
     assert block is None
+
+
+def test_risk_engine_limits_position(alpaca_env):
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50)
+    allowed, block = engine.allow("AAPL", 2000.0, 10000.0, {"AAPL": {"market_value": 0.0}}, reserved_notional=0.0)
+    assert allowed == 1000.0
+    assert block is None
+
+
+def test_risk_engine_blocks_when_no_budget(alpaca_env):
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50)
+    allowed, block = engine.allow("AAPL", 1000.0, 10000.0, {"AAPL": {"market_value": 0.0}}, reserved_notional=6000.0)
+    assert allowed == 0.0
+    assert block == "risk_block"

@@ -32,6 +32,24 @@ logging.basicConfig(
 )
 
 
+
+class RiskEngine:
+    def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50):
+        self.max_position_pct = max_position_pct
+        self.max_exposure_pct = max_exposure_pct
+
+    def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
+        if portfolio_value <= 0:
+            return 0.0, "portfolio_value_non_positive"
+        max_position = portfolio_value * self.max_position_pct
+        max_exposure = portfolio_value * self.max_exposure_pct - reserved_notional
+        current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
+        allowed = min(abs(target_notional), max_position, max(0.0, max_exposure + current))
+        if allowed <= 0:
+            return 0.0, "risk_block"
+        return allowed if target_notional >= 0 else -allowed, None
+
+
 class BrokerExecutor:
     def __init__(
         self,
@@ -216,6 +234,7 @@ class BrokerExecutor:
             f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
         )
         positions = self.get_positions()
+        risk_engine = RiskEngine()
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
@@ -229,7 +248,18 @@ class BrokerExecutor:
                 self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
                 continue
 
-            qty = round(abs(target_notional) / price, 6)
+            bounded_notional, risk_block = risk_engine.allow(
+                ticker,
+                target_notional,
+                portfolio_value,
+                positions,
+                reserved_notional=reserved_notional,
+            )
+            if risk_block:
+                self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
+                continue
+
+            qty = round(abs(bounded_notional) / price, 6)
             if qty < 0.000001:
                 continue
 

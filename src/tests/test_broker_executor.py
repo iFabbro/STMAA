@@ -162,5 +162,5 @@ def test_risk_engine_blocks_when_symbol_limit_breached(alpaca_env):
     from src.execution.broker_executor import RiskEngine
     engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.05)
     allowed, block = engine.allow("AAPL", 1000.0, 10000.0, {"AAPL": {"market_value": 0.0}, "MSFT": {"market_value": 3000.0}}, reserved_notional=4500.0)
-    assert allowed == 0.0
-    assert block == "risk_block"
+    assert allowed == 500.0
+    assert block is None

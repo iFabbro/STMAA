@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import pandas as pd
-from src.utils.report_generator import generate_metrics_report
+from src.utils.report_generator import generate_metrics_report, load_thresholds
 
 def test_generate_metrics_report(tmp_path):
     logs = tmp_path / "logs"
@@ -44,3 +44,11 @@ def test_generate_metrics_report_alerts(tmp_path):
     out = generate_metrics_report(logs / "metrics.json", logs / "metrics_history.csv", logs / "metrics_report.md")
     content = out.read_text()
     assert "Alerts" in content
+
+
+def test_load_thresholds_from_yaml(tmp_path):
+    cfg = tmp_path / "report_thresholds.yaml"
+    cfg.write_text("sharpe_ratio: -0.5\nmax_drawdown: 0.1\n")
+    thresholds = load_thresholds(cfg)
+    assert thresholds["sharpe_ratio"] == -0.5
+    assert thresholds["max_drawdown"] == 0.1

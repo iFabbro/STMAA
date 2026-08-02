@@ -1,3 +1,4 @@
+import json
 import numpy as np
 
 class Metrics:
@@ -54,6 +55,15 @@ class Metrics:
             return 0.0
         return float(eq[-1] / eq[0] - 1.0)
 
+
+    @staticmethod
+    def write_metrics_json(metrics, path):
+        from pathlib import Path
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(metrics, indent=2, default=str))
+        return p
+
 class PortfolioMetrics:
     def __init__(self, initial_capital=500000.0):
         self.initial_capital = float(initial_capital)
@@ -73,3 +83,11 @@ class PortfolioMetrics:
             'total_return': Metrics.total_return(eq),
             'regime': 'n/a',
         }
+
+    def write_metrics_json(self, metrics, path):
+        from pathlib import Path
+        import json
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(metrics, indent=2, default=str))
+        return p

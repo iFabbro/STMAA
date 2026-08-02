@@ -33,6 +33,24 @@ logging.basicConfig(
 
 
 
+
+class PortfolioManager:
+    def __init__(self, max_total_exposure_pct=0.60, max_symbol_count=10):
+        self.max_total_exposure_pct = max_total_exposure_pct
+        self.max_symbol_count = max_symbol_count
+
+    def allocate(self, weights, portfolio_value, positions, reserved_notional=0.0):
+        if portfolio_value <= 0:
+            return weights, "portfolio_value_non_positive"
+        if len(weights.tickers) > self.max_symbol_count:
+            return weights, "max_symbol_count"
+        gross = reserved_notional + sum(abs(float(p.get("market_value", 0.0) or 0.0)) for p in positions.values())
+        if gross / portfolio_value > self.max_total_exposure_pct:
+            scale = self.max_total_exposure_pct / max(gross / portfolio_value, 1e-9)
+            return type(weights)(weights=weights.weights * scale, tickers=weights.tickers), None
+        return weights, None
+
+
 class RiskEngine:
     def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.20):
         self.max_position_pct = max_position_pct
@@ -250,6 +268,10 @@ class BrokerExecutor:
         )
         positions = self.get_positions()
         risk_engine = RiskEngine()
+        portfolio_manager = PortfolioManager()
+        weights, pm_block = portfolio_manager.allocate(weights, portfolio_value, positions, reserved_notional=reserved_notional)
+        if pm_block:
+            self.logger.warning(f"Portfolio manager block: {pm_block}")
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):

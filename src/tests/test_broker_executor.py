@@ -164,3 +164,24 @@ def test_risk_engine_blocks_when_symbol_limit_breached(alpaca_env):
     allowed, block = engine.allow("AAPL", 1000.0, 10000.0, {"AAPL": {"market_value": 0.0}, "MSFT": {"market_value": 3000.0}}, reserved_notional=4500.0)
     assert allowed == 500.0
     assert block is None
+
+
+def test_portfolio_manager_scales_weights(alpaca_env):
+    from src.execution.broker_executor import PortfolioManager
+    from src.strategy.weight_interface import PortfolioWeights
+    import numpy as np
+    pm = PortfolioManager(max_total_exposure_pct=0.50, max_symbol_count=10)
+    weights = PortfolioWeights(weights=np.array([0.6, 0.4]), tickers=["AAPL", "MSFT"])
+    scaled, block = pm.allocate(weights, 10000.0, {"AAPL": {"market_value": 1000.0}}, reserved_notional=4000.0)
+    assert block is None
+    assert round(float(scaled.weights.sum()), 6) <= 1.0
+
+
+def test_portfolio_manager_blocks_too_many_symbols(alpaca_env):
+    from src.execution.broker_executor import PortfolioManager
+    from src.strategy.weight_interface import PortfolioWeights
+    import numpy as np
+    pm = PortfolioManager(max_total_exposure_pct=0.50, max_symbol_count=1)
+    weights = PortfolioWeights(weights=np.array([1.0, 0.0]), tickers=["AAPL", "MSFT"])
+    scaled, block = pm.allocate(weights, 10000.0, {}, reserved_notional=0.0)
+    assert block == "max_symbol_count"

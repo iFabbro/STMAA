@@ -207,3 +207,13 @@ The trend report can flag metrics whose delta worsens beyond a configurable thre
 ## Threshold config
 
 Report alert thresholds can be loaded from `config/report_thresholds.yaml` instead of being hardcoded.
+
+
+## PNG report
+
+The project can also export a compact PNG summary from the latest report data for quick visual inspection.
+
+
+## PNG fallback
+
+If Kaleido is unavailable, the PNG generator should skip image export gracefully rather than failing the whole test suite.

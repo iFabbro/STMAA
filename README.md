@@ -105,6 +105,18 @@ Per un setup lean e pragmatico:
 - **Entry serious**: TradingView Essential + Alpaca Paper Trading = $12.95/mese come base ragionevole per alert e charting migliori.[cite:997][cite:998]
 - **Active builder**: TradingView Plus o Premium + Alpaca = $29.95–$59.95/mese per un flusso più solido lato analisi e monitoraggio.[cite:997][cite:998]
 
+## Flow decisionale
+
+```mermaid
+flowchart TD
+    MD[Market Data] --> SG[Signal Generation]
+    SG --> RG[Risk Gate]
+    RG --> PC[Portfolio Checks]
+    PC --> BE[Broker Executor]
+    BE --> BR[Broker]
+    BR --> LG[SQLite Logger]
+```
+
 ## Risk controls
 
 Il motore include un risk gate minimale con:

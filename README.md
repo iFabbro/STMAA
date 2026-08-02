@@ -25,6 +25,13 @@ STMAA is a modular research and execution framework for algorithmic trading. It 
 
 ## Overview
 
+## Demo
+
+<p align="center">
+  <img src="./hub-screenshot.png" alt="STMAA hub screenshot" />
+</p>
+
+
 ## Why STMAA?
 
 Most trading bots couple signal generation, execution, and broker logic in a single workflow.

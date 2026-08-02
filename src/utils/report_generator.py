@@ -2,6 +2,14 @@ from pathlib import Path
 import json
 import pandas as pd
 
+DEFAULT_THRESHOLDS = {
+    "sharpe_ratio": -0.25,
+    "sortino_ratio": -0.25,
+    "max_drawdown": 0.05,
+    "drawdown_duration": 5,
+    "total_return": -0.05,
+}
+
 def _delta_line(curr, prev, key):
     if key not in curr or key not in prev:
         return None
@@ -14,7 +22,37 @@ def _delta_line(curr, prev, key):
     except Exception:
         return None
 
-def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metrics_history.csv", output_path="logs/metrics_report.md"):
+def _threshold_alerts(current, previous, thresholds):
+    alerts = []
+    if not previous:
+        return alerts
+    for key, threshold in thresholds.items():
+        d = _delta_line(current, previous, key)
+        if not d:
+            continue
+        metric, c, p, delta, pct = d
+        if metric in ("sharpe_ratio", "sortino_ratio", "total_return"):
+            if delta < -abs(threshold):
+                alerts.append({
+                    "metric": metric,
+                    "current": round(c, 6),
+                    "previous": round(p, 6),
+                    "delta": round(delta, 6),
+                    "threshold": threshold,
+                })
+        else:
+            if delta > threshold:
+                alerts.append({
+                    "metric": metric,
+                    "current": round(c, 6),
+                    "previous": round(p, 6),
+                    "delta": round(delta, 6),
+                    "threshold": threshold,
+                })
+    return alerts
+
+def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metrics_history.csv", output_path="logs/metrics_report.md", thresholds=None):
+    thresholds = thresholds or DEFAULT_THRESHOLDS
     json_p = Path(json_path)
     csv_p = Path(csv_path)
     out_p = Path(output_path)
@@ -28,11 +66,10 @@ def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metric
     if current:
         lines += ["## Current snapshot", "", pd.DataFrame([current]).to_markdown(index=False), ""]
 
+    previous = {}
     if not history.empty:
-        latest = history.iloc[-1].to_dict()
         previous = history.iloc[-2].to_dict() if len(history) > 1 else {}
         lines += ["## Historical metrics", "", history.tail(10).to_markdown(index=False), ""]
-
         numeric = history.select_dtypes(include="number")
         summary = numeric.agg(["mean", "min", "max"]).round(4)
         lines += ["## Summary", "", summary.to_markdown(), ""]
@@ -52,6 +89,12 @@ def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metric
                     })
             if deltas:
                 lines += ["## Trend", "", pd.DataFrame(deltas).to_markdown(index=False), ""]
+
+    alerts = _threshold_alerts(current, previous, thresholds)
+    if alerts:
+        lines += ["## Alerts", "", pd.DataFrame(alerts).to_markdown(index=False), ""]
+    elif previous:
+        lines += ["## Alerts", "", "No threshold breaches detected.", ""]
 
     out_p.write_text("\n".join(lines))
     return out_p

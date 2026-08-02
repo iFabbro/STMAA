@@ -197,3 +197,8 @@ The project can generate a markdown report from `logs/metrics.json` and `logs/me
 ## Trend report
 
 The report generator can compare the latest metrics snapshot against the previous run and show deltas for the main performance indicators.
+
+
+## Alert thresholds
+
+The trend report can flag metrics whose delta worsens beyond a configurable threshold, helping surface degradations in Sharpe or drawdown automatically.

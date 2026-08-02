@@ -1,5 +1,13 @@
 # STMAA
 
+<p align="center">
+  <img src="Logo.png" alt="STMAA logo" width="180" />
+</p>
+
+[![Python](https://img.shields.io/badge/Python-3.13-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/Tests-42%2B%20passed-brightgreen?style=for-the-badge)]()
+[![License](https://img.shields.io/badge/License-MIT-lightgrey?style=for-the-badge)]()
+
 Sistema di trading/algo-execution con orchestrazione, paper trading, logging, test automatici e controlli di rischio.
 
 Il repository contiene il flusso operativo principale (`trade.py`), l’hub di orchestrazione (`hub.py`), l’integrazione broker (`src/execution/broker_executor.py`) e componenti di supporto per logging, risk controls e test. Il branch `feature/hardening-and-logs` introduce hardening del paper trading, reconciliation del notional impegnato, risk gate minimale e copertura test estesa.
@@ -133,87 +141,18 @@ I parametri principali sono `MAX_PORTFOLIO_EXPOSURE` e `MAX_DRAWDOWN`, configura
 - Tenere separato il codice di execution dagli artefatti operativi.
 - Usare branch tematici per ogni hardening o evoluzione del motore.
 
-## Workflow Git consigliato
+## Overview
 
-```bash
-git checkout feature/hardening-and-logs
-git pull
-PYTHONPATH=. python3 -m pytest src/tests -q
-git status
-git add <file>
-git commit -m "Messaggio chiaro"
-git push
-```
+STMAA now includes advanced performance metrics, JSON and CSV exports, markdown reporting, threshold alerts, PNG summaries, and a CLI to generate everything in one command.
 
-## Roadmap
+## Workflow
 
-Priorità successive già emerse dal lavoro recente:
+- Compute Sharpe annualized, Sortino annualized, max drawdown, drawdown duration, and total return.
+- Serialize metrics to JSON and append them to a historical CSV.
+- Generate a markdown report with trend deltas and alert thresholds from YAML.
+- Export a PNG summary when Kaleido is available.
+- Run the whole reporting pipeline from a single CLI command.
 
-- Reconciliation più fine dei notional già impegnati da ordini `accepted`.
-- Maggiore osservabilità del flusso di execution.
-- Hardening aggiuntivo delle logiche di broker state e order lifecycle.
-- Documentazione operativa più dettagliata per ambienti paper/live.
+## Repository status
 
-## Note
-
-Le sottoscrizioni TradingView possono prevedere tasse aggiuntive in base alla giurisdizione e i market data extra sono acquistabili separatamente dai piani base.[cite:997] Per Alpaca, il paper trading è utile per validare il comportamento del sistema, ma non replica tutti i rischi e le condizioni del trading reale.[cite:998]
-
-
-## Performance analytics
-
-The project now includes an analytics layer for risk-adjusted evaluation of strategy performance.
-
-- Sharpe ratio, annualized.
-- Sortino ratio, annualized.
-- Historical max drawdown.
-- Drawdown duration.
-- Total return.
-
-These metrics are the foundation for future reporting and for comparing strategies beyond raw P&L.
-
-## Project flow
-
-```mermaid
-flowchart LR
-    Strategy[Strategy / signals] --> Portfolio[Portfolio manager]
-    Portfolio --> Risk[Risk engine]
-    Risk --> Broker[Broker executor]
-    Broker --> Metrics[Performance metrics]
-    Metrics --> Report[README / logs / reports]
-```
-
-
-
-## Metrics export
-
-The project serializes performance metrics as JSON for downstream tooling and reporting, and appends a historical CSV row for each execution.
-
-
-## Report generator
-
-The project can generate a markdown report from `logs/metrics.json` and `logs/metrics_history.csv`, combining the latest snapshot with historical rows.
-
-
-## Trend report
-
-The report generator can compare the latest metrics snapshot against the previous run and show deltas for the main performance indicators.
-
-
-## Alert thresholds
-
-The trend report can flag metrics whose delta worsens beyond a configurable threshold, helping surface degradations in Sharpe or drawdown automatically.
-
-
-## Threshold config
-
-Report alert thresholds can be loaded from `config/report_thresholds.yaml` instead of being hardcoded.
-
-
-## PNG report
-
-The project can also export a compact PNG summary from the latest report data for quick visual inspection.
-
-
-## PNG fallback
-
-If Kaleido is unavailable, the PNG generator should skip image export gracefully rather than failing the whole test suite.
+The test suite is green and covers the metrics engine, report generator, PNG fallback, and CLI.

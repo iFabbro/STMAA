@@ -169,3 +169,16 @@ The project now includes a minimal analytics layer to evaluate strategy quality 
 - Total return.
 
 These metrics are used as the foundation for future reporting and risk-adjusted performance checks.
+
+
+## Project flow
+
+```mermaid
+flowchart LR
+    Strategy[Strategy / signals] --> Portfolio[Portfolio manager]
+    Portfolio --> Risk[Risk engine]
+    Risk --> Broker[Broker executor]
+    Broker --> Metrics[Performance metrics]
+    Metrics --> Report[README / logs / reports]
+```
+

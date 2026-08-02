@@ -1,0 +1,5 @@
+sharpe_ratio: -0.25
+sortino_ratio: -0.25
+max_drawdown: 0.05
+drawdown_duration: 5
+total_return: -0.05

@@ -161,15 +161,15 @@ Le sottoscrizioni TradingView possono prevedere tasse aggiuntive in base alla gi
 
 ## Performance analytics
 
-The project now includes a minimal analytics layer to evaluate strategy quality beyond raw returns.
+The project now includes an analytics layer for risk-adjusted evaluation of strategy performance.
 
-- Sharpe ratio.
-- Sortino ratio.
+- Sharpe ratio, annualized.
+- Sortino ratio, annualized.
 - Historical max drawdown.
+- Drawdown duration.
 - Total return.
 
-These metrics are used as the foundation for future reporting and risk-adjusted performance checks.
-
+These metrics are the foundation for future reporting and for comparing strategies beyond raw P&L.
 
 ## Project flow
 

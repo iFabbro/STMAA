@@ -369,7 +369,11 @@ class BrokerExecutor:
             self.logger.error(f"Hub state write failed: {e}")
 
         self.logger.info(f"✅ Eseguiti {len(orders_executed)} ordini")
-        self.logger.info(f"📊 Metrics: DD={metrics['max_drawdown']:.2%}, Sharpe={metrics['sharpe_ratio']:.2f}, Regime={metrics['regime']}")
+        self.logger.info(
+    f"📊 Metrics: DD={metrics.get('max_drawdown', 0.0):.2%}, "
+    f"Sharpe={metrics.get('sharpe_ratio', metrics.get('sharpe', 0.0)):.2f}, "
+    f"Regime={metrics.get('regime', 'n/a')}"
+)
         return result
 
     def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:

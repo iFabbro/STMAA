@@ -18,6 +18,9 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from dotenv import load_dotenv
 load_dotenv()
 
+from src.utils.sqlite_logger import start_run, log_event, write_snapshot, end_run
+RUN_ID = start_run(mode="paper", meta={"component": "trade"})
+
 import numpy as np
 import pandas as pd
 import json
@@ -28,18 +31,24 @@ from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
 from src.data.alpaca_feed import AlpacaFeed
 from src.agents.trading_env import TradingEnv
-from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
+try:
+    from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
+    PPO_AVAILABLE = True
+except Exception:
+    PPOAgent = None
+    PPO_AVAILABLE = False
 
 running = True
 
 def signal_handler(sig, frame):
-    print("\n🛑 Ricevuto segnale di stop, chiudendo...")
     global running
     running = False
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+
+log_event(RUN_ID, "trade", "startup", "trade.py started")
 
 class PaperTradingBot:
     """Bot trading per paper trading con Alpaca"""
@@ -74,9 +83,9 @@ class PaperTradingBot:
         self.ppo_agent = PPOAgent(
             tickers=tickers,
             initial_capital=initial_capital,
-        )
+        ) if PPO_AVAILABLE else None
 
-        print("✅ PaperTradingBot inizializzato (Alpaca + PPO attivo)")
+        print("✅ PaperTradingBot inizializzato (Alpaca + PPO attivo)" if PPO_AVAILABLE else "✅ PaperTradingBot inizializzato (fallback senza PPO)")
 
     def get_market_data(self) -> pd.DataFrame:
         """Ottieni dati di mercato reali da Alpaca (bars giornaliere)."""
@@ -87,6 +96,16 @@ class PaperTradingBot:
 
     def generate_weights(self, market_data: pd.DataFrame) -> PortfolioWeights:
         """Genera weights usando agente PPO reale (Fase 2)."""
+        if not PPO_AVAILABLE or self.ppo_agent is None:
+            print("⚠️ PPO non disponibile, uso pesi equal-weight di fallback...")
+            n = len(self.tickers)
+            weights = np.array([1.0 / n] * n, dtype=float)
+            return PortfolioWeights(
+                weights=weights,
+                tickers=self.tickers,
+                timestamp=datetime.now().isoformat(),
+            )
+
         print("🧠 Generazione weights con PPO...")
 
         # Addestra PPO se non esiste modello
@@ -114,6 +133,8 @@ class PaperTradingBot:
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:
             print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")
+        write_snapshot(RUN_ID, "trade", payload={"tickers": self.tickers, "rows": len(result)})
+        log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})
         return result
 
     def update_hub_state(self, result: Dict):

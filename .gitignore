@@ -10,3 +10,24 @@ data/raw/*.csv
 data/processed/*.csv
 logs/*.log
 *.log
+.python-version
+test_alpaca.py
+test_alpaca_long.py
+trade_ppo.py
+# Runtime artifacts
+logs/*.json
+logs/**/*.json
+logs/*.db
+*.db
+
+# Environment
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+*.bak
+*.BAK

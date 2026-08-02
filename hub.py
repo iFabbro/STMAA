@@ -11,6 +11,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
+from src.utils.sqlite_logger import start_run, log_event, write_snapshot, end_run
+RUN_ID = start_run(mode="hub", meta={"component": "hub"})
+
 HUB_STATE = Path("logs/hub_state.json")
 
 
@@ -83,6 +86,9 @@ def get_live_quotes(tickers):
         return {t: {"price": 0.0, "change_pct": 0.0} for t in tickers}
 
 
+log_event(RUN_ID, "hub", "startup", "hub.py started")
+
+
 def render():
     state   = load_state()
     tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
@@ -137,6 +143,8 @@ def render():
     
     regime_color = Colors.POS if regime == 'bull' else Colors.NEG if regime == 'bear' else Colors.ACCENT
     print(f"  {Colors.TITLE}Regime:{Colors.ENDC} {regime_color}{regime.upper()}{Colors.ENDC}")
+
+    write_snapshot(RUN_ID, "hub", payload={"tickers": tickers, "orders": len(orders), "equity": equity})
 
     print_header("EQUITY CURVE")
     print(f"{Colors.ACCENT}{sparkline(equity_curve, 48)}{Colors.ENDC}")

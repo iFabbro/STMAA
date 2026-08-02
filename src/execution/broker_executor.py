@@ -7,12 +7,17 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
 from src.utils.metrics import PortfolioMetrics
+
+RISK_LIMITS = {
+    "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", "0.50")),
+    "max_drawdown": float(os.getenv("MAX_DRAWDOWN", "0.15")),
+}
 
 logs_dir = Path("logs/execution")
 logs_dir.mkdir(parents=True, exist_ok=True)
@@ -27,7 +32,60 @@ logging.basicConfig(
 )
 
 
+
+
+class PortfolioManager:
+    def __init__(self, max_total_exposure_pct=0.60, max_symbol_count=10):
+        self.max_total_exposure_pct = max_total_exposure_pct
+        self.max_symbol_count = max_symbol_count
+
+    def allocate(self, weights, portfolio_value, positions, reserved_notional=0.0):
+        if portfolio_value <= 0:
+            return weights, "portfolio_value_non_positive"
+        if len(weights.tickers) > self.max_symbol_count:
+            return weights, "max_symbol_count"
+        gross = reserved_notional + sum(abs(float(p.get("market_value", 0.0) or 0.0)) for p in positions.values())
+        if gross / portfolio_value > self.max_total_exposure_pct:
+            scale = self.max_total_exposure_pct / max(gross / portfolio_value, 1e-9)
+            return type(weights)(weights=weights.weights * scale, tickers=weights.tickers), None
+        return weights, None
+
+
+class RiskEngine:
+    def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.20):
+        self.max_position_pct = max_position_pct
+        self.max_exposure_pct = max_exposure_pct
+        self.max_symbol_concentration_pct = max_symbol_concentration_pct
+
+    def _portfolio_gross(self, positions, reserved_notional=0.0):
+        gross = reserved_notional
+        for pos in positions.values():
+            gross += abs(float(pos.get("market_value", 0.0) or 0.0))
+        return gross
+
+    def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
+        if portfolio_value <= 0:
+            return 0.0, "portfolio_value_non_positive"
+        current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
+        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
+        max_position = portfolio_value * self.max_position_pct
+        max_exposure = portfolio_value * self.max_exposure_pct - reserved_notional
+        max_symbol = portfolio_value * self.max_symbol_concentration_pct
+
+        allowed = min(
+            abs(target_notional),
+            max_position,
+            max_symbol,
+            max(0.0, max_exposure + current),
+        )
+        if allowed <= 0:
+            return 0.0, "risk_block"
+        return allowed if target_notional >= 0 else -allowed, None
+
+
 class BrokerExecutor:
+    def __init__(self, report_thresholds_path=None):
+        self.report_thresholds_path = report_thresholds_path or os.getenv("REPORT_THRESHOLDS_PATH", "config/report_thresholds.yaml")
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -109,6 +167,63 @@ class BrokerExecutor:
                 "equity": self.state.get("portfolio_value", self.initial_capital),
             }
 
+    def _get_open_orders(self):
+        return self.trading_client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
+        )
+
+    def _order_status_value(self, order) -> str:
+        status = getattr(order, "status", "")
+        return str(status).lower()
+
+    def _estimate_order_notional(self, order, prices: Optional[Dict[str, float]] = None) -> float:
+        prices = prices or {}
+        status = self._order_status_value(order)
+        if status in {"filled", "canceled", "expired", "rejected", "replaced", "done_for_day", "suspended"}:
+            return 0.0
+
+        qty = float(getattr(order, "qty", 0) or 0)
+        filled_qty = float(getattr(order, "filled_qty", 0) or 0)
+        remaining_qty = max(qty - filled_qty, 0.0)
+        if remaining_qty <= 0:
+            return 0.0
+
+        limit_price = getattr(order, "limit_price", None)
+        if limit_price not in (None, "", 0):
+            return remaining_qty * float(limit_price)
+
+        symbol = getattr(order, "symbol", None)
+        if symbol and symbol in prices and prices[symbol] > 0:
+            return remaining_qty * float(prices[symbol])
+
+        notional = getattr(order, "notional", None)
+        if notional not in (None, "", 0):
+            return float(notional)
+
+        return 0.0
+
+    def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
+        return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
+
+    def _get_peak_equity(self) -> float:
+        return float(self.state.get("peak_equity", self.initial_capital) or self.initial_capital)
+
+    def _update_peak_equity(self, portfolio_value: float) -> float:
+        peak = max(self._get_peak_equity(), float(portfolio_value))
+        self.state["peak_equity"] = peak
+        return peak
+
+    def _risk_gate(self, portfolio_value: float, tradable_budget: float):
+        peak = self._update_peak_equity(portfolio_value)
+        dd = 0.0 if peak <= 0 else max(0.0, (peak - portfolio_value) / peak)
+        if dd >= RISK_LIMITS["max_drawdown"]:
+            return 0.0, f"max_drawdown:{dd:.2%}"
+        max_exposure = peak * RISK_LIMITS["max_portfolio_exposure"]
+        capped = min(tradable_budget, max_exposure)
+        if capped <= 0:
+            return 0.0, "max_exposure:0.00%"
+        return capped, None
+
     def get_positions(self) -> Dict[str, Dict]:
         try:
             positions = self.trading_client.get_all_positions()
@@ -129,14 +244,40 @@ class BrokerExecutor:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
-        portfolio_value = account["portfolio_value"]
-        positions = self.get_positions()
-
+        portfolio_value = float(account["portfolio_value"])
+        buying_power = float(account.get("buying_power", 0.0) or 0.0)
         prices = self._get_prices_from_bars(weights.tickers)
+        open_orders = self._get_open_orders()
+        reserved_notional = self._get_reserved_notional(open_orders, prices=prices)
+        if reserved_notional > 0:
+            self.logger.warning(
+                f"Notional già impegnato dagli ordini aperti: {reserved_notional:.2f}"
+            )
+
+        tradable_budget = portfolio_value
+        if buying_power > 0:
+            tradable_budget = min(portfolio_value, max(0.0, buying_power - reserved_notional))
+        else:
+            tradable_budget = portfolio_value
+
+        tradable_budget, risk_block = self._risk_gate(portfolio_value, tradable_budget)
+        if risk_block:
+            self.logger.warning(f"Risk gate attivo: {risk_block}")
+
+        self.logger.info(
+            f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "
+            f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
+        )
+        positions = self.get_positions()
+        risk_engine = RiskEngine()
+        portfolio_manager = PortfolioManager()
+        weights, pm_block = portfolio_manager.allocate(weights, portfolio_value, positions, reserved_notional=reserved_notional)
+        if pm_block:
+            self.logger.warning(f"Portfolio manager block: {pm_block}")
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
-            target_notional = portfolio_value * float(target_weight)
+            target_notional = tradable_budget * float(target_weight)
             if abs(target_notional) < min_notional:
                 continue
 
@@ -146,7 +287,18 @@ class BrokerExecutor:
                 self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
                 continue
 
-            qty = round(abs(target_notional) / price, 6)
+            bounded_notional, risk_block = risk_engine.allow(
+                ticker,
+                target_notional,
+                portfolio_value,
+                positions,
+                reserved_notional=reserved_notional,
+            )
+            if risk_block:
+                self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
+                continue
+
+            qty = round(abs(bounded_notional) / price, 6)
             if qty < 0.000001:
                 continue
 
@@ -190,6 +342,7 @@ class BrokerExecutor:
         new_positions = self.get_positions()
         self.metrics.update(portfolio_value, new_positions)
         metrics = self.metrics.get_all_metrics()
+        self.metrics.write_metrics_json(metrics, "logs/metrics.json")
 
         result = {
             "orders": orders_executed,
@@ -219,7 +372,11 @@ class BrokerExecutor:
             self.logger.error(f"Hub state write failed: {e}")
 
         self.logger.info(f"✅ Eseguiti {len(orders_executed)} ordini")
-        self.logger.info(f"📊 Metrics: DD={metrics['max_drawdown']:.2%}, Sharpe={metrics['sharpe_ratio']:.2f}, Regime={metrics['regime']}")
+        self.logger.info(
+    f"📊 Metrics: DD={metrics.get('max_drawdown', 0.0):.2%}, "
+    f"Sharpe={metrics.get('sharpe_ratio', metrics.get('sharpe', 0.0)):.2f}, "
+    f"Regime={metrics.get('regime', 'n/a')}"
+)
         return result
 
     def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:

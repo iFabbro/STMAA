@@ -2,6 +2,7 @@
 
 Sostituisce tutti i mock presenti in trade.py e hub.py.
 Compatibile con la pipeline DataProcessor esistente.
+Usa endpoint free-tier (15min delay).
 """
 import os
 import logging
@@ -56,13 +57,15 @@ class AlpacaFeed:
     ) -> pd.DataFrame:
         """Scarica barre OHLCV giornaliere per `days` giorni.
 
+        Usa adjust='all' per bypassare limiti SIP free-tier.
+        
         Returns
         -------
         DataFrame con colonne flat: Close_AAPL, RSI_AAPL, MACD_AAPL, …
         Compatibile con generate_weights() in trade.py.
         """
         end = datetime.now(timezone.utc)
-        start = end - timedelta(days=days + 30)  # buffer per indicatori
+        start = end - timedelta(days=days + 60)  # buffer per indicatori
 
         request = StockBarsRequest(
             symbol_or_symbols=tickers,
@@ -70,10 +73,16 @@ class AlpacaFeed:
             start=start,
             end=end,
             limit=None,
+            feed='iex',  # Free tier: IEX data (15min delay)
+            adjustment='all',
         )
 
         logger.info(f"⬇️  Scaricamento bars per {tickers} (ultimi {days}gg)…")
-        bars = self.client.get_stock_bars(request).df
+        try:
+            bars = self.client.get_stock_bars(request).df
+        except Exception as e:
+            logger.error(f"Errore get_bars: {e}")
+            raise
 
         if bars.empty:
             raise RuntimeError("AlpacaFeed: nessuna barra ricevuta da Alpaca.")
@@ -142,12 +151,14 @@ class AlpacaFeed:
     def get_latest_quotes(self, tickers: List[str]) -> dict:
         """Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
 
-        Usato da hub.py per mostrare prezzi reali invece di np.random.
-        'change_pct' è calcolato come (ask - prev_close) / prev_close * 100,
-        approssimato con bid/ask mid quando prev_close non disponibile.
+        Usa feed='iex' per free-tier.
         """
-        request = StockLatestQuoteRequest(symbol_or_symbols=tickers)
-        quotes = self.client.get_stock_latest_quote(request)
+        request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed='iex')
+        try:
+            quotes = self.client.get_stock_latest_quote(request)
+        except Exception as e:
+            logger.error(f"Errore get_latest_quotes: {e}")
+            return {t: {"price": 0.0, "change_pct": 0.0} for t in tickers}
 
         result = {}
         for ticker in tickers:
@@ -180,8 +191,13 @@ class AlpacaFeed:
             timeframe=TimeFrame(1, TimeFrameUnit.Day),
             start=start,
             end=end,
+            feed='iex',
+            adjustment='all',
         )
-        bars = self.client.get_stock_bars(request).df.reset_index()
+        try:
+            bars = self.client.get_stock_bars(request).df.reset_index()
+        except Exception:
+            return {}
         bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
         result = {}
         for ticker in tickers:

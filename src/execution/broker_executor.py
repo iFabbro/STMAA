@@ -340,6 +340,7 @@ class BrokerExecutor:
         new_positions = self.get_positions()
         self.metrics.update(portfolio_value, new_positions)
         metrics = self.metrics.get_all_metrics()
+        self.metrics.write_metrics_json(metrics, "logs/metrics.json")
 
         result = {
             "orders": orders_executed,

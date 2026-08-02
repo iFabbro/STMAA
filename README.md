@@ -202,3 +202,8 @@ The report generator can compare the latest metrics snapshot against the previou
 ## Alert thresholds
 
 The trend report can flag metrics whose delta worsens beyond a configurable threshold, helping surface degradations in Sharpe or drawdown automatically.
+
+
+## Threshold config
+
+Report alert thresholds can be loaded from `config/report_thresholds.yaml` instead of being hardcoded.

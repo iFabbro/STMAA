@@ -84,6 +84,8 @@ class RiskEngine:
 
 
 class BrokerExecutor:
+    def __init__(self, report_thresholds_path=None):
+        self.report_thresholds_path = report_thresholds_path or os.getenv("REPORT_THRESHOLDS_PATH", "config/report_thresholds.yaml")
     def __init__(
         self,
         api_key: Optional[str] = None,

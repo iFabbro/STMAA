@@ -187,3 +187,8 @@ flowchart LR
 ## Metrics export
 
 The project serializes performance metrics as JSON for downstream tooling and reporting, and appends a historical CSV row for each execution.
+
+
+## Report generator
+
+The project can generate a markdown report from `logs/metrics.json` and `logs/metrics_history.csv`, combining the latest snapshot with historical rows.

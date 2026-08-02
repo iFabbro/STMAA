@@ -161,11 +161,11 @@ Le sottoscrizioni TradingView possono prevedere tasse aggiuntive in base alla gi
 
 ## Performance analytics
 
-Il progetto include un primo blocco di analytics per leggere meglio le strategie.
+The project now includes a minimal analytics layer to evaluate strategy quality beyond raw returns.
 
 - Sharpe ratio.
 - Sortino ratio.
-- Max drawdown storico.
+- Historical max drawdown.
 - Total return.
 
-Queste metriche arrivano prima del refactor completo del modulo metrics e servono come base per i report di performance.
+These metrics are used as the foundation for future reporting and risk-adjusted performance checks.

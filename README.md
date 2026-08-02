@@ -1,12 +1,12 @@
 # STMAA
 
-Sistema di trading/algo-execution con orchestrazione, paper trading, logging e suite di test automatica.
+Sistema di trading/algo-execution con orchestrazione, paper trading, logging, test automatici e controlli di rischio.
 
-Il repository contiene il flusso operativo principale (`trade.py`), l’hub di orchestrazione (`hub.py`), l’integrazione broker (`src/execution/broker_executor.py`) e componenti di supporto per logging e test. Il branch `feature/hardening-and-logs` introduce hardening del paper trading, fallback più sicuri, guardrail sugli ordini aperti, logging SQLite e copertura test estesa.
+Il repository contiene il flusso operativo principale (`trade.py`), l’hub di orchestrazione (`hub.py`), l’integrazione broker (`src/execution/broker_executor.py`) e componenti di supporto per logging, risk controls e test. Il branch `feature/hardening-and-logs` introduce hardening del paper trading, reconciliation del notional impegnato, risk gate minimale e copertura test estesa.
 
 ## Perché esiste
 
-STMAA serve a far girare un flusso di trading automatizzato con maggiore robustezza operativa. Gli aggiornamenti recenti hanno migliorato il comportamento in assenza di componenti opzionali, l’uso del buying power reale e la protezione contro ordini duplicati in presenza di open orders.
+STMAA serve a far girare un flusso di trading automatizzato con maggiore robustezza operativa. Gli aggiornamenti recenti hanno migliorato il comportamento in assenza di componenti opzionali, l’uso del buying power reale, la protezione contro ordini duplicati e i controlli di rischio prima dell’esecuzione.
 
 ## Stato attuale
 
@@ -14,8 +14,9 @@ Funzionalità e miglioramenti già presenti:
 
 - Fallback sicuro quando un componente PPO non è disponibile.
 - Budget di esecuzione più aderente al buying power reale.
-- Guardrail sugli ordini aperti per evitare nuovi acquisti duplicati.
-- Logging SQLite iniziale per osservabilità e audit locale.
+- Reconciliation fine del notional già impegnato da ordini `accepted` e `partially_filled`.
+- Risk gate minimale con cap su exposure massima e blocco per drawdown.
+- Logging SQLite per osservabilità e audit locale.
 - Suite test estesa su broker executor, hub e trade.
 - Branch remoto pubblicato: `origin/feature/hardening-and-logs`.
 
@@ -25,7 +26,7 @@ Funzionalità e miglioramenti già presenti:
 |---|---|
 | `trade.py` | Entry point operativo del flusso di trading. |
 | `hub.py` | Orchestrazione generale del sistema. |
-| `src/execution/broker_executor.py` | Accesso al broker, posizioni, open orders, vincoli di esecuzione. |
+| `src/execution/broker_executor.py` | Accesso al broker, posizioni, open orders, vincoli di esecuzione e risk gate. |
 | `src/utils/sqlite_logger.py` | Logging strutturato locale su SQLite. |
 | `src/tests/` | Test automatici per i moduli principali. |
 | `scripts/` | Script di supporto e verifica locale. |
@@ -69,8 +70,6 @@ Esecuzione completa della suite:
 PYTHONPATH=. python3 -m pytest src/tests -q
 ```
 
-Con lo stato più recente del branch, la suite locale risulta verde con 17 test passati.
-
 ## Logging e file runtime
 
 Gli artefatti runtime non devono entrare nel repository. Il progetto ignora file come:
@@ -85,7 +84,7 @@ I file di stato runtime precedentemente tracciati sono stati rimossi dall’indi
 
 ## Budget strumenti e servizi
 
-La tabella sotto separa i costi in due categorie: strumenti esterni realmente usati dal workflow e componenti con costo operativo nullo o variabile. TradingView espone un piano Free a $0 e piani non-professionali da $12.95/mese (Essential), $29.95/mese (Plus), $59.95/mese (Premium) e $199.95/mese (Ultimate), tutti con fatturazione annuale ai prezzi mostrati nella pagina pricing; solo Ultimate è disponibile per utenti professionali.[cite:997] Alpaca dichiara che il paper trading non richiede denaro reale e che, in generale, il trading API per clienti retail self-directed è commission-free, pur con possibili fee regolamentari o casi specifici legati a partner o fee schedule.[cite:998]
+La tabella sotto separa i costi in due categorie: strumenti esterni realmente usati dal workflow e componenti con costo operativo nullo o variabile. TradingView espone un piano Free a $0 e piani non-professionali da $12.95/mese (Essential), $29.95/mese (Plus), $59.95/mese (Premium) e $199.95/mese (Ultimate), tutti con fatturazione annuale ai prezzi mostrati nella pagina pricing; solo Ultimate è disponibile per utenti professionali.[cite:997] Alpaca indica che il paper trading non richiede denaro reale e che il trading API retail self-directed è in generale commission-free, pur con possibili fee regolamentari o casi specifici legati a partner o fee schedule.[cite:998]
 
 | Strumento / servizio | Uso nel progetto | Budget indicativo |
 |---|---|---|
@@ -105,6 +104,15 @@ Per un setup lean e pragmatico:
 - **Minimo**: TradingView Free + Alpaca Paper Trading = $0/mese di piattaforme core, esclusi eventuali costi AI e dati premium.[cite:997][cite:998]
 - **Entry serious**: TradingView Essential + Alpaca Paper Trading = $12.95/mese come base ragionevole per alert e charting migliori.[cite:997][cite:998]
 - **Active builder**: TradingView Plus o Premium + Alpaca = $29.95–$59.95/mese per un flusso più solido lato analisi e monitoraggio.[cite:997][cite:998]
+
+## Risk controls
+
+Il motore include un risk gate minimale con:
+- cap su exposure massima per ciclo;
+- blocco automatico se il drawdown supera la soglia;
+- reconciliation del capitale già impegnato dagli ordini aperti.
+
+I parametri principali sono `MAX_PORTFOLIO_EXPOSURE` e `MAX_DRAWDOWN`, configurabili via ambiente.
 
 ## Convenzioni operative
 

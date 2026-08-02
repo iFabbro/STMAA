@@ -70,6 +70,40 @@ flowchart LR
 
 ## Quick Start
 
+## Project Structure
+
+```text
+src/
+├── agents/
+├── backtest/
+├── data/
+├── execution/
+├── strategy/
+├── utils/
+└── tests/
+```
+
+## Roadmap
+
+- ✅ MVP.
+- ⬜ Real market data integration.
+- ⬜ DRL policy.
+- ⬜ Portfolio optimization.
+- ⬜ CI/CD pipeline.
+- ⬜ Live trading.
+
+## Why STMAA vs. a Monolithic Bot?
+
+| Feature | STMAA | Typical monolithic bot |
+|---|:---:|:---:|
+| Weight-based execution | ✅ | ❌ |
+| Modular architecture | ✅ | ⚠️ |
+| Research oriented | ✅ | ⚠️ |
+| Integrated backtesting | ✅ | ✅ |
+| Risk overlay | ✅ | ⚠️ |
+| Monitoring hub | ✅ | ❌ |
+
+
 ### Requirements
 
 - Python 3.10 or newer.

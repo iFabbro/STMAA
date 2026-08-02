@@ -34,17 +34,32 @@ logging.basicConfig(
 
 
 class RiskEngine:
-    def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50):
+    def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.20):
         self.max_position_pct = max_position_pct
         self.max_exposure_pct = max_exposure_pct
+        self.max_symbol_concentration_pct = max_symbol_concentration_pct
+
+    def _portfolio_gross(self, positions, reserved_notional=0.0):
+        gross = reserved_notional
+        for pos in positions.values():
+            gross += abs(float(pos.get("market_value", 0.0) or 0.0))
+        return gross
 
     def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
         if portfolio_value <= 0:
             return 0.0, "portfolio_value_non_positive"
+        current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
+        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
         max_position = portfolio_value * self.max_position_pct
         max_exposure = portfolio_value * self.max_exposure_pct - reserved_notional
-        current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
-        allowed = min(abs(target_notional), max_position, max(0.0, max_exposure + current))
+        max_symbol = portfolio_value * self.max_symbol_concentration_pct
+
+        allowed = min(
+            abs(target_notional),
+            max_position,
+            max_symbol,
+            max(0.0, max_exposure + current),
+        )
         if allowed <= 0:
             return 0.0, "risk_block"
         return allowed if target_notional >= 0 else -allowed, None

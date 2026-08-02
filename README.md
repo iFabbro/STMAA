@@ -157,3 +157,15 @@ Priorità successive già emerse dal lavoro recente:
 ## Note
 
 Le sottoscrizioni TradingView possono prevedere tasse aggiuntive in base alla giurisdizione e i market data extra sono acquistabili separatamente dai piani base.[cite:997] Per Alpaca, il paper trading è utile per validare il comportamento del sistema, ma non replica tutti i rischi e le condizioni del trading reale.[cite:998]
+
+
+## Performance analytics
+
+Il progetto include un primo blocco di analytics per leggere meglio le strategie.
+
+- Sharpe ratio.
+- Sortino ratio.
+- Max drawdown storico.
+- Total return.
+
+Queste metriche arrivano prima del refactor completo del modulo metrics e servono come base per i report di performance.

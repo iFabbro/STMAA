@@ -4,13 +4,11 @@ class Metrics:
     @staticmethod
     def sharpe(returns, risk_free_rate=0.0):
         r = np.asarray(returns, dtype=float)
-        if r.size == 0:
+        if r.size < 2:
             return 0.0
         excess = r - risk_free_rate
-        std = excess.std(ddof=1) if excess.size > 1 else 0.0
-        if std == 0:
-            return 0.0
-        return float(excess.mean() / std)
+        std = excess.std(ddof=1)
+        return 0.0 if std == 0 else float(excess.mean() / std)
 
     @staticmethod
     def sortino(returns, risk_free_rate=0.0):
@@ -19,9 +17,7 @@ class Metrics:
             return 0.0
         downside = np.minimum(r - risk_free_rate, 0.0)
         denom = np.sqrt(np.mean(np.square(downside)))
-        if denom == 0:
-            return 0.0
-        return float((r - risk_free_rate).mean() / denom)
+        return 0.0 if denom == 0 else float((r - risk_free_rate).mean() / denom)
 
     @staticmethod
     def max_drawdown(equity_curve):
@@ -39,24 +35,21 @@ class Metrics:
             return 0.0
         return float(eq[-1] / eq[0] - 1.0)
 
-
 class PortfolioMetrics:
     def __init__(self, initial_capital=500000.0):
-        self.initial_capital = initial_capital
-        self.equity_curve = []
+        self.initial_capital = float(initial_capital)
+        self.equity_curve = [float(initial_capital)]
 
-    def update(self, portfolio_value, positions):
+    def update(self, portfolio_value, positions=None):
         self.equity_curve.append(float(portfolio_value))
 
     def get_all_metrics(self):
         eq = np.asarray(self.equity_curve, dtype=float)
-        if eq.size > 1:
-            returns = np.diff(eq) / eq[:-1]
-        else:
-            returns = np.array([])
+        returns = np.diff(eq) / eq[:-1] if eq.size > 1 else np.array([])
         return {
-            "sharpe": Metrics.sharpe(returns) if returns.size else 0.0,
-            "sortino": Metrics.sortino(returns) if returns.size else 0.0,
-            "max_drawdown": Metrics.max_drawdown(eq) if eq.size else 0.0,
-            "total_return": Metrics.total_return(eq) if eq.size else 0.0,
+            'sharpe_ratio': Metrics.sharpe(returns),
+            'sortino_ratio': Metrics.sortino(returns),
+            'max_drawdown': Metrics.max_drawdown(eq),
+            'total_return': Metrics.total_return(eq),
+            'regime': 'n/a',
         }

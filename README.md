@@ -1,7 +1,7 @@
 # STMAA
 
 <p align="center">
-  <img src="Logo.png" alt="STMAA logo" width="180" />
+  <img src="./Logo.png" alt="STMAA logo" width="180" />
 </p>
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)

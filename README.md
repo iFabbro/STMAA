@@ -23,8 +23,6 @@ STMAA is a modular research and execution framework for algorithmic trading. It 
   <em>Insert a terminal screenshot or short demo GIF of the hub here.</em>
 </p>
 
-## Overview
-
 ## Demo
 
 <p align="center">
@@ -44,6 +42,12 @@ STMAA separates these responsibilities through a weight-centric architecture whe
 - monitoring remains independent from trading logic.
 
 This separation makes research, testing, and deployment easier to manage.
+
+## Overview
+
+STMAA is designed as a modular research and execution framework for algorithmic trading. It keeps strategy logic, portfolio weighting, risk checks, execution, and monitoring separated so each part can evolve independently.
+
+The current focus is a robust paper-trading workflow with broker safeguards, structured logging, and a growing test suite.
 
 
 The project is designed to keep strategy logic, portfolio weighting, risk checks, and execution concerns separated. That makes it easier to test, debug, and evolve the system without coupling everything into a single trading script.

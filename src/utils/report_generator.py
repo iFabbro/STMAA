@@ -10,6 +10,27 @@ DEFAULT_THRESHOLDS = {
     "total_return": -0.05,
 }
 
+def load_thresholds(path):
+    path = Path(path)
+    if not path.exists():
+        return DEFAULT_THRESHOLDS.copy()
+    text = path.read_text().strip()
+    data = {}
+    try:
+        if path.suffix.lower() in (".yml", ".yaml"):
+            for line in text.splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    data[k.strip()] = float(v.strip())
+        else:
+            data = json.loads(text) or {}
+    except Exception:
+        data = {}
+    thresholds = DEFAULT_THRESHOLDS.copy()
+    if isinstance(data, dict):
+        thresholds.update(data)
+    return thresholds
+
 def _delta_line(curr, prev, key):
     if key not in curr or key not in prev:
         return None
@@ -51,8 +72,8 @@ def _threshold_alerts(current, previous, thresholds):
                 })
     return alerts
 
-def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metrics_history.csv", output_path="logs/metrics_report.md", thresholds=None):
-    thresholds = thresholds or DEFAULT_THRESHOLDS
+def generate_metrics_report(json_path="logs/metrics.json", csv_path="logs/metrics_history.csv", output_path="logs/metrics_report.md", thresholds=None, thresholds_path=None):
+    thresholds = thresholds or (load_thresholds(thresholds_path) if thresholds_path else DEFAULT_THRESHOLDS.copy())
     json_p = Path(json_path)
     csv_p = Path(csv_path)
     out_p = Path(output_path)

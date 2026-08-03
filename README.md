@@ -8,17 +8,20 @@
   <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge" alt="Status MVP" />
   <img src="https://img.shields.io/badge/Architecture-Multi--Agent-purple?style=for-the-badge" alt="Architecture Multi-Agent" />
   <img src="https://img.shields.io/badge/Execution-Alpaca-blue?style=for-the-badge" alt="Execution Alpaca" />
-  <img src="https://img.shields.io/badge/Backtest-Execution%20Consistent-success?style=for-the-badge" alt="Backtest Execution Consistent" />
-  <img src="https://img.shields.io/badge/DRL-Ready-blueviolet?style=for-the-badge" alt="DRL Ready" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License" />
 </p>
 
 # STMAA
-
 Structural Trading Multi-Agent Architecture
 
-<<<<<<< HEAD
-STMAA is a modular research and execution framework for algorithmic trading. It unifies backtesting, paper trading, and live execution behind a weight-based architecture with built-in risk controls and monitoring.
+STMAA is a modular research and execution framework for algorithmic trading. Instead of coupling strategy logic, execution, broker communication, and monitoring into a single trading bot, STMAA separates each responsibility into independent components connected through a weight-centric portfolio interface.
+
+The same strategy contract can be used consistently for:
+
+- research
+- backtesting
+- paper trading
+- live execution
 
 ## Demo
 
@@ -26,28 +29,62 @@ STMAA is a modular research and execution framework for algorithmic trading. It 
   <img src="./hub-screenshot.png" alt="STMAA hub screenshot" />
 </p>
 
-=======
-STMAA is not another trading bot. It is a modular research and execution framework built around a weight-centric architecture, allowing the same strategy contract to power backtesting, paper trading, and live execution.
->>>>>>> a6a0c59 (Finalize README structure)
-
 ## Why STMAA?
 
-Most trading bots couple signal generation, execution, and broker logic in a single workflow.
+Most trading bots bundle signal generation, execution, and broker logic into a single workflow.
 
-STMAA separates these responsibilities through a weight-centric architecture where:
+STMAA separates these responsibilities into a layered architecture where:
 
+- market data feeds the system,
+- feature engineering prepares inputs,
 - strategies generate portfolio weights,
-- risk overlays constrain exposure,
-- execution translates weights into broker orders,
-- monitoring remains independent from trading logic.
+- the risk overlay constrains exposure,
+- the broker executor turns weights into orders,
+- the broker handles execution,
+- logging records system activity,
+- the monitoring hub keeps the workflow visible.
 
-This separation makes research, testing, and deployment easier to manage.
+This separation makes the framework easier to extend, debug, test, and evolve over time.
 
-## Overview
+## Features
 
-STMAA is designed as a modular research and execution framework for algorithmic trading. It keeps strategy logic, portfolio weighting, risk checks, execution, and monitoring separated so each part can evolve independently.
+- Modular multi-agent architecture.
+- Weight-centric execution model.
+- Execution-consistent backtesting.
+- Alpaca paper trading integration.
+- Risk overlay.
+- SQLite structured logging.
+- Terminal monitoring hub.
+- Automated test suite.
+- DRL-ready architecture.
+- Research-first design.
 
-The current focus is a robust paper-trading workflow with broker safeguards, structured logging, and a growing test suite.
+## Architecture
+
+```mermaid
+flowchart LR
+  MD[Market Data] --> FE[Feature Engineering]
+  FE --> ST[Strategy]
+  ST --> PW[Portfolio Weights]
+  PW --> RO[Risk Overlay]
+  RO --> BE[Broker Executor]
+  BE --> BR[Broker]
+  BE --> LG[SQLite Logger]
+  BE --> HB[Terminal Hub]
+```
+
+## Why STMAA instead of a monolithic trading bot?
+
+| Feature | STMAA | Typical trading bot |
+|---|---:|---:|
+| Modular architecture | ✅ | ⚠️ |
+| Weight-based execution | ✅ | ❌ |
+| Risk overlay | ✅ | ⚠️ |
+| Execution-consistent backtesting | ✅ | ⚠️ |
+| Paper trading | ✅ | ✅ |
+| Live execution ready | ✅ | ⚠️ |
+| Monitoring hub | ✅ | ❌ |
+| Research oriented | ✅ | ⚠️ |
 
 ## Quick Start
 
@@ -55,7 +92,7 @@ The current focus is a robust paper-trading workflow with broker safeguards, str
 
 - Python 3.10 or newer.
 - A virtual environment is recommended.
-- Broker credentials for paper trading if you want to test the execution path.
+- Alpaca paper trading credentials if you want to test the execution path.
 
 ### Setup
 
@@ -106,8 +143,12 @@ src/
 ├── data/
 ├── execution/
 ├── strategy/
-├── utils/
-└── tests/
+├── tests/
+└── utils/
+
+trade.py
+hub.py
+ROADMAP.md
 ```
 
 | Component | Role |
@@ -119,26 +160,40 @@ src/
 | `src/tests/` | Automated tests for the core modules. |
 | `scripts/` | Local helper scripts and validation tools. |
 
-## Roadmap
+## Current Status
 
-- ✅ MVP.
-- ⬜ Real market data integration.
-- ⬜ DRL policy.
-- ⬜ Portfolio optimization.
-- ⬜ CI/CD pipeline.
-- ⬜ Live trading.
+Current development stage:
 
-## Why STMAA vs. a Monolithic Bot?
+- Modular architecture.
+- Weight interface.
+- Risk overlay.
+- Backtesting engine.
+- Paper trading.
+- Terminal hub.
+- Structured logging.
+- Automated tests.
 
-| Feature | STMAA | Typical monolithic bot |
-|---|:---:|:---:|
-| Weight-based execution | ✅ | ❌ |
-| Modular architecture | ✅ | ⚠️ |
-| Research oriented | ✅ | ⚠️ |
-| Integrated backtesting | ✅ | ✅ |
-| Risk overlay | ✅ | ⚠️ |
-| Monitoring hub | ✅ | ❌ |
+Next milestones:
 
-## Repository Status
+- Real market data.
+- DRL policy integration.
+- Portfolio optimisation.
+- CI/CD pipeline.
+- Live trading.
+- Historical performance dashboard.
 
-The test suite is green and covers the metrics engine, report generator, PNG fallback, and CLI.
+## Contributing
+
+Contributions are welcome.
+
+Please:
+
+- Fork the repository.
+- Create a feature branch.
+- Run the test suite.
+- Open a pull request.
+
+## License
+
+Released under the MIT License.
+See the `LICENSE` file for details.

@@ -4,24 +4,31 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.13-blue?logo=python&style=for-the-badge" alt="Python 3.13" />
-  <img src="https://img.shields.io/badge/Tests-Passing-brightgreen?style=for-the-badge" alt="Tests Passing" />
-  <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge" alt="Status MVP" />
+  <img src="https://img.shields.io/badge/Status-Alpha-orange?style=for-the-badge" alt="Status Alpha" />
+  <img src="https://img.shields.io/badge/Lifecycle-Experimental-orange?style=for-the-badge" alt="Lifecycle Experimental" />
   <img src="https://img.shields.io/badge/Architecture-Multi--Agent-purple?style=for-the-badge" alt="Architecture Multi-Agent" />
   <img src="https://img.shields.io/badge/Execution-Alpaca-blue?style=for-the-badge" alt="Execution Alpaca" />
+  <img src="https://img.shields.io/badge/Tests-Passing-brightgreen?style=for-the-badge" alt="Tests Passing" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License" />
 </p>
 
 # STMAA
 Structural Trading Multi-Agent Architecture
 
-STMAA is a modular research and execution framework for algorithmic trading. Instead of coupling strategy logic, execution, broker communication, and monitoring into a single trading bot, STMAA separates each responsibility into independent components connected through a weight-centric portfolio interface.
+STMAA is a modular research and execution framework for algorithmic trading, currently in active development. The project is built around a weight-centric portfolio interface that separates strategy logic, risk controls, execution, broker communication, and monitoring into independent components.
 
-The same strategy contract can be used consistently for:
+The same strategy contract is intended to support:
 
 - research
 - backtesting
 - paper trading
 - live execution
+
+## Project Status
+
+STMAA is not a production-ready trading system.
+
+The repository currently reflects an alpha-stage architecture with a working core, active development areas, and several components still under validation or refinement. That includes areas such as reinforcement-learning integration, advanced risk logic, extended market-data handling, and full production hardening.
 
 ## Demo
 
@@ -31,20 +38,20 @@ The same strategy contract can be used consistently for:
 
 ## Why STMAA?
 
-Most trading bots bundle signal generation, execution, and broker logic into a single workflow.
+Most trading bots combine signal generation, execution, broker logic, and monitoring into a single flow.
 
-STMAA separates these responsibilities into a layered architecture where:
+STMAA instead uses a layered architecture:
 
-- market data feeds the system,
-- feature engineering prepares inputs,
-- strategies generate portfolio weights,
-- the risk overlay constrains exposure,
-- the broker executor turns weights into orders,
-- the broker handles execution,
-- logging records system activity,
+- market data feeds the system.
+- feature engineering prepares the inputs.
+- strategies generate portfolio weights.
+- the risk overlay constrains exposure.
+- the broker executor transforms weights into orders.
+- the broker handles execution.
+- logging records system activity.
 - the monitoring hub keeps the workflow visible.
 
-This separation makes the framework easier to extend, debug, test, and evolve over time.
+Each layer has a single responsibility. This makes the framework easier to extend, test, debug, and evolve as the project matures.
 
 ## Features
 
@@ -57,7 +64,7 @@ This separation makes the framework easier to extend, debug, test, and evolve ov
 - Terminal monitoring hub.
 - Automated test suite.
 - DRL-ready architecture.
-- Research-first design.
+- Research-oriented design.
 
 ## Architecture
 
@@ -164,14 +171,14 @@ ROADMAP.md
 
 Current development stage:
 
-- Modular architecture.
-- Weight interface.
-- Risk overlay.
-- Backtesting engine.
-- Paper trading.
-- Terminal hub.
-- Structured logging.
-- Automated tests.
+- Modular architecture in place.
+- Weight interface available.
+- Risk overlay implemented.
+- Backtesting engine present.
+- Paper trading workflow available.
+- Terminal hub available.
+- Structured logging implemented.
+- Automated tests in progress and expanding.
 
 Next milestones:
 
@@ -179,8 +186,21 @@ Next milestones:
 - DRL policy integration.
 - Portfolio optimisation.
 - CI/CD pipeline.
-- Live trading.
+- Live trading hardening.
 - Historical performance dashboard.
+
+## Known Development Notes
+
+The codebase is evolving, so some areas are intentionally minimal or still being refined.
+
+Typical development items include:
+
+- reward and metric definitions under review.
+- RL observation shapes and training interfaces still stabilizing.
+- broker/execution safeguards being hardened.
+- roadmap and documentation being aligned with the current alpha status.
+
+These are expected in an active development repository and should be treated as implementation work rather than finished production behavior.
 
 ## Contributing
 

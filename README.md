@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python&style=for-the-badge" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/Python-3.13-blue?logo=python&style=for-the-badge" alt="Python 3.13" />
   <img src="https://img.shields.io/badge/Tests-Passing-brightgreen?style=for-the-badge" alt="Tests Passing" />
   <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge" alt="Status MVP" />
   <img src="https://img.shields.io/badge/Architecture-Multi--Agent-purple?style=for-the-badge" alt="Architecture Multi-Agent" />
@@ -17,6 +17,7 @@
 
 Structural Trading Multi-Agent Architecture
 
+<<<<<<< HEAD
 STMAA is a modular research and execution framework for algorithmic trading. It unifies backtesting, paper trading, and live execution behind a weight-based architecture with built-in risk controls and monitoring.
 
 ## Demo
@@ -25,6 +26,9 @@ STMAA is a modular research and execution framework for algorithmic trading. It 
   <img src="./hub-screenshot.png" alt="STMAA hub screenshot" />
 </p>
 
+=======
+STMAA is not another trading bot. It is a modular research and execution framework built around a weight-centric architecture, allowing the same strategy contract to power backtesting, paper trading, and live execution.
+>>>>>>> a6a0c59 (Finalize README structure)
 
 ## Why STMAA?
 
@@ -45,46 +49,7 @@ STMAA is designed as a modular research and execution framework for algorithmic 
 
 The current focus is a robust paper-trading workflow with broker safeguards, structured logging, and a growing test suite.
 
-
-The project is designed to keep strategy logic, portfolio weighting, risk checks, and execution concerns separated. That makes it easier to test, debug, and evolve the system without coupling everything into a single trading script.
-
-STMAA currently focuses on a robust paper-trading workflow, broker execution safeguards, structured logging, and a growing test suite.
-
-## Features
-
-- Multi-agent trading architecture.
-- Weight-based execution interface.
-- Backtesting and paper-trading workflow.
-- Broker execution with guardrails.
-- SQLite logging for local observability.
-- Risk controls for exposure and drawdown.
-- Automated test coverage for core modules.
-- CLI support for report generation and validation.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    MD[Market Data] --> FE[Feature Engineering]
-    FE --> ST[Strategy]
-    ST --> PW[Portfolio Weights]
-    PW --> RO[Risk Overlay]
-    RO --> BE[Broker Executor]
-    BE --> BR[Broker]
-    BE --> LG[Logger]
-    BE --> HB[Hub]
-```
-
 ## Quick Start
-
-|
-| Weight-based execution | ✅ | ❌ |
-| Modular architecture | ✅ | ⚠️ |
-| Research oriented | ✅ | ⚠️ |
-| Integrated backtesting | ✅ | ✅ |
-| Risk overlay | ✅ | ⚠️ |
-| Monitoring hub | ✅ | ❌ |
-
 
 ### Requirements
 
@@ -120,16 +85,30 @@ PYTHONPATH=. python3 hub.py
 PYTHONPATH=. python3 -m pytest src/tests -q
 ```
 
-## Usage
+## Example Session
 
-The main entry point is `trade.py`, which executes the trading workflow end to end. The orchestration layer is in `hub.py`, which coordinates the broader system behavior.
-
-Core implementation files include:
-- `src/execution/broker_executor.py` for broker access and execution rules.
-- `src/utils/sqlite_logger.py` for structured local logging.
-- `src/tests/` for automated checks around the most important modules.
+```text
+Loading market data...
+Computing indicators...
+Generating portfolio weights...
+Applying risk overlay...
+Submitting paper orders...
+Updating hub state...
+Cycle completed successfully.
+```
 
 ## Project Structure
+
+```text
+src/
+├── agents/
+├── backtest/
+├── data/
+├── execution/
+├── strategy/
+├── utils/
+└── tests/
+```
 
 | Component | Role |
 |---|---|
@@ -142,17 +121,24 @@ Core implementation files include:
 
 ## Roadmap
 
-- Improve reconciliation of capital already reserved by accepted orders.
-- Expand observability for the execution pipeline.
-- Harden broker state and order lifecycle handling.
-- Add richer reporting and analysis tools.
-- Introduce CI-backed test badges and build verification.
-- Add more examples for paper trading and live trading workflows.
+- ✅ MVP.
+- ⬜ Real market data integration.
+- ⬜ DRL policy.
+- ⬜ Portfolio optimization.
+- ⬜ CI/CD pipeline.
+- ⬜ Live trading.
 
-## Contributing
+## Why STMAA vs. a Monolithic Bot?
 
-Contributions are welcome. Please keep changes focused, run the test suite before opening a pull request, and open a separate `CONTRIBUTING.md` file if you want to document a more detailed workflow.
+| Feature | STMAA | Typical monolithic bot |
+|---|:---:|:---:|
+| Weight-based execution | ✅ | ❌ |
+| Modular architecture | ✅ | ⚠️ |
+| Research oriented | ✅ | ⚠️ |
+| Integrated backtesting | ✅ | ✅ |
+| Risk overlay | ✅ | ⚠️ |
+| Monitoring hub | ✅ | ❌ |
 
-## License
+## Repository Status
 
-STMAA is released under the MIT License. See the `LICENSE` file for details.
+The test suite is green and covers the metrics engine, report generator, PNG fallback, and CLI.

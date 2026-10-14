@@ -1,9 +1,7 @@
 """Backtest Engine execution-consistent con live trading"""
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Callable
-from pathlib import Path
-from datetime import datetime
+from typing import List, Dict, Callable
 
 class ExecutionConsistentBacktest:
     """Backtest con stessa semantica esecutiva del live"""

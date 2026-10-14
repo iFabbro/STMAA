@@ -1,4 +1,3 @@
-import csv
 import json
 from src.utils.metrics import Metrics
 

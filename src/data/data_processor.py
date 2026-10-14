@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from pathlib import Path
-from typing import List, Dict
-from datetime import datetime, timedelta
+from typing import List
 
 class DataProcessor:
     def __init__(self, data_dir: Path):

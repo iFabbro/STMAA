@@ -1,4 +1,3 @@
-from pathlib import Path
 import json
 import pandas as pd
 from src.utils.report_generator import generate_metrics_report, load_thresholds

@@ -1,5 +1,3 @@
-import pytest
-import pandas as pd
 import numpy as np
 from pathlib import Path
 import sys
@@ -32,7 +30,7 @@ def test_vix_scaling():
     print("✅ VIX scaling funzionante")
 
 def test_position_cap():
-    overlay = RiskOverlayModule(max_position_size=0.2)
+    _overlay = RiskOverlayModule(max_position_size=0.2)
     
     weights = np.array([0.5, 0.3, 0.2])
     capped = np.clip(weights, -0.2, 0.2)

@@ -10,7 +10,7 @@ def generate_metrics_png(json_path="logs/metrics.json", csv_path="logs/metrics_h
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
     current = json.loads(json_p.read_text()) if json_p.exists() else {}
-    history = pd.read_csv(csv_p) if csv_p.exists() else pd.DataFrame()
+    _history = pd.read_csv(csv_p) if csv_p.exists() else pd.DataFrame()
 
     metrics = ["sharpe_ratio", "sortino_ratio", "max_drawdown", "drawdown_duration", "total_return"]
     values = [float(current.get(k, 0.0)) for k in metrics]

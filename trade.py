@@ -18,7 +18,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot, end_run
+from src.utils.sqlite_logger import start_run, log_event, write_snapshot
 RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 
 import numpy as np
@@ -30,7 +30,6 @@ from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeight
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
 from src.data.alpaca_feed import AlpacaFeed
-from src.agents.trading_env import TradingEnv
 try:
     from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
     PPO_AVAILABLE = True
@@ -182,7 +181,7 @@ class PaperTradingBot:
                 self.update_hub_state(result)
 
                 status = self.executor.get_account_status()
-                print(f"\n💰 Status Account:")
+                print("\n💰 Status Account:")
                 print(f"  • Cash:            ${status['cash']:,.2f}")
                 print(f"  • Portfolio Value: ${status['portfolio_value']:,.2f}")
                 print(f"  • Equity:          ${status['equity']:,.2f}")

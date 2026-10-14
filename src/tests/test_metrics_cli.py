@@ -1,6 +1,4 @@
 from pathlib import Path
-import json
-import pandas as pd
 from src.utils.metrics_cli import run_cli
 
 def test_metrics_cli_generates_outputs(tmp_path, monkeypatch):

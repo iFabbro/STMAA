@@ -1,0 +1,11 @@
+# Baseline prudente: solo errori reali (pyflakes, bugbear, errori di sintassi/logica).
+target-version = "py313"
+extend-exclude = [".venv", "venv"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+    "E402",  # import non in cima (hack sys.path negli script)
+    "E701",  # piu' istruzioni sulla stessa riga
+    "B905",  # zip() senza strict=
+]

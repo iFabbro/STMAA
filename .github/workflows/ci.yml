@@ -32,4 +32,3 @@ jobs:
       - name: Run tests
         run: python -m pytest src/tests -q
 
-          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments -F body=@body.md

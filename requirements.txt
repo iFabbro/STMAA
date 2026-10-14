@@ -8,3 +8,4 @@ plotly
 gymnasium
 stable-baselines3
 pytest
+tabulate

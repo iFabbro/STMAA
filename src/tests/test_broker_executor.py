@@ -158,11 +158,50 @@ def test_risk_engine_limits_symbol_concentration(alpaca_env):
     assert block is None
 
 
-def test_risk_engine_blocks_when_symbol_limit_breached(alpaca_env):
+def test_risk_engine_blocks_when_total_exposure_breached(alpaca_env):
+    """Ordini riservati (4500) + posizioni aperte (3000) superano il 50% (5000): blocco."""
     from src.execution.broker_executor import RiskEngine
     engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.05)
     allowed, block = engine.allow("AAPL", 1000.0, 10000.0, {"AAPL": {"market_value": 0.0}, "MSFT": {"market_value": 3000.0}}, reserved_notional=4500.0)
+    assert allowed == 0.0
+    assert block == "risk_block"
+
+
+def test_risk_engine_open_positions_reduce_exposure_budget(alpaca_env):
+    """Le posizioni gia' aperte (4500) lasciano solo 500 di budget sul 50% di 10000."""
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50)
+    positions = {"AAPL": {"market_value": 0.0}, "MSFT": {"market_value": 4500.0}}
+    allowed, block = engine.allow("AAPL", 1000.0, 10000.0, positions, reserved_notional=0.0)
     assert allowed == 500.0
+    assert block is None
+
+
+def test_risk_engine_low_open_positions_do_not_limit(alpaca_env):
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.10, max_exposure_pct=0.50)
+    positions = {"AAPL": {"market_value": 0.0}, "MSFT": {"market_value": 3000.0}}
+    allowed, block = engine.allow("AAPL", 1000.0, 10000.0, positions, reserved_notional=0.0)
+    assert allowed == 1000.0
+    assert block is None
+
+
+def test_risk_engine_existing_position_is_returned_to_budget(alpaca_env):
+    """target_notional sostituisce la posizione esistente: il suo valore torna al budget."""
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.20, max_exposure_pct=0.50)
+    positions = {"AAPL": {"market_value": 1000.0}, "MSFT": {"market_value": 3500.0}}
+    allowed, block = engine.allow("AAPL", 2000.0, 10000.0, positions, reserved_notional=0.0)
+    assert allowed == 1500.0  # 5000 - 4500 + 1000
+    assert block is None
+
+
+def test_risk_engine_short_position_uses_absolute_value(alpaca_env):
+    from src.execution.broker_executor import RiskEngine
+    engine = RiskEngine(max_position_pct=0.20, max_exposure_pct=0.50)
+    positions = {"AAPL": {"market_value": -1000.0}, "MSFT": {"market_value": 3500.0}}
+    allowed, block = engine.allow("AAPL", 2000.0, 10000.0, positions, reserved_notional=0.0)
+    assert allowed == 1500.0
     assert block is None
 
 

@@ -1,2 +1,11 @@
 alpaca-py>=0.28.0
 python-dotenv>=1.0.0
+numpy
+pandas
+pyyaml
+yfinance
+plotly
+gymnasium
+stable-baselines3
+pytest
+tabulate

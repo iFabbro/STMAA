@@ -67,7 +67,9 @@ class RiskEngine:
         if portfolio_value <= 0:
             return 0.0, "portfolio_value_non_positive"
         current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
-        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
+        # FIXME: `gross` e' calcolato ma non usato: max_exposure sotto sottrae solo
+        # reserved_notional e ignora le posizioni gia' aperte. Da verificare.
+        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)  # noqa: F841
         max_position = portfolio_value * self.max_position_pct
         max_exposure = portfolio_value * self.max_exposure_pct - reserved_notional
         max_symbol = portfolio_value * self.max_symbol_concentration_pct
@@ -84,8 +86,6 @@ class RiskEngine:
 
 
 class BrokerExecutor:
-    def __init__(self, report_thresholds_path=None):
-        self.report_thresholds_path = report_thresholds_path or os.getenv("REPORT_THRESHOLDS_PATH", "config/report_thresholds.yaml")
     def __init__(
         self,
         api_key: Optional[str] = None,

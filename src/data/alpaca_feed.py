@@ -10,11 +10,12 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import pandas as pd
-import numpy as np
 
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+_DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class AlpacaFeed:
         self,
         tickers: List[str],
         days: int = 100,
-        timeframe: TimeFrame = TimeFrame(1, TimeFrameUnit.Day),
+        timeframe: TimeFrame = _DAILY_TIMEFRAME,
     ) -> pd.DataFrame:
         """Scarica barre OHLCV giornaliere per `days` giorni.
 

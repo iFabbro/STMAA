@@ -7,7 +7,16 @@ sys.path.append(str(Path(__file__).parent / "src"))
 
 import pandas as pd
 import numpy as np
-from config import *
+from config import (
+    DATA_DIR,
+    INITIAL_CAPITAL,
+    MAX_DRAWDOWN_THRESHOLD,
+    MAX_POSITION_SIZE,
+    SLIPPAGE,
+    TRANSACTION_COST,
+    VIX_THRESHOLD_HIGH,
+    VIX_THRESHOLD_LOW,
+)
 from data.data_processor import DataProcessor
 from agents.trading_env import TradingEnv
 from strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
@@ -21,7 +30,7 @@ def main():
     
     # 1. Inizializza data processor
     print("\n📥 Step 1: Inizializzazione dati...")
-    processor = DataProcessor(DATA_DIR)
+    _processor = DataProcessor(DATA_DIR)
     
     tickers = ['AAPL', 'GOOGL', 'MSFT']
     

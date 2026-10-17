@@ -3,7 +3,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
-from typing import List, Dict
+from typing import List
 
 class TradingEnv(gym.Env):
     """Ambiente trading per DRL"""
@@ -83,7 +83,7 @@ class TradingEnv(gym.Env):
     def _get_observation(self) -> np.ndarray:
         obs = []
         
-        for i, ticker in enumerate(self.tickers):
+        for ticker in self.tickers:
             step_data = self.data.iloc[self.current_step]
             
             rsi = step_data.get(f'RSI_{ticker}', 50) / 100

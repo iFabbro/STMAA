@@ -2,10 +2,8 @@
 
 Sostituisce il placeholder equal-weight in trade.py generate_weights().
 """
-import os
 import logging
 from pathlib import Path
-from datetime import datetime
 from typing import List, Optional
 
 import numpy as np
@@ -94,7 +92,7 @@ class StockTradingEnv(gym.Env):
 
     def _get_state(self) -> np.ndarray:
         features = []
-        for i, ticker in enumerate(self.tickers):
+        for ticker in self.tickers:
             close = self.df[f"Close_{ticker}"].iloc[self.current_step]
             rsi = self.df[f"RSI_{ticker}"].iloc[self.current_step]
             macd = self.df[f"MACD_{ticker}"].iloc[self.current_step]
@@ -144,7 +142,7 @@ class PPOAgent:
             self.load()
             logger.info(f"✅ PPOAgent caricato da {self.model_path}")
         else:
-            logger.info(f"⚠️  Nessun modello PPO trovato, usi equal-weight")
+            logger.info("⚠️  Nessun modello PPO trovato, usi equal-weight")
 
     def train(self, df: pd.DataFrame, total_timesteps: int = 50000):
         logger.info(f"🚀 Addestramento PPO: {total_timesteps} timesteps")

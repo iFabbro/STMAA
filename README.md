@@ -97,7 +97,7 @@ flowchart LR
 
 ### Requirements
 
-- Python 3.10 or newer.
+- Python 3.13 (the version tested in CI).
 - A virtual environment is recommended.
 - Alpaca paper trading credentials if you want to test the execution path.
 
@@ -179,13 +179,13 @@ Current development stage:
 - Terminal hub available.
 - Structured logging implemented.
 - Automated tests in progress and expanding.
+- CI on GitHub Actions: pytest, ruff lint and a gitleaks secrets scan.
 
 Next milestones:
 
 - Real market data.
 - DRL policy integration.
 - Portfolio optimisation.
-- CI/CD pipeline.
 - Live trading hardening.
 - Historical performance dashboard.
 
@@ -197,7 +197,7 @@ Typical development items include:
 
 - reward and metric definitions under review.
 - RL observation shapes and training interfaces still stabilizing.
-- broker/execution safeguards being hardened.
+- broker/execution safeguards being hardened (e.g. `RiskEngine.allow` computes the portfolio gross exposure but does not yet use it in the exposure limit; see the `FIXME` in `src/execution/broker_executor.py`).
 - roadmap and documentation being aligned with the current alpha status.
 
 These are expected in an active development repository and should be treated as implementation work rather than finished production behavior.

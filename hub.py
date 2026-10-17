@@ -11,7 +11,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot, end_run
+from src.utils.sqlite_logger import start_run, log_event, write_snapshot
 RUN_ID = start_run(mode="hub", meta={"component": "hub"})
 
 HUB_STATE = Path("logs/hub_state.json")

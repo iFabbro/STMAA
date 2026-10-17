@@ -1,4 +1,3 @@
-import pytest
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -6,7 +5,6 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.backtest.backtest_engine import ExecutionConsistentBacktest
-from src.strategy.weight_interface import PortfolioWeights
 
 def test_backtest_engine_creation():
     engine = ExecutionConsistentBacktest(

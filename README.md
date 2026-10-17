@@ -197,7 +197,7 @@ Typical development items include:
 
 - reward and metric definitions under review.
 - RL observation shapes and training interfaces still stabilizing.
-- broker/execution safeguards being hardened (e.g. `RiskEngine.allow` computes the portfolio gross exposure but does not yet use it in the exposure limit; see the `FIXME` in `src/execution/broker_executor.py`).
+- broker/execution safeguards being hardened.
 - roadmap and documentation being aligned with the current alpha status.
 
 These are expected in an active development repository and should be treated as implementation work rather than finished production behavior.

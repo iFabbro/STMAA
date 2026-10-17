@@ -66,12 +66,14 @@ class RiskEngine:
     def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
         if portfolio_value <= 0:
             return 0.0, "portfolio_value_non_positive"
-        current = float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0)
-        # FIXME: `gross` e' calcolato ma non usato: max_exposure sotto sottrae solo
-        # reserved_notional e ignora le posizioni gia' aperte. Da verificare.
-        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)  # noqa: F841
+        current = abs(float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0))
+        # Esposizione lorda attuale = ordini aperti riservati + tutte le posizioni.
+        gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
         max_position = portfolio_value * self.max_position_pct
-        max_exposure = portfolio_value * self.max_exposure_pct - reserved_notional
+        # Budget residuo di esposizione totale. `current` viene restituito al budget
+        # perche' target_notional e' la dimensione desiderata della posizione su
+        # `ticker`, che sostituisce quella gia' presente in `gross`.
+        max_exposure = portfolio_value * self.max_exposure_pct - gross
         max_symbol = portfolio_value * self.max_symbol_concentration_pct
 
         allowed = min(

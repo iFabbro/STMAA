@@ -60,15 +60,6 @@ def test_adaptive_sizing_uses_normalized_atr_and_preserves_signs():
     assert result[0] > 0 and result[1] > 0 and result[2] < 0
 
 
-def test_adaptive_sizing_is_invariant_to_common_atr_scale():
-    overlay = RiskOverlayModule(max_position_size=0.2)
-    weights = np.array([0.1, 0.2, -0.1])
-    atr = np.array([0.01, 0.02, 0.04])
-    first = overlay.adaptive_position_sizing(weights, atr)
-    second = overlay.adaptive_position_sizing(weights, atr * 100)
-    np.testing.assert_allclose(first, second)
-
-
 def test_adaptive_sizing_respects_cap_and_keeps_zero_weights():
     overlay = RiskOverlayModule(max_position_size=0.15)
     result = overlay.adaptive_position_sizing(

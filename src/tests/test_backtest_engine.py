@@ -56,6 +56,24 @@ def test_turnover_costs_are_charged_on_rebalance_not_as_weight_scaling():
     assert result["portfolio_values"].iloc[-1] == pytest.approx(9850.0)
 
 
+def test_turnover_uses_drifted_weights_after_market_returns():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 200.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    targets = iter([np.array([0.5]), np.array([2.0 / 3.0])])
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: next(targets), ["A"]
+    )
+    # First rebalance costs 150; the 100% price rise drifts the holding to
+    # 2/3 of equity, so the matching second target creates no extra turnover.
+    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
+    assert result["portfolio_values"].iloc[-1] == pytest.approx(14775.0)
+
+
 def test_invalid_prices_or_weight_shapes_fail_explicitly():
     dates = pd.date_range("2024-01-01", periods=2, freq="D")
     invalid_prices = pd.DataFrame({"Close_A": [100.0, np.nan]}, index=dates)

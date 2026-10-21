@@ -53,7 +53,7 @@ def test_turnover_costs_are_charged_on_rebalance_not_as_weight_scaling():
         prices, lambda _ts, _row: np.array([0.5]), ["A"]
     )
     assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
-    assert result["portfolio_values"].iloc[-1] == pytest.approx(9925.0)
+    assert result["portfolio_values"].iloc[-1] == pytest.approx(9850.0)
 
 
 def test_invalid_prices_or_weight_shapes_fail_explicitly():

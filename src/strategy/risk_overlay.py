@@ -80,9 +80,20 @@ class RiskOverlayModule:
         ) * 0.5
         return float(np.clip(scale, 0.5, 1.0))
 
-    def adaptive_position_sizing(self, weights: np.ndarray, atr_values: np.ndarray,
-                                 target_risk: float = 0.02) -> np.ndarray:
-        """Apply relative ATR sizing while preserving per-position caps."""
+    def adaptive_position_sizing(
+        self, weights: np.ndarray, atr_values: np.ndarray
+    ) -> np.ndarray:
+        """Scale allocation preferences inversely to normalized ATR.
+
+        Contract:
+        - `atr_values` are normalized ATR fractions (ATR / asset price), not
+          absolute price-unit ATR values; e.g. 0.02 represents 2% of price.
+        - `weights` are signed allocation preferences. Their signs are preserved.
+        - The output is a relative volatility adjustment, not a calibrated
+          stop-loss or portfolio-risk budget. It cannot guarantee a loss limit.
+        - Adjusted weights are scaled proportionally only when needed so that
+          no absolute position exceeds `max_position_size`.
+        """
         raw_weights = np.asarray(weights, dtype=float)
         atr = np.asarray(atr_values, dtype=float)
         if raw_weights.ndim != 1 or atr.shape != raw_weights.shape:
@@ -90,9 +101,9 @@ class RiskOverlayModule:
         if not np.isfinite(raw_weights).all():
             raise ValueError("weights must all be finite")
         if not np.isfinite(atr).all() or (atr <= 0).any():
-            raise ValueError("ATR values must be finite and strictly positive")
-        if not np.isfinite(target_risk) or target_risk <= 0:
-            raise ValueError("target_risk must be finite and positive")
+            raise ValueError(
+                "normalized ATR values must be finite and strictly positive"
+            )
         adjusted = raw_weights / atr
         max_abs = float(np.max(np.abs(adjusted))) if adjusted.size else 0.0
         if max_abs > self.max_position_size:

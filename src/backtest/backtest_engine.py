@@ -51,6 +51,13 @@ class ExecutionConsistentBacktest:
                 if not np.isfinite(portfolio_return) or portfolio_return <= -1.0:
                     raise ValueError(f"Portfolio return at {timestamp!r} would exhaust capital")
                 portfolio_value *= 1.0 + portfolio_return
+                # Holdings drift as assets earn different returns. Use these
+                # post-return weights as the starting point for turnover at the
+                # current rebalance, rather than the previous target weights.
+                denominator = 1.0 + portfolio_return
+                current_weights = (
+                    current_weights * (1.0 + asset_returns) / denominator
+                )
 
             generated = weights_generator(timestamp, row)
             target = generated.weights if hasattr(generated, "weights") else generated

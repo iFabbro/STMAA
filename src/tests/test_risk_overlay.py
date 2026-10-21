@@ -46,3 +46,57 @@ def test_invalid_weights_and_vix_fail_explicitly():
         overlay.apply(None, np.array([0.1]), ["A"], vix=float("nan"))
     with pytest.raises(ValueError, match="Expected 1 weights"):
         overlay.apply(None, np.array([0.1, 0.2]), ["A"])
+
+
+def test_adaptive_sizing_uses_normalized_atr_and_preserves_signs():
+    overlay = RiskOverlayModule(max_position_size=0.2)
+    result = overlay.adaptive_position_sizing(
+        np.array([0.1, 0.1, -0.1]),
+        np.array([0.01, 0.02, 0.04]),
+    )
+    # Inverse-ATR raw scores are [10, 5, -2.5]; scale maximum to the 20% cap.
+    np.testing.assert_allclose(result, np.array([0.2, 0.1, -0.05]))
+    assert np.max(np.abs(result)) <= overlay.max_position_size
+    assert result[0] > 0 and result[1] > 0 and result[2] < 0
+
+
+def test_adaptive_sizing_is_invariant_to_common_atr_scale():
+    overlay = RiskOverlayModule(max_position_size=0.2)
+    weights = np.array([0.1, 0.2, -0.1])
+    atr = np.array([0.01, 0.02, 0.04])
+    first = overlay.adaptive_position_sizing(weights, atr)
+    second = overlay.adaptive_position_sizing(weights, atr * 100)
+    np.testing.assert_allclose(first, second)
+
+
+def test_adaptive_sizing_respects_cap_and_keeps_zero_weights():
+    overlay = RiskOverlayModule(max_position_size=0.15)
+    result = overlay.adaptive_position_sizing(
+        np.array([0.1, 0.0, -0.1]), np.array([0.01, 0.02, 0.04])
+    )
+    assert np.max(np.abs(result)) <= 0.15
+    assert result[1] == 0.0
+    assert result[0] > 0 and result[2] < 0
+
+
+@pytest.mark.parametrize(
+    ("weights", "atr_values", "message"),
+    [
+        ([0.1, 0.2], [0.01], "equal-length"),
+        ([0.1], [0.0], "strictly positive"),
+        ([0.1], [np.nan], "finite"),
+        ([np.inf], [0.01], "finite"),
+    ],
+)
+def test_adaptive_sizing_rejects_invalid_inputs(weights, atr_values, message):
+    overlay = RiskOverlayModule()
+    with pytest.raises(ValueError, match=message):
+        overlay.adaptive_position_sizing(
+            np.asarray(weights), np.asarray(atr_values)
+        )
+
+
+def test_adaptive_sizing_accepts_empty_vectors():
+    overlay = RiskOverlayModule()
+    result = overlay.adaptive_position_sizing(np.array([]), np.array([]))
+    assert result.shape == (0,)

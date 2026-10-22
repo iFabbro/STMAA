@@ -1,4 +1,4 @@
-"""Risk overlay with position caps and VIX-based exposure scaling."""
+"""Risk overlay with per-position and gross-exposure limits."""
 from typing import List, Optional
 import numpy as np
 import pandas as pd
@@ -8,18 +8,21 @@ class RiskOverlayModule:
     """Apply risk controls without re-leveraging normalized weights."""
 
     def __init__(self, max_position_size: float = 0.2,
+                 max_gross_exposure: float = 1.0,
                  max_drawdown_threshold: float = 0.15,
                  vix_threshold_high: float = 30,
                  vix_threshold_low: float = 15,
                  initial_capital: float = 100000.0):
         parameters = np.asarray([
-            max_position_size, max_drawdown_threshold, vix_threshold_high,
-            vix_threshold_low, initial_capital,
+            max_position_size, max_gross_exposure, max_drawdown_threshold,
+            vix_threshold_high, vix_threshold_low, initial_capital,
         ], dtype=float)
         if not np.isfinite(parameters).all():
             raise ValueError("Risk parameters must be finite")
         if max_position_size <= 0:
             raise ValueError("max_position_size must be positive")
+        if max_gross_exposure <= 0:
+            raise ValueError("max_gross_exposure must be positive")
         if not 0 <= max_drawdown_threshold < 1:
             raise ValueError("max_drawdown_threshold must be in [0, 1)")
         if vix_threshold_high <= vix_threshold_low:
@@ -27,6 +30,7 @@ class RiskOverlayModule:
         if initial_capital <= 0:
             raise ValueError("initial_capital must be positive")
         self.max_position_size = float(max_position_size)
+        self.max_gross_exposure = float(max_gross_exposure)
         self.max_drawdown_threshold = float(max_drawdown_threshold)
         self.vix_threshold_high = float(vix_threshold_high)
         self.vix_threshold_low = float(vix_threshold_low)
@@ -36,7 +40,7 @@ class RiskOverlayModule:
 
     def apply(self, market_data: pd.DataFrame, weights: np.ndarray,
               tickers: List[str], vix: Optional[float] = None, **kwargs) -> np.ndarray:
-        """Cap positions and scale down risk; never normalize after the cap."""
+        """Cap positions and gross exposure, then apply drawdown circuit breaker."""
         target = np.asarray(weights, dtype=float)
         if target.shape != (len(tickers),):
             raise ValueError(
@@ -52,6 +56,10 @@ class RiskOverlayModule:
                 raise ValueError("vix must be a finite, non-negative number")
             target = target * self._calculate_vix_scaling(vix_value)
 
+        gross_exposure = float(np.abs(target).sum())
+        if gross_exposure > self.max_gross_exposure:
+            target *= self.max_gross_exposure / gross_exposure
+
         if "portfolio_value" in kwargs:
             portfolio_value = float(kwargs["portfolio_value"])
             if not np.isfinite(portfolio_value) or portfolio_value <= 0:
@@ -61,9 +69,8 @@ class RiskOverlayModule:
             drawdown = (
                 self.peak_portfolio_value - portfolio_value
             ) / self.peak_portfolio_value
-            if drawdown > self.max_drawdown_threshold:
+            if drawdown >= self.max_drawdown_threshold:
                 return np.zeros(len(tickers), dtype=float)
-        # Normalization here would undo VIX scaling and potentially exceed caps.
         return target
 
     def _calculate_vix_scaling(self, vix: float) -> float:
@@ -83,16 +90,10 @@ class RiskOverlayModule:
     def adaptive_position_sizing(
         self, weights: np.ndarray, atr_values: np.ndarray
     ) -> np.ndarray:
-        """Scale allocation preferences inversely to normalized ATR.
+        """Adjust signed allocation preferences inversely to normalized ATR.
 
-        Contract:
-        - `atr_values` are normalized ATR fractions (ATR / asset price), not
-          absolute price-unit ATR values; e.g. 0.02 represents 2% of price.
-        - `weights` are signed allocation preferences. Their signs are preserved.
-        - The output is a relative volatility adjustment, not a calibrated
-          stop-loss or portfolio-risk budget. It cannot guarantee a loss limit.
-        - Adjusted weights are scaled proportionally only when needed so that
-          no absolute position exceeds `max_position_size`.
+        ATR values must be normalized fractions (ATR / price). This is a
+        relative volatility adjustment, not a calibrated loss limit.
         """
         raw_weights = np.asarray(weights, dtype=float)
         atr = np.asarray(atr_values, dtype=float)
@@ -101,9 +102,7 @@ class RiskOverlayModule:
         if not np.isfinite(raw_weights).all():
             raise ValueError("weights must all be finite")
         if not np.isfinite(atr).all() or (atr <= 0).any():
-            raise ValueError(
-                "normalized ATR values must be finite and strictly positive"
-            )
+            raise ValueError("normalized ATR values must be finite and strictly positive")
         adjusted = raw_weights / atr
         max_abs = float(np.max(np.abs(adjusted))) if adjusted.size else 0.0
         if max_abs > self.max_position_size:

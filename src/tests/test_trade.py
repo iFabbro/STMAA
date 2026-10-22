@@ -129,7 +129,31 @@ def test_get_vix_value_returns_latest_valid_close(monkeypatch):
 
     monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
     bot = PaperTradingBot.__new__(PaperTradingBot)
+    monkeypatch.setattr(bot, "_latest_completed_vix_session_date", lambda: history.index[-1].date())
     assert bot.get_vix_value() == pytest.approx(24.2)
+
+
+
+def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
+    history = pd.DataFrame(
+        {"Close": [20.0]},
+        index=pd.DatetimeIndex(["2026-10-20"]),
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, period, interval):
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    monkeypatch.setattr(
+        bot, "_latest_completed_vix_session_date", lambda: pd.Timestamp("2026-10-21").date()
+    )
+    with pytest.raises(RuntimeError, match="fresh valid VIX close"):
+        bot.get_vix_value()
 
 
 @pytest.mark.parametrize(
@@ -335,6 +359,8 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     assert risk.kwargs["peak_portfolio_value"] == pytest.approx(120000.0)
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
     np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
+    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
+    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is False
 
 
 

@@ -335,3 +335,38 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     assert risk.kwargs["peak_portfolio_value"] == pytest.approx(120000.0)
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
     np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
+
+
+
+def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def apply(self, *args, **kwargs):
+            raise AssertionError("Risk overlay must not run with stale account data")
+
+    class StaleExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted = False
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0,
+                "cash": 50000.0,
+                "equity": 100000.0,
+                "account_data_fresh": False,
+            }
+
+        def execute_weights(self, weights):
+            self.submitted = True
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    executor = StaleExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=CapturingRisk(), current_portfolio_value=500000.0)
+    bot.executor = executor
+    with pytest.raises(RuntimeError, match="Cannot verify current broker account value"):
+        bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    assert executor.submitted is False

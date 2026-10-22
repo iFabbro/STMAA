@@ -185,6 +185,7 @@ def test_execute_trade_passes_vix_to_risk_overlay(monkeypatch):
     bot.initial_capital = 10000.0
     bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=10000.0)
     bot.executor = executor
+    bot.tickers = ["AAPL", "MSFT"]
     monkeypatch.setattr(bot, "get_vix_value", lambda: 32.0)
     monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
     monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)

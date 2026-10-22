@@ -56,6 +56,21 @@ def test_turnover_costs_are_charged_on_rebalance_not_as_weight_scaling():
     assert result["portfolio_values"].iloc[-1] == pytest.approx(9850.0)
 
 
+def test_max_drawdown_includes_initial_rebalance_cost():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 100.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([0.5]), ["A"]
+    )
+    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
+    assert result["metrics"]["max_drawdown"] == pytest.approx(-0.015)
+
+
 def test_turnover_uses_drifted_weights_after_market_returns():
     prices = pd.DataFrame(
         {"Close_A": [100.0, 200.0]},

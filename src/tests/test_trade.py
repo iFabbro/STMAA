@@ -322,6 +322,7 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     class CapturingRisk:
         def __init__(self):
             self.kwargs = None
+            self.max_drawdown_threshold = 0.15
 
         def apply(self, market_data, weights, tickers, **kwargs):
             self.kwargs = kwargs

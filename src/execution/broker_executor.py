@@ -282,7 +282,12 @@ class BrokerExecutor:
 
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
-            target_notional = tradable_budget * float(target_weight)
+            # Weights are fractions of portfolio equity. The risk gate blocks
+            # target exposure on a circuit-breaker event; otherwise use equity
+            # as the target-notional basis and let RiskEngine enforce limits.
+            target_notional = (
+                0.0 if risk_block else portfolio_value * float(target_weight)
+            )
             current_notional = float(
                 positions.get(ticker, {}).get("market_value", 0.0) or 0.0
             )

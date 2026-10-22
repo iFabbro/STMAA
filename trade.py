@@ -130,11 +130,12 @@ class PaperTradingBot:
     def execute_trade(self, weights: PortfolioWeights):
         """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
-        if self.pipeline.risk_module is not None:
+        risk_module = getattr(self.pipeline, "risk_module", None)
+        if risk_module is not None:
             account = self.executor.get_account_status()
             portfolio_value = float(account.get("portfolio_value", self.initial_capital))
             self.pipeline.current_portfolio_value = portfolio_value
-            risked_weights = self.pipeline.risk_module.apply(
+            risked_weights = risk_module.apply(
                 None,
                 weights.weights,
                 weights.tickers,

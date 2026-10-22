@@ -249,7 +249,9 @@ def test_execute_weights_orders_only_delta_to_target_position(alpaca_env, monkey
     result = executor.execute_weights(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
 
     assert len(result["orders"]) == 1
-    assert submitted[0].qty == pytest.approx(3.0)
+    # 10% of $10,000 equity targets $1,000; current position is $200,
+    # so only the $800 delta (8 shares at $100) should be ordered.
+    assert submitted[0].qty == pytest.approx(8.0)
     assert str(submitted[0].side).lower().endswith("buy")
 
 

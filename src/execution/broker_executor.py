@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -209,12 +210,39 @@ class BrokerExecutor:
     def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
         return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
 
-    def _get_peak_equity(self) -> float:
-        return float(self.state.get("peak_equity", self.initial_capital) or self.initial_capital)
+    def _get_peak_equity(self, portfolio_value: Optional[float] = None) -> float:
+        """Return a persisted high-water mark, or initialize from verified equity.
+
+        Configured initial capital is not evidence of historical account equity.
+        """
+        candidates = [
+            self.state.get("peak_equity"),
+            self.state.get("risk_peak_portfolio_value"),
+        ]
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            value = float(candidate)
+            if not np.isfinite(value) or value <= 0:
+                raise RuntimeError("Persisted drawdown peak is invalid")
+            return value
+        if portfolio_value is None:
+            stored_value = self.state.get("portfolio_value")
+            if stored_value is None:
+                raise RuntimeError("Cannot establish drawdown baseline without verified account equity")
+            portfolio_value = float(stored_value)
+        value = float(portfolio_value)
+        if not np.isfinite(value) or value <= 0:
+            raise RuntimeError("Cannot establish drawdown baseline from invalid account equity")
+        return value
 
     def _update_peak_equity(self, portfolio_value: float) -> float:
-        peak = max(self._get_peak_equity(), float(portfolio_value))
+        value = float(portfolio_value)
+        if not np.isfinite(value) or value <= 0:
+            raise RuntimeError("Cannot update drawdown peak from invalid account equity")
+        peak = max(self._get_peak_equity(value), value)
         self.state["peak_equity"] = peak
+        self.state["risk_peak_portfolio_value"] = peak
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):
@@ -248,7 +276,11 @@ class BrokerExecutor:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
+        if account.get("account_data_fresh") is False:
+            raise RuntimeError("Cannot verify current broker account value; refusing to execute target weights")
         portfolio_value = float(account["portfolio_value"])
+        if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+            raise RuntimeError("Cannot execute weights with invalid broker account value")
         buying_power = float(account.get("buying_power", 0.0) or 0.0)
         prices = self._get_prices_from_bars(weights.tickers)
         open_orders = self._get_open_orders()

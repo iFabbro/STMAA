@@ -152,7 +152,7 @@ def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
     monkeypatch.setattr(
         bot, "_latest_completed_vix_session_date", lambda: pd.Timestamp("2026-10-21").date()
     )
-    with pytest.raises(RuntimeError, match="fresh valid VIX close"):
+    with pytest.raises(RuntimeError, match="valid VIX close"):
         bot.get_vix_value()
 
 

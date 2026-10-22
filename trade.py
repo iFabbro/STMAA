@@ -70,6 +70,8 @@ class PaperTradingBot:
             max_drawdown_threshold=0.15,
             vix_threshold_high=30,
             vix_threshold_low=15,
+            initial_capital=initial_capital,
+            max_gross_exposure=1.0,
         ))
 
         self.processor = DataProcessor(Path("data"))
@@ -126,8 +128,28 @@ class PaperTradingBot:
         return portfolio_weights
 
     def execute_trade(self, weights: PortfolioWeights):
-        """Esegue trade sul broker"""
+        """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
+        if self.pipeline.risk_module is not None:
+            account = self.executor.get_account_status()
+            portfolio_value = float(account.get("portfolio_value", self.initial_capital))
+            self.pipeline.current_portfolio_value = portfolio_value
+            risked_weights = self.pipeline.risk_module.apply(
+                None,
+                weights.weights,
+                weights.tickers,
+                portfolio_value=portfolio_value,
+            )
+            weights = PortfolioWeights(
+                weights=risked_weights,
+                tickers=weights.tickers,
+                timestamp=weights.timestamp,
+                metadata={
+                    **(weights.metadata or {}),
+                    "portfolio_value": portfolio_value,
+                    "risk_overlay_applied": True,
+                },
+            )
         result = self.executor.execute_weights(weights)
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:

@@ -266,6 +266,7 @@ class BrokerExecutor:
             tradable_budget = portfolio_value
 
         tradable_budget, risk_block = self._risk_gate(portfolio_value, tradable_budget)
+        circuit_breaker_active = risk_block is not None
         if risk_block:
             self.logger.warning(f"Risk gate attivo: {risk_block}")
 
@@ -286,20 +287,22 @@ class BrokerExecutor:
             # target exposure on a circuit-breaker event; otherwise use equity
             # as the target-notional basis and let RiskEngine enforce limits.
             target_notional = (
-                0.0 if risk_block else portfolio_value * float(target_weight)
+                0.0 if circuit_breaker_active else portfolio_value * float(target_weight)
             )
             current_notional = float(
                 positions.get(ticker, {}).get("market_value", 0.0) or 0.0
             )
-            bounded_target, risk_block = risk_engine.allow(
+            bounded_target, symbol_risk_block = risk_engine.allow(
                 ticker,
                 target_notional,
                 portfolio_value,
                 positions,
                 reserved_notional=reserved_notional,
             )
-            if risk_block:
-                self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
+            if symbol_risk_block:
+                self.logger.warning(
+                    f"Risk engine block {ticker}: {symbol_risk_block}"
+                )
                 # If the desired exposure is blocked, target flat for this symbol.
                 bounded_target = 0.0
 

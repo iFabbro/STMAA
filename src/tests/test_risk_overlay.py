@@ -38,7 +38,7 @@ def test_low_vix_keeps_caps_and_drawdown_circuit_breaker():
     result = overlay.apply(None, np.array([0.8, 0.1]), ["A", "B"], vix=12)
     np.testing.assert_allclose(result, np.array([0.2, 0.1]))
     stopped = overlay.apply(None, np.array([0.1, 0.1]), ["A", "B"], vix=12,
-                            portfolio_value=80000)
+                            portfolio_value=80000, peak_portfolio_value=100000)
     np.testing.assert_array_equal(stopped, np.zeros(2))
 
 
@@ -91,3 +91,32 @@ def test_adaptive_sizing_accepts_empty_vectors():
 def test_invalid_gross_exposure_limit_is_rejected():
     with pytest.raises(ValueError, match="max_gross_exposure"):
         RiskOverlayModule(max_gross_exposure=0)
+
+
+
+def test_first_verified_account_value_establishes_drawdown_baseline():
+    overlay = RiskOverlayModule(initial_capital=500000.0, max_drawdown_threshold=0.15)
+    result = overlay.apply(
+        None, np.array([0.2, 0.1]), ["A", "B"], portfolio_value=100000.0
+    )
+    np.testing.assert_allclose(result, np.array([0.2, 0.1]))
+    assert overlay.peak_portfolio_value == pytest.approx(100000.0)
+
+
+def test_persisted_drawdown_peak_trips_circuit_breaker_despite_capital_mismatch():
+    overlay = RiskOverlayModule(initial_capital=500000.0, max_drawdown_threshold=0.15)
+    result = overlay.apply(
+        None, np.array([0.2, 0.1]), ["A", "B"],
+        portfolio_value=80000.0, peak_portfolio_value=100000.0,
+    )
+    np.testing.assert_array_equal(result, np.zeros(2))
+    assert overlay.peak_portfolio_value == pytest.approx(100000.0)
+
+
+def test_drawdown_peak_advances_only_when_account_makes_new_high():
+    overlay = RiskOverlayModule(initial_capital=500000.0, max_drawdown_threshold=0.15)
+    overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=100000.0)
+    overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=110000.0)
+    assert overlay.peak_portfolio_value == pytest.approx(110000.0)
+    overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=105000.0)
+    assert overlay.peak_portfolio_value == pytest.approx(110000.0)

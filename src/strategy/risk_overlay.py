@@ -36,7 +36,9 @@ class RiskOverlayModule:
         self.vix_threshold_low = float(vix_threshold_low)
         self.initial_capital = float(initial_capital)
         self.current_portfolio_value = float(initial_capital)
-        self.peak_portfolio_value = float(initial_capital)
+        # The configured capital is not necessarily the broker account's actual equity.
+        # Establish the drawdown high-water mark from a verified account value instead.
+        self.peak_portfolio_value = None
 
     def apply(self, market_data: pd.DataFrame, weights: np.ndarray,
               tickers: List[str], vix: Optional[float] = None, **kwargs) -> np.ndarray:
@@ -64,11 +66,23 @@ class RiskOverlayModule:
             portfolio_value = float(kwargs["portfolio_value"])
             if not np.isfinite(portfolio_value) or portfolio_value <= 0:
                 raise ValueError("portfolio_value must be finite and positive")
+
+            supplied_peak = kwargs.get("peak_portfolio_value")
+            if supplied_peak is not None:
+                supplied_peak = float(supplied_peak)
+                if not np.isfinite(supplied_peak) or supplied_peak <= 0:
+                    raise ValueError("peak_portfolio_value must be finite and positive")
+                peak = max(supplied_peak, portfolio_value)
+            elif self.peak_portfolio_value is not None:
+                peak = max(self.peak_portfolio_value, portfolio_value)
+            else:
+                # First verified observation establishes the baseline; do not compare
+                # broker equity against an unrelated configured initial-capital value.
+                peak = portfolio_value
+
             self.current_portfolio_value = portfolio_value
-            self.peak_portfolio_value = max(self.peak_portfolio_value, portfolio_value)
-            drawdown = (
-                self.peak_portfolio_value - portfolio_value
-            ) / self.peak_portfolio_value
+            self.peak_portfolio_value = peak
+            drawdown = (peak - portfolio_value) / peak
             if drawdown >= self.max_drawdown_threshold:
                 return np.zeros(len(tickers), dtype=float)
         return target

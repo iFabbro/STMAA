@@ -153,3 +153,90 @@ def test_get_vix_value_fails_closed_on_invalid_data(monkeypatch, history):
     bot = PaperTradingBot.__new__(PaperTradingBot)
     with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
         bot.get_vix_value()
+
+
+
+def test_execute_trade_passes_vix_to_risk_overlay(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.asarray(weights, dtype=float) * 0.5
+
+    class CapturingExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 10000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = CapturingExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 10000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=10000.0)
+    bot.executor = executor
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 32.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    original = PortfolioWeights(
+        weights=np.array([0.2, 0.2]),
+        tickers=["AAPL", "MSFT"],
+        timestamp="2026-10-22T10:00:00",
+    )
+    bot.execute_trade(original)
+
+    assert risk.kwargs["vix"] == pytest.approx(32.0)
+    assert risk.kwargs["portfolio_value"] == pytest.approx(10000.0)
+    assert np.allclose(executor.submitted_weights.weights, np.array([0.1, 0.1]))
+    assert executor.submitted_weights.metadata["vix"] == pytest.approx(32.0)
+    assert executor.submitted_weights.metadata["risk_overlay_applied"] is True
+
+
+def test_execute_trade_does_not_submit_orders_when_vix_unavailable(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def apply(self, *args, **kwargs):
+            raise AssertionError("Risk overlay must not run without VIX")
+
+    class CapturingExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted = False
+
+        def get_account_status(self):
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+
+        def execute_weights(self, weights):
+            self.submitted = True
+            return {"orders": [], "portfolio_value": 10000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    executor = CapturingExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 10000.0
+    bot.pipeline = SimpleNamespace(risk_module=CapturingRisk(), current_portfolio_value=10000.0)
+    bot.executor = executor
+
+    def unavailable_vix():
+        raise RuntimeError("Cannot obtain a valid VIX value")
+
+    monkeypatch.setattr(bot, "get_vix_value", unavailable_vix)
+    weights = PortfolioWeights(
+        weights=np.array([0.2, 0.2]),
+        tickers=["AAPL", "MSFT"],
+        timestamp="2026-10-22T10:00:00",
+    )
+    with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
+        bot.execute_trade(weights)
+    assert executor.submitted is False

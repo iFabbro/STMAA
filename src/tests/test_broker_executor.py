@@ -275,6 +275,7 @@ def test_explicit_liquidation_cancels_open_orders_and_closes_long_and_short_posi
     executor = BrokerExecutor()
     fake = FakeTradingClient()
     executor.trading_client = fake
+    executor._get_open_orders = lambda: []
 
     orders = executor._liquidate_all_positions(
         [SimpleNamespace(id="open-1"), SimpleNamespace(id="open-2")]
@@ -301,4 +302,31 @@ def test_explicit_liquidation_aborts_if_open_order_cannot_be_cancelled(alpaca_en
 
     with pytest.raises(RuntimeError, match="cancel failed"):
         executor._liquidate_all_positions([SimpleNamespace(id="open-1")])
+
+def test_explicit_liquidation_waits_for_open_orders_to_clear(alpaca_env):
+    from types import SimpleNamespace
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def cancel_order_by_id(self, order_id):
+            return None
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="3")]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="close", status="accepted")
+
+    executor = BrokerExecutor()
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    executor._get_open_orders = lambda: [SimpleNamespace(id="still-open")]
+
+    with pytest.raises(RuntimeError, match="broker confirms all open orders"):
+        executor._liquidate_all_positions([SimpleNamespace(id="open-1")])
+    assert fake.closed == []
+
 

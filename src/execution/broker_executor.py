@@ -66,6 +66,9 @@ class RiskEngine:
     def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
         if portfolio_value <= 0:
             return 0.0, "portfolio_value_non_positive"
+        if abs(target_notional) < 1e-12:
+            # A zero target is an intentional request to close an existing position.
+            return 0.0, None
         current = abs(float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0))
         # Esposizione lorda attuale = ordini aperti riservati + tutte le posizioni.
         gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
@@ -280,16 +283,10 @@ class BrokerExecutor:
         orders_executed = []
         for ticker, target_weight in zip(weights.tickers, weights.weights):
             target_notional = tradable_budget * float(target_weight)
-            if abs(target_notional) < min_notional:
-                continue
-
-            side = OrderSide.BUY if target_notional > 0 else OrderSide.SELL
-            price = prices.get(ticker, 0)
-            if price <= 0:
-                self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
-                continue
-
-            bounded_notional, risk_block = risk_engine.allow(
+            current_notional = float(
+                positions.get(ticker, {}).get("market_value", 0.0) or 0.0
+            )
+            bounded_target, risk_block = risk_engine.allow(
                 ticker,
                 target_notional,
                 portfolio_value,
@@ -298,9 +295,22 @@ class BrokerExecutor:
             )
             if risk_block:
                 self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
+                # If the desired exposure is blocked, target flat for this symbol.
+                bounded_target = 0.0
+
+            # Weights describe desired positions, not incremental orders. Submit
+            # only the notional delta required to reach the bounded target.
+            order_notional = bounded_target - current_notional
+            if abs(order_notional) < min_notional:
                 continue
 
-            qty = round(abs(bounded_notional) / price, 6)
+            side = OrderSide.BUY if order_notional > 0 else OrderSide.SELL
+            price = prices.get(ticker, 0)
+            if price <= 0:
+                self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
+                continue
+
+            qty = round(abs(order_notional) / price, 6)
             if qty < 0.000001:
                 continue
 

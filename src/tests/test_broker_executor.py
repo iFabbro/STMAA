@@ -88,7 +88,7 @@ def test_reserved_notional_ignores_filled(alpaca_env):
 def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
     executor = BrokerExecutor()
 
-    executor.state["peak_equity"] = 1000.0
+    executor.state["risk_peak_portfolio_value"] = 1000.0
     monkeypatch.setattr(
         executor,
         "get_account_status",
@@ -224,3 +224,81 @@ def test_portfolio_manager_blocks_too_many_symbols(alpaca_env):
     weights = PortfolioWeights(weights=np.array([1.0, 0.0]), tickers=["AAPL", "MSFT"])
     scaled, block = pm.allocate(weights, 10000.0, {}, reserved_notional=0.0)
     assert block == "max_symbol_count"
+
+
+def test_risk_gate_initializes_from_verified_account_equity_not_configured_capital(alpaca_env):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.pop("peak_equity", None)
+    executor.state.pop("risk_peak_portfolio_value", None)
+
+    capped, block = executor._risk_gate(100000.0, 50000.0)
+
+    assert block is None
+    assert capped == pytest.approx(50000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
+
+
+def test_risk_gate_ignores_unverified_legacy_peak_and_prefers_verified_peak(alpaca_env):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["peak_equity"] = 500000.0  # legacy value without provenance
+    executor.state["risk_peak_portfolio_value"] = 100000.0
+
+    capped, block = executor._risk_gate(90000.0, 40000.0)
+
+    assert block is None
+    assert capped == pytest.approx(40000.0)
+    assert executor.state["peak_equity_source"] == "verified_account"
+
+
+def test_explicit_liquidation_cancels_open_orders_and_closes_long_and_short_positions(alpaca_env):
+    from types import SimpleNamespace
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.cancelled = []
+            self.closed = []
+
+        def cancel_order_by_id(self, order_id):
+            self.cancelled.append(order_id)
+
+        def get_all_positions(self):
+            return [
+                SimpleNamespace(symbol="AAPL", qty="3"),
+                SimpleNamespace(symbol="TSLA", qty="-2"),
+                SimpleNamespace(symbol="ZERO", qty="0"),
+            ]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id=f"close-{symbol}", status="accepted")
+
+    executor = BrokerExecutor()
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+
+    orders = executor._liquidate_all_positions(
+        [SimpleNamespace(id="open-1"), SimpleNamespace(id="open-2")]
+    )
+
+    assert fake.cancelled == ["open-1", "open-2"]
+    assert fake.closed == ["AAPL", "TSLA"]
+    assert [order["ticker"] for order in orders] == ["AAPL", "TSLA"]
+    assert [order["quantity"] for order in orders] == [3.0, 2.0]
+
+
+def test_explicit_liquidation_aborts_if_open_order_cannot_be_cancelled(alpaca_env):
+    from types import SimpleNamespace
+
+    class FakeTradingClient:
+        def cancel_order_by_id(self, order_id):
+            raise RuntimeError("cancel failed")
+
+        def get_all_positions(self):
+            raise AssertionError("Must not query/close positions after failed cancellation")
+
+    executor = BrokerExecutor()
+    executor.trading_client = FakeTradingClient()
+
+    with pytest.raises(RuntimeError, match="cancel failed"):
+        executor._liquidate_all_positions([SimpleNamespace(id="open-1")])
+

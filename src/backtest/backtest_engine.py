@@ -102,7 +102,11 @@ class ExecutionConsistentBacktest:
             if len(period_returns) > 1 else 0.0
         )
         sharpe_ratio = annualized_return / annualized_vol if annualized_vol > 0 else 0.0
-        drawdown = values / values.cummax() - 1.0
+        # Include initial capital as the baseline so entry costs on the first
+        # rebalance are reflected in maximum drawdown as well as total return.
+        drawdown_values = np.concatenate(([self.initial_capital], values.to_numpy()))
+        drawdown_peaks = np.maximum.accumulate(drawdown_values)
+        drawdown = drawdown_values / drawdown_peaks - 1.0
         max_drawdown = float(drawdown.min())
         downside_returns = period_returns[period_returns < 0]
         downside_vol = (

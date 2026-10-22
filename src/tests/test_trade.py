@@ -109,3 +109,47 @@ def test_trade_fallback_writes_hub_state(tmp_path, monkeypatch, fake_env):
     assert len(payload["orders"]) == 2
     assert payload["orders"][0]["ticker"] == "AAPL"
     assert payload["orders"][1]["ticker"] == "MSFT"
+
+
+
+def test_get_vix_value_returns_latest_valid_close(monkeypatch):
+    history = pd.DataFrame(
+        {"Close": [18.5, float("nan"), 24.2]},
+        index=pd.date_range("2026-10-19", periods=3, freq="D"),
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            assert symbol == "^VIX"
+
+        def history(self, period, interval):
+            assert period == "5d"
+            assert interval == "1d"
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    assert bot.get_vix_value() == pytest.approx(24.2)
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        pd.DataFrame(),
+        pd.DataFrame({"Close": [float("nan")]}),
+        pd.DataFrame({"Close": [-1.0]}),
+        pd.DataFrame({"Close": [float("inf")]}),
+    ],
+)
+def test_get_vix_value_fails_closed_on_invalid_data(monkeypatch, history):
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, period, interval):
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
+        bot.get_vix_value()

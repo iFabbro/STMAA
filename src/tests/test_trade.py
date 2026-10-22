@@ -123,7 +123,7 @@ def test_get_vix_value_returns_latest_valid_close(monkeypatch):
             assert symbol == "^VIX"
 
         def history(self, period, interval):
-            assert period == "5d"
+            assert period == "10d"
             assert interval == "1d"
             return history
 

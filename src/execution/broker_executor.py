@@ -215,14 +215,14 @@ class BrokerExecutor:
 
         Configured initial capital is not evidence of historical account equity.
         """
-        candidates = [
-            self.state.get("peak_equity"),
-            self.state.get("risk_peak_portfolio_value"),
-        ]
-        for candidate in candidates:
-            if candidate is None:
-                continue
-            value = float(candidate)
+        # Prefer the overlay's verified high-water mark. The legacy peak_equity
+        # field may have been initialized from configured capital by older versions;
+        # trust it only when this version has recorded its verified provenance.
+        verified_peak = self.state.get("risk_peak_portfolio_value")
+        if verified_peak is None and self.state.get("peak_equity_source") == "verified_account":
+            verified_peak = self.state.get("peak_equity")
+        if verified_peak is not None:
+            value = float(verified_peak)
             if not np.isfinite(value) or value <= 0:
                 raise RuntimeError("Persisted drawdown peak is invalid")
             return value
@@ -243,6 +243,7 @@ class BrokerExecutor:
         peak = max(self._get_peak_equity(value), value)
         self.state["peak_equity"] = peak
         self.state["risk_peak_portfolio_value"] = peak
+        self.state["peak_equity_source"] = "verified_account"
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):

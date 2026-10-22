@@ -89,6 +89,5 @@ def test_prediction_uses_latest_market_row_and_same_action_contract():
 def test_legacy_model_without_contract_metadata_is_rejected(tmp_path):
     model_path = tmp_path / "legacy.zip"
     model_path.write_bytes(b"placeholder")
-    agent = PPOAgent(tickers=["A"], model_path=str(model_path))
     with pytest.raises(ValueError, match="no contract metadata"):
-        agent.load()
+        PPOAgent(tickers=["A"], model_path=str(model_path))

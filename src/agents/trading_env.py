@@ -112,7 +112,6 @@ class TradingEnv(gym.Env):
             }
 
         self.portfolio_value *= 1.0 - execution_cost
-        value_after_costs = self.portfolio_value
         self.current_weights = target_weights.copy()
 
         # Holdings selected at row t earn the close-to-close return from t to t+1.

@@ -102,3 +102,29 @@ def test_invalid_prices_or_weight_shapes_fail_explicitly():
         engine.run_backtest(
             valid_prices, lambda _ts, _row: np.array([0.5, 0.5]), ["A"]
         )
+
+
+def test_backtest_rejects_unsorted_timestamps():
+    dates = pd.to_datetime(["2024-01-02", "2024-01-01"])
+    prices = pd.DataFrame({"Close_A": [101.0, 100.0]}, index=dates)
+    engine = ExecutionConsistentBacktest(transaction_cost=0, slippage=0)
+    with pytest.raises(ValueError, match="chronological order"):
+        engine.run_backtest(
+            prices, lambda _ts, _row: np.array([1.0]), ["A"]
+        )
+
+
+def test_sharpe_and_sortino_use_periodic_returns_not_cagr():
+    engine = ExecutionConsistentBacktest(initial_capital=100.0)
+    values = pd.Series([101.0, 100.0, 102.0])
+    metrics = engine._calculate_metrics(values)
+
+    equity = np.array([100.0, 101.0, 100.0, 102.0])
+    returns = equity[1:] / equity[:-1] - 1.0
+    expected_sharpe = returns.mean() / returns.std(ddof=1) * np.sqrt(252)
+    downside = np.minimum(returns, 0.0)
+    expected_sortino = returns.mean() / np.sqrt(np.mean(downside ** 2)) * np.sqrt(252)
+
+    assert metrics["sharpe_ratio"] == pytest.approx(expected_sharpe)
+    assert metrics["sortino_ratio"] == pytest.approx(expected_sortino)
+    assert metrics["cumulative_return"] == pytest.approx(0.02)

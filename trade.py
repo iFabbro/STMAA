@@ -24,6 +24,7 @@ RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 import numpy as np
 import pandas as pd
 import json
+import yfinance as yf
 
 from src.execution.broker_executor import BrokerExecutor
 from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
@@ -127,6 +128,24 @@ class PaperTradingBot:
         print(f"✅ Weights PPO: {portfolio_weights.to_dict()}")
         return portfolio_weights
 
+    def get_vix_value(self) -> float:
+        """Fetch the latest available daily VIX close; fail closed on missing data."""
+        try:
+            history = yf.Ticker("^VIX").history(period="5d", interval="1d")
+            if history.empty or "Close" not in history.columns:
+                raise ValueError("VIX history is empty or has no Close column")
+            close = history["Close"].dropna()
+            if close.empty:
+                raise ValueError("VIX history has no valid closing value")
+            vix = float(close.iloc[-1])
+            if not np.isfinite(vix) or vix < 0:
+                raise ValueError(f"Invalid VIX value: {vix}")
+            return vix
+        except Exception as exc:
+            raise RuntimeError(
+                "Cannot obtain a valid VIX value; refusing to submit new target weights"
+            ) from exc
+
     def execute_trade(self, weights: PortfolioWeights):
         """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
@@ -135,10 +154,13 @@ class PaperTradingBot:
             account = self.executor.get_account_status()
             portfolio_value = float(account.get("portfolio_value", self.initial_capital))
             self.pipeline.current_portfolio_value = portfolio_value
+            vix_value = self.get_vix_value()
+            print(f"📉 VIX latest daily close: {vix_value:.2f}")
             risked_weights = risk_module.apply(
                 None,
                 weights.weights,
                 weights.tickers,
+                vix=vix_value,
                 portfolio_value=portfolio_value,
             )
             weights = PortfolioWeights(
@@ -148,6 +170,7 @@ class PaperTradingBot:
                 metadata={
                     **(weights.metadata or {}),
                     "portfolio_value": portfolio_value,
+                    "vix": vix_value,
                     "risk_overlay_applied": True,
                 },
             )

@@ -152,6 +152,8 @@ class PaperTradingBot:
         risk_module = getattr(self.pipeline, "risk_module", None)
         if risk_module is not None:
             account = self.executor.get_account_status()
+            if account.get("account_data_fresh") is False:
+                raise RuntimeError("Cannot verify current broker account value; refusing to submit target weights")
             portfolio_value = float(account.get("portfolio_value", self.initial_capital))
             if not np.isfinite(portfolio_value) or portfolio_value <= 0:
                 raise RuntimeError("Cannot obtain a valid positive account portfolio value")

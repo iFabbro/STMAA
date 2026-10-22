@@ -330,3 +330,59 @@ def test_explicit_liquidation_waits_for_open_orders_to_clear(alpaca_env):
     assert fake.closed == []
 
 
+
+
+
+def test_get_positions_fails_closed_when_broker_api_is_unavailable(alpaca_env):
+    class FailingTradingClient:
+        def get_all_positions(self):
+            raise ConnectionError("broker API unavailable")
+
+    executor = BrokerExecutor()
+    executor.trading_client = FailingTradingClient()
+
+    with pytest.raises(RuntimeError, match="Unable to retrieve broker positions"):
+        executor.get_positions()
+
+
+def test_execute_weights_does_not_submit_orders_when_positions_are_unreadable(
+    alpaca_env, monkeypatch
+):
+    class FakeTradingClient:
+        def __init__(self):
+            self.submitted = []
+
+        def submit_order(self, request):
+            self.submitted.append(request)
+            raise AssertionError("No order may be submitted when positions are unreadable")
+
+    executor = BrokerExecutor()
+    fake_client = FakeTradingClient()
+    executor.trading_client = fake_client
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "get_positions",
+        lambda: (_ for _ in ()).throw(
+            RuntimeError("Unable to retrieve broker positions; refusing to execute trades")
+        ),
+    )
+
+    weights = PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+
+    with pytest.raises(RuntimeError, match="Unable to retrieve broker positions"):
+        executor.execute_weights(weights)
+
+    assert fake_client.submitted == []

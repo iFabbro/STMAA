@@ -363,6 +363,10 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
     assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is False
 
+    monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
+
 
 
 def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):

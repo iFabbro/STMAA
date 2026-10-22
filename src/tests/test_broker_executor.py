@@ -224,3 +224,57 @@ def test_portfolio_manager_blocks_too_many_symbols(alpaca_env):
     weights = PortfolioWeights(weights=np.array([1.0, 0.0]), tickers=["AAPL", "MSFT"])
     scaled, block = pm.allocate(weights, 10000.0, {}, reserved_notional=0.0)
     assert block == "max_symbol_count"
+
+
+def test_execute_weights_orders_only_delta_to_target_position(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["peak_equity"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 8000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+    })
+    positions = {"AAPL": {"market_value": 200.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="delta-order", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].qty == pytest.approx(3.0)
+    assert str(submitted[0].side).lower().endswith("buy")
+
+
+def test_zero_target_weight_closes_existing_position(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["peak_equity"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 8000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+    })
+    positions = {"AAPL": {"market_value": 200.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="close-order", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(PortfolioWeights(weights=np.array([0.0]), tickers=["AAPL"]))
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].qty == pytest.approx(2.0)
+    assert str(submitted[0].side).lower().endswith("sell")

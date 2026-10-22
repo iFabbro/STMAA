@@ -274,6 +274,11 @@ class BrokerExecutor:
             if order_id is None:
                 raise RuntimeError("Cannot safely liquidate while an open order has no ID")
             self.trading_client.cancel_order_by_id(order_id)
+        remaining_orders = self._get_open_orders()
+        if remaining_orders:
+            raise RuntimeError(
+                "Cannot safely liquidate until broker confirms all open orders are cancelled"
+            )
 
         # Query directly so an API failure cannot be mistaken for an empty portfolio.
         positions = self.trading_client.get_all_positions()

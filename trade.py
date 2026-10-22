@@ -131,9 +131,6 @@ class PaperTradingBot:
 
     def _latest_completed_vix_session_date(self, now=None):
         """Return the latest completed NYSE session date, including holidays/weekends."""
-        from datetime import timezone
-        import pandas as pd
-
         current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
         if current.tzinfo is None:
             current = current.tz_localize("UTC")

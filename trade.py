@@ -153,6 +153,33 @@ class PaperTradingBot:
         if risk_module is not None:
             account = self.executor.get_account_status()
             portfolio_value = float(account.get("portfolio_value", self.initial_capital))
+            if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+                raise RuntimeError("Cannot obtain a valid positive account portfolio value")
+
+            # Persist the high-water mark independently of configured initial capital.
+            # A first verified account snapshot establishes the baseline; later runs
+            # retain the historical peak and advance it only when a new high is reached.
+            executor_state = getattr(self.executor, "state", None)
+            if isinstance(executor_state, dict):
+                stored_peak = executor_state.get("risk_peak_portfolio_value")
+                if stored_peak is None:
+                    stored_peak = portfolio_value
+                else:
+                    stored_peak = float(stored_peak)
+                    if not np.isfinite(stored_peak) or stored_peak <= 0:
+                        raise RuntimeError("Stored risk drawdown peak is invalid")
+                peak_portfolio_value = max(stored_peak, portfolio_value)
+                executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                save_state = getattr(self.executor, "_save_state", None)
+                if callable(save_state):
+                    save_state()
+            else:
+                module_peak = getattr(risk_module, "peak_portfolio_value", None)
+                peak_portfolio_value = max(
+                    float(module_peak) if module_peak is not None else portfolio_value,
+                    portfolio_value,
+                )
+
             self.pipeline.current_portfolio_value = portfolio_value
             vix_value = self.get_vix_value()
             print(f"📉 VIX latest daily close: {vix_value:.2f}")
@@ -162,6 +189,7 @@ class PaperTradingBot:
                 weights.tickers,
                 vix=vix_value,
                 portfolio_value=portfolio_value,
+                peak_portfolio_value=peak_portfolio_value,
             )
             weights = PortfolioWeights(
                 weights=risked_weights,

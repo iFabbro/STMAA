@@ -1,5 +1,6 @@
 """Execution-consistent multi-asset portfolio backtesting."""
 from typing import Callable, Dict, List
+
 import numpy as np
 import pandas as pd
 
@@ -7,8 +8,12 @@ import pandas as pd
 class ExecutionConsistentBacktest:
     """Use prior-close holdings for close-to-close returns."""
 
-    def __init__(self, initial_capital: float = 100000.0,
-                 transaction_cost: float = 0.001, slippage: float = 0.0005):
+    def __init__(
+        self,
+        initial_capital: float = 100000.0,
+        transaction_cost: float = 0.001,
+        slippage: float = 0.0005,
+    ):
         values = np.asarray([initial_capital, transaction_cost, slippage], dtype=float)
         if not np.isfinite(values).all():
             raise ValueError("Capital and cost parameters must be finite")
@@ -38,6 +43,8 @@ class ExecutionConsistentBacktest:
             raise ValueError("Close prices must be finite and strictly positive")
         if not price_data.index.is_unique:
             raise ValueError("price_data index must contain unique timestamps")
+        if not price_data.index.is_monotonic_increasing:
+            raise ValueError("price_data index must be sorted in chronological order")
 
         current_weights = np.zeros(len(tickers), dtype=float)
         portfolio_value = self.initial_capital
@@ -80,47 +87,56 @@ class ExecutionConsistentBacktest:
             portfolio_values, index=price_data.index, name="portfolio_value"
         )
         metrics = self._calculate_metrics(portfolio_series)
-        return {"portfolio_values": portfolio_series, "metrics": metrics,
-                "final_value": float(portfolio_value)}
+        return {
+            "portfolio_values": portfolio_series,
+            "metrics": metrics,
+            "final_value": float(portfolio_value),
+        }
 
     def _calculate_metrics(self, portfolio_series: pd.Series) -> Dict:
-        """Calculate metrics relative to initial capital."""
+        """Calculate annualized metrics from the initial-capital equity curve."""
         if portfolio_series.empty:
             raise ValueError("portfolio_series must not be empty")
         values = portfolio_series.astype(float)
         if not np.isfinite(values.to_numpy()).all() or (values <= 0).any():
             raise ValueError("Portfolio values must be finite and positive")
-        period_returns = values.pct_change().dropna()
-        cumulative_return = float(values.iloc[-1] / self.initial_capital - 1.0)
-        periods = len(values) - 1
+
+        # The baseline makes the initial rebalance cost part of returns and risk.
+        equity_curve = np.concatenate(([self.initial_capital], values.to_numpy()))
+        period_returns = equity_curve[1:] / equity_curve[:-1] - 1.0
+        cumulative_return = float(equity_curve[-1] / self.initial_capital - 1.0)
+        periods = len(period_returns)
         annualized_return = (
-            float((values.iloc[-1] / self.initial_capital) ** (252 / periods) - 1.0)
+            float((equity_curve[-1] / self.initial_capital) ** (252 / periods) - 1.0)
             if periods > 0 else 0.0
         )
-        annualized_vol = (
-            float(period_returns.std(ddof=1) * np.sqrt(252))
-            if len(period_returns) > 1 else 0.0
+
+        return_std = float(period_returns.std(ddof=1)) if periods > 1 else 0.0
+        annualized_vol = return_std * np.sqrt(252)
+        sharpe_ratio = (
+            float(period_returns.mean() / return_std * np.sqrt(252))
+            if return_std > 0 else 0.0
         )
-        sharpe_ratio = annualized_return / annualized_vol if annualized_vol > 0 else 0.0
-        # Include initial capital as the baseline so entry costs on the first
-        # rebalance are reflected in maximum drawdown as well as total return.
-        drawdown_values = np.concatenate(([self.initial_capital], values.to_numpy()))
-        drawdown_peaks = np.maximum.accumulate(drawdown_values)
-        drawdown = drawdown_values / drawdown_peaks - 1.0
+
+        drawdown_peaks = np.maximum.accumulate(equity_curve)
+        drawdown = equity_curve / drawdown_peaks - 1.0
         max_drawdown = float(drawdown.min())
-        downside_returns = period_returns[period_returns < 0]
-        downside_vol = (
-            float(downside_returns.std(ddof=1) * np.sqrt(252))
-            if len(downside_returns) > 1 else 0.0
+
+        downside_returns = np.minimum(period_returns, 0.0)
+        downside_deviation = float(np.sqrt(np.mean(np.square(downside_returns))))
+        sortino_ratio = (
+            float(period_returns.mean() / downside_deviation * np.sqrt(252))
+            if downside_deviation > 0 else 0.0
         )
-        sortino_ratio = annualized_return / downside_vol if downside_vol > 0 else 0.0
-        calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
+        calmar_ratio = (
+            annualized_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
+        )
         return {
             "cumulative_return": cumulative_return,
             "annualized_return": annualized_return,
-            "annualized_volatility": annualized_vol,
+            "annualized_volatility": float(annualized_vol),
             "sharpe_ratio": sharpe_ratio,
             "sortino_ratio": sortino_ratio,
-            "calmar_ratio": calmar_ratio,
+            "calmar_ratio": float(calmar_ratio),
             "max_drawdown": max_drawdown,
         }

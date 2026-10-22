@@ -178,7 +178,7 @@ class PaperTradingBot:
             return vix
         except Exception as exc:
             raise RuntimeError(
-                "Cannot obtain a fresh valid VIX close; refusing to submit new target weights"
+                "Cannot obtain a valid VIX close (missing, invalid, or stale); refusing to submit new target weights"
             ) from exc
 
     def execute_trade(self, weights: PortfolioWeights):

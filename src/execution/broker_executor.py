@@ -48,7 +48,12 @@ class PortfolioManager:
         gross = reserved_notional + sum(abs(float(p.get("market_value", 0.0) or 0.0)) for p in positions.values())
         if gross / portfolio_value > self.max_total_exposure_pct:
             scale = self.max_total_exposure_pct / max(gross / portfolio_value, 1e-9)
-            return type(weights)(weights=weights.weights * scale, tickers=weights.tickers), None
+            return type(weights)(
+                weights=weights.weights * scale,
+                tickers=weights.tickers,
+                timestamp=getattr(weights, "timestamp", None),
+                metadata=getattr(weights, "metadata", None),
+            ), None
         return weights, None
 
 

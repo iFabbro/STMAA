@@ -24,6 +24,8 @@ RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 import numpy as np
 import pandas as pd
 import json
+import yfinance as yf
+import pandas_market_calendars as mcal
 
 from src.execution.broker_executor import BrokerExecutor
 from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
@@ -70,6 +72,8 @@ class PaperTradingBot:
             max_drawdown_threshold=0.15,
             vix_threshold_high=30,
             vix_threshold_low=15,
+            initial_capital=initial_capital,
+            max_gross_exposure=1.0,
         ))
 
         self.processor = DataProcessor(Path("data"))
@@ -125,9 +129,125 @@ class PaperTradingBot:
         print(f"✅ Weights PPO: {portfolio_weights.to_dict()}")
         return portfolio_weights
 
+    def _latest_completed_vix_session_date(self, now=None):
+        """Return the latest completed NYSE session date, including holidays/weekends."""
+        current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+        if current.tzinfo is None:
+            current = current.tz_localize("UTC")
+        current = current.tz_convert("UTC")
+        calendar = mcal.get_calendar("NYSE")
+        start = (current - pd.Timedelta(days=14)).date().isoformat()
+        end = current.date().isoformat()
+        schedule = calendar.schedule(start_date=start, end_date=end)
+        if schedule.empty:
+            raise RuntimeError("NYSE calendar has no recent sessions")
+        completed = schedule[schedule["market_close"] <= current]
+        if completed.empty:
+            raise RuntimeError("No completed NYSE session available for VIX validation")
+        return completed.index[-1].date()
+
+    def get_vix_value(self) -> float:
+        """Fetch a VIX close from the latest completed NYSE session; fail closed if stale."""
+        try:
+            history = yf.Ticker("^VIX").history(period="10d", interval="1d")
+            if history.empty or "Close" not in history.columns:
+                raise ValueError("VIX history is empty or has no Close column")
+            close = history["Close"].dropna()
+            if close.empty:
+                raise ValueError("VIX history has no valid closing value")
+
+            latest_session = self._latest_completed_vix_session_date()
+            dated_values = []
+            for timestamp, value in close.items():
+                observed_at = pd.Timestamp(timestamp)
+                if observed_at.tzinfo is not None:
+                    observed_date = observed_at.tz_convert("America/New_York").date()
+                else:
+                    observed_date = observed_at.date()
+                if observed_date <= latest_session:
+                    dated_values.append((observed_date, float(value)))
+            if not dated_values:
+                raise ValueError("VIX history has no observation for a completed market session")
+            observed_date, vix = max(dated_values, key=lambda item: item[0])
+            if observed_date != latest_session:
+                raise ValueError(
+                    f"Stale VIX close: latest observation {observed_date}, expected {latest_session}"
+                )
+            if not np.isfinite(vix) or vix < 0:
+                raise ValueError(f"Invalid VIX value: {vix}")
+            return vix
+        except Exception as exc:
+            raise RuntimeError(
+                "Cannot obtain a valid VIX close (missing, invalid, or stale); refusing to submit new target weights"
+            ) from exc
+
     def execute_trade(self, weights: PortfolioWeights):
-        """Esegue trade sul broker"""
+        """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
+        risk_module = getattr(self.pipeline, "risk_module", None)
+        if risk_module is not None:
+            account = self.executor.get_account_status()
+            if account.get("account_data_fresh") is False:
+                raise RuntimeError("Cannot verify current broker account value; refusing to submit target weights")
+            portfolio_value = float(account.get("portfolio_value", self.initial_capital))
+            if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+                raise RuntimeError("Cannot obtain a valid positive account portfolio value")
+
+            # Persist the high-water mark independently of configured initial capital.
+            # A first verified account snapshot establishes the baseline; later runs
+            # retain the historical peak and advance it only when a new high is reached.
+            executor_state = getattr(self.executor, "state", None)
+            if isinstance(executor_state, dict):
+                stored_peak = executor_state.get("risk_peak_portfolio_value")
+                if stored_peak is None:
+                    stored_peak = portfolio_value
+                else:
+                    stored_peak = float(stored_peak)
+                    if not np.isfinite(stored_peak) or stored_peak <= 0:
+                        raise RuntimeError("Stored risk drawdown peak is invalid")
+                peak_portfolio_value = max(stored_peak, portfolio_value)
+                executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                save_state = getattr(self.executor, "_save_state", None)
+                if callable(save_state):
+                    save_state()
+            else:
+                module_peak = getattr(risk_module, "peak_portfolio_value", None)
+                peak_portfolio_value = max(
+                    float(module_peak) if module_peak is not None else portfolio_value,
+                    portfolio_value,
+                )
+
+            self.pipeline.current_portfolio_value = portfolio_value
+            vix_value = self.get_vix_value()
+            print(f"📉 VIX latest completed-session close: {vix_value:.2f}")
+            drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)
+            circuit_breaker_triggered = drawdown >= float(
+                getattr(risk_module, "max_drawdown_threshold", 1.0)
+            )
+            liquidate_on_breaker = os.getenv("LIQUIDATE_ON_DRAWDOWN", "false").strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            risked_weights = risk_module.apply(
+                None,
+                weights.weights,
+                weights.tickers,
+                vix=vix_value,
+                portfolio_value=portfolio_value,
+                peak_portfolio_value=peak_portfolio_value,
+            )
+            weights = PortfolioWeights(
+                weights=risked_weights,
+                tickers=weights.tickers,
+                timestamp=weights.timestamp,
+                metadata={
+                    **(weights.metadata or {}),
+                    "portfolio_value": portfolio_value,
+                    "vix": vix_value,
+                    "risk_overlay_applied": True,
+                    "circuit_breaker_triggered": circuit_breaker_triggered,
+                    "liquidate_on_circuit_breaker": liquidate_on_breaker,
+                },
+            )
         result = self.executor.execute_weights(weights)
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:

@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -47,7 +48,12 @@ class PortfolioManager:
         gross = reserved_notional + sum(abs(float(p.get("market_value", 0.0) or 0.0)) for p in positions.values())
         if gross / portfolio_value > self.max_total_exposure_pct:
             scale = self.max_total_exposure_pct / max(gross / portfolio_value, 1e-9)
-            return type(weights)(weights=weights.weights * scale, tickers=weights.tickers), None
+            return type(weights)(
+                weights=weights.weights * scale,
+                tickers=weights.tickers,
+                timestamp=getattr(weights, "timestamp", None),
+                metadata=getattr(weights, "metadata", None),
+            ), None
         return weights, None
 
 
@@ -156,6 +162,7 @@ class BrokerExecutor:
                 "equity": float(account.equity),
                 "daytrade_count": account.daytrade_count,
                 "status": account.status,
+                "account_data_fresh": True,
             }
             self.state["portfolio_value"] = data["portfolio_value"]
             self._save_state()
@@ -167,6 +174,7 @@ class BrokerExecutor:
                 "portfolio_value": self.state.get("portfolio_value", self.initial_capital),
                 "buying_power": 0.0,
                 "equity": self.state.get("portfolio_value", self.initial_capital),
+                "account_data_fresh": False,
             }
 
     def _get_open_orders(self):
@@ -207,12 +215,40 @@ class BrokerExecutor:
     def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
         return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
 
-    def _get_peak_equity(self) -> float:
-        return float(self.state.get("peak_equity", self.initial_capital) or self.initial_capital)
+    def _get_peak_equity(self, portfolio_value: Optional[float] = None) -> float:
+        """Return a persisted high-water mark, or initialize from verified equity.
+
+        Configured initial capital is not evidence of historical account equity.
+        """
+        # Prefer the overlay's verified high-water mark. The legacy peak_equity
+        # field may have been initialized from configured capital by older versions;
+        # trust it only when this version has recorded its verified provenance.
+        verified_peak = self.state.get("risk_peak_portfolio_value")
+        if verified_peak is None and self.state.get("peak_equity_source") == "verified_account":
+            verified_peak = self.state.get("peak_equity")
+        if verified_peak is not None:
+            value = float(verified_peak)
+            if not np.isfinite(value) or value <= 0:
+                raise RuntimeError("Persisted drawdown peak is invalid")
+            return value
+        if portfolio_value is None:
+            stored_value = self.state.get("portfolio_value")
+            if stored_value is None:
+                raise RuntimeError("Cannot establish drawdown baseline without verified account equity")
+            portfolio_value = float(stored_value)
+        value = float(portfolio_value)
+        if not np.isfinite(value) or value <= 0:
+            raise RuntimeError("Cannot establish drawdown baseline from invalid account equity")
+        return value
 
     def _update_peak_equity(self, portfolio_value: float) -> float:
-        peak = max(self._get_peak_equity(), float(portfolio_value))
+        value = float(portfolio_value)
+        if not np.isfinite(value) or value <= 0:
+            raise RuntimeError("Cannot update drawdown peak from invalid account equity")
+        peak = max(self._get_peak_equity(value), value)
         self.state["peak_equity"] = peak
+        self.state["risk_peak_portfolio_value"] = peak
+        self.state["peak_equity_source"] = "verified_account"
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):
@@ -225,6 +261,46 @@ class BrokerExecutor:
         if capped <= 0:
             return 0.0, "max_exposure:0.00%"
         return capped, None
+
+    def _liquidate_all_positions(self, open_orders) -> List[Dict]:
+        """Cancel open orders, then request broker-side closure of every open position.
+
+        This path is called only when the caller explicitly marks a drawdown
+        circuit breaker and opts into liquidation. Any cancellation/position API
+        error aborts the operation instead of reporting a successful liquidation.
+        """
+        for order in open_orders:
+            order_id = getattr(order, "id", None)
+            if order_id is None:
+                raise RuntimeError("Cannot safely liquidate while an open order has no ID")
+            self.trading_client.cancel_order_by_id(order_id)
+        remaining_orders = self._get_open_orders()
+        if remaining_orders:
+            raise RuntimeError(
+                "Cannot safely liquidate until broker confirms all open orders are cancelled"
+            )
+
+        # Query directly so an API failure cannot be mistaken for an empty portfolio.
+        positions = self.trading_client.get_all_positions()
+        liquidations = []
+        for position in positions:
+            symbol = str(getattr(position, "symbol", "")).strip()
+            quantity = float(getattr(position, "qty", 0) or 0)
+            if not symbol or not np.isfinite(quantity):
+                raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity")
+            if quantity == 0:
+                continue
+            order = self.trading_client.close_position(symbol)
+            liquidations.append({
+                "ticker": symbol,
+                "side": "close_position",
+                "quantity": abs(quantity),
+                "order_id": str(getattr(order, "id", "")),
+                "status": str(getattr(order, "status", "submitted")),
+                "timestamp": datetime.now().isoformat(),
+                "price": None,
+            })
+        return liquidations
 
     def get_positions(self) -> Dict[str, Dict]:
         try:
@@ -246,7 +322,11 @@ class BrokerExecutor:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()
+        if account.get("account_data_fresh") is False:
+            raise RuntimeError("Cannot verify current broker account value; refusing to execute target weights")
         portfolio_value = float(account["portfolio_value"])
+        if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+            raise RuntimeError("Cannot execute weights with invalid broker account value")
         buying_power = float(account.get("buying_power", 0.0) or 0.0)
         prices = self._get_prices_from_bars(weights.tickers)
         open_orders = self._get_open_orders()
@@ -277,64 +357,76 @@ class BrokerExecutor:
         if pm_block:
             self.logger.warning(f"Portfolio manager block: {pm_block}")
 
+        metadata = getattr(weights, "metadata", None) or {}
+        circuit_breaker_triggered = bool(metadata.get("circuit_breaker_triggered", False))
+        liquidation_requested = bool(metadata.get("liquidate_on_circuit_breaker", False))
         orders_executed = []
-        for ticker, target_weight in zip(weights.tickers, weights.weights):
-            target_notional = tradable_budget * float(target_weight)
-            if abs(target_notional) < min_notional:
-                continue
-
-            side = OrderSide.BUY if target_notional > 0 else OrderSide.SELL
-            price = prices.get(ticker, 0)
-            if price <= 0:
-                self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
-                continue
-
-            bounded_notional, risk_block = risk_engine.allow(
-                ticker,
-                target_notional,
-                portfolio_value,
-                positions,
-                reserved_notional=reserved_notional,
-            )
-            if risk_block:
-                self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
-                continue
-
-            qty = round(abs(bounded_notional) / price, 6)
-            if qty < 0.000001:
-                continue
-
-            try:
-                order_req = MarketOrderRequest(
-                    symbol=ticker,
-                    qty=qty,
-                    side=side,
-                    time_in_force=TimeInForce.DAY,
+        if circuit_breaker_triggered:
+            if liquidation_requested:
+                self.logger.warning("Drawdown circuit breaker: liquidating all open positions by explicit policy")
+                orders_executed = self._liquidate_all_positions(open_orders)
+            else:
+                self.logger.warning(
+                    "Drawdown circuit breaker: blocking new orders; existing positions are retained"
                 )
-                order = self.trading_client.submit_order(order_req)
-                order_info = {
-                    "ticker": ticker,
-                    "side": side.value,
-                    "quantity": qty,
-                    "order_id": str(order.id),
-                    "status": str(order.status),
-                    "timestamp": datetime.now().isoformat(),
-                    "price": price,
-                }
-                orders_executed.append(order_info)
-                self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
-            except Exception as e:
-                self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")
-                orders_executed.append({
-                    "ticker": ticker,
-                    "side": side.value,
-                    "quantity": qty,
-                    "order_id": None,
-                    "status": "failed",
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat(),
-                    "price": price,
-                })
+        else:
+            for ticker, target_weight in zip(weights.tickers, weights.weights):
+                target_notional = tradable_budget * float(target_weight)
+                if abs(target_notional) < min_notional:
+                    continue
+
+                side = OrderSide.BUY if target_notional > 0 else OrderSide.SELL
+                price = prices.get(ticker, 0)
+                if price <= 0:
+                    self.logger.warning(f"Prezzo non disponibile per {ticker}, skip")
+                    continue
+
+                bounded_notional, risk_block = risk_engine.allow(
+                    ticker,
+                    target_notional,
+                    portfolio_value,
+                    positions,
+                    reserved_notional=reserved_notional,
+                )
+                if risk_block:
+                    self.logger.warning(f"Risk engine block {ticker}: {risk_block}")
+                    continue
+
+                qty = round(abs(bounded_notional) / price, 6)
+                if qty < 0.000001:
+                    continue
+
+                try:
+                    order_req = MarketOrderRequest(
+                        symbol=ticker,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                    order = self.trading_client.submit_order(order_req)
+                    order_info = {
+                        "ticker": ticker,
+                        "side": side.value,
+                        "quantity": qty,
+                        "order_id": str(order.id),
+                        "status": str(order.status),
+                        "timestamp": datetime.now().isoformat(),
+                        "price": price,
+                    }
+                    orders_executed.append(order_info)
+                    self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
+                except Exception as e:
+                    self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")
+                    orders_executed.append({
+                        "ticker": ticker,
+                        "side": side.value,
+                        "quantity": qty,
+                        "order_id": None,
+                        "status": "failed",
+                        "error": str(e),
+                        "timestamp": datetime.now().isoformat(),
+                        "price": price,
+                    })
 
         self.state["last_execution_time"] = datetime.now().isoformat()
         self.state["total_orders"] += len(orders_executed)
@@ -349,6 +441,8 @@ class BrokerExecutor:
         result = {
             "orders": orders_executed,
             "portfolio_value": portfolio_value,
+            "circuit_breaker_triggered": circuit_breaker_triggered,
+            "liquidation_requested": circuit_breaker_triggered and liquidation_requested,
             "timestamp": datetime.now().isoformat(),
             "metrics": metrics,
         }

@@ -109,3 +109,295 @@ def test_trade_fallback_writes_hub_state(tmp_path, monkeypatch, fake_env):
     assert len(payload["orders"]) == 2
     assert payload["orders"][0]["ticker"] == "AAPL"
     assert payload["orders"][1]["ticker"] == "MSFT"
+
+
+
+def test_get_vix_value_returns_latest_valid_close(monkeypatch):
+    history = pd.DataFrame(
+        {"Close": [18.5, float("nan"), 24.2]},
+        index=pd.date_range("2026-10-19", periods=3, freq="D"),
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            assert symbol == "^VIX"
+
+        def history(self, period, interval):
+            assert period == "10d"
+            assert interval == "1d"
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    monkeypatch.setattr(bot, "_latest_completed_vix_session_date", lambda: history.index[-1].date())
+    assert bot.get_vix_value() == pytest.approx(24.2)
+
+
+
+def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
+    history = pd.DataFrame(
+        {"Close": [20.0]},
+        index=pd.DatetimeIndex(["2026-10-20"]),
+    )
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, period, interval):
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    monkeypatch.setattr(
+        bot, "_latest_completed_vix_session_date", lambda: pd.Timestamp("2026-10-21").date()
+    )
+    with pytest.raises(RuntimeError, match="valid VIX close"):
+        bot.get_vix_value()
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        pd.DataFrame(),
+        pd.DataFrame({"Close": [float("nan")]}),
+        pd.DataFrame({"Close": [-1.0]}),
+        pd.DataFrame({"Close": [float("inf")]}),
+    ],
+)
+def test_get_vix_value_fails_closed_on_invalid_data(monkeypatch, history):
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, period, interval):
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
+        bot.get_vix_value()
+
+
+
+def test_execute_trade_passes_vix_to_risk_overlay(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.asarray(weights, dtype=float) * 0.5
+
+    class CapturingExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 10000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = CapturingExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 10000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=10000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL", "MSFT"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 32.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    original = PortfolioWeights(
+        weights=np.array([0.2, 0.2]),
+        tickers=["AAPL", "MSFT"],
+        timestamp="2026-10-22T10:00:00",
+    )
+    bot.execute_trade(original)
+
+    assert risk.kwargs["vix"] == pytest.approx(32.0)
+    assert risk.kwargs["portfolio_value"] == pytest.approx(10000.0)
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(10000.0)
+    assert np.allclose(executor.submitted_weights.weights, np.array([0.1, 0.1]))
+    assert executor.submitted_weights.metadata["vix"] == pytest.approx(32.0)
+    assert executor.submitted_weights.metadata["risk_overlay_applied"] is True
+
+
+def test_execute_trade_does_not_submit_orders_when_vix_unavailable(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def apply(self, *args, **kwargs):
+            raise AssertionError("Risk overlay must not run without VIX")
+
+    class CapturingExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted = False
+
+        def get_account_status(self):
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+
+        def execute_weights(self, weights):
+            self.submitted = True
+            return {"orders": [], "portfolio_value": 10000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    executor = CapturingExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 10000.0
+    bot.pipeline = SimpleNamespace(risk_module=CapturingRisk(), current_portfolio_value=10000.0)
+    bot.executor = executor
+
+    def unavailable_vix():
+        raise RuntimeError("Cannot obtain a valid VIX value")
+
+    monkeypatch.setattr(bot, "get_vix_value", unavailable_vix)
+    weights = PortfolioWeights(
+        weights=np.array([0.2, 0.2]),
+        tickers=["AAPL", "MSFT"],
+        timestamp="2026-10-22T10:00:00",
+    )
+    with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
+        bot.execute_trade(weights)
+    assert executor.submitted is False
+
+
+
+def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.asarray(weights, dtype=float)
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {}
+            self.saved = False
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+
+        def _save_state(self):
+            self.saved = True
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert risk.kwargs["portfolio_value"] == pytest.approx(100000.0)
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.saved is True
+
+
+def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+            self.max_drawdown_threshold = 0.15
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.zeros(len(tickers), dtype=float)
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {"risk_peak_portfolio_value": 120000.0}
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+
+        def _save_state(self):
+            pass
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(120000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
+    np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
+    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
+    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is False
+
+    monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
+
+
+
+def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def apply(self, *args, **kwargs):
+            raise AssertionError("Risk overlay must not run with stale account data")
+
+    class StaleExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.submitted = False
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0,
+                "cash": 50000.0,
+                "equity": 100000.0,
+                "account_data_fresh": False,
+            }
+
+        def execute_weights(self, weights):
+            self.submitted = True
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    executor = StaleExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=CapturingRisk(), current_portfolio_value=500000.0)
+    bot.executor = executor
+    with pytest.raises(RuntimeError, match="Cannot verify current broker account value"):
+        bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    assert executor.submitted is False

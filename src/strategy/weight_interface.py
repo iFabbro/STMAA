@@ -1,54 +1,63 @@
-"""Weight-Centric Interface - cuore architettura FinRL-X
+"""Weight-centric strategy interface.
 
-Ogni strategia produce un vettore di pesi w_t ∈ R^n
-Questo è l'UNICO contratto tra strategia ed esecuzione.
+PortfolioWeights preserves the weights emitted by the final pipeline stage.
+In particular, it must not normalize after a risk overlay, because that can
+undo VIX scaling or violate per-position limits.
 """
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Optional
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+
 
 class StrategyComponent(Enum):
-    """Componenti modulari della pipeline"""
+    """Pipeline components."""
     STOCK_SELECTION = "selection"
     PORTFOLIO_ALLOCATION = "allocation"
     TIMING_ADJUSTMENT = "timing"
     RISK_OVERLAY = "risk"
 
+
 @dataclass
 class PortfolioWeights:
-    """Vettore di pesi di portafoglio - interface contract"""
-    weights: np.ndarray  # Pesi normalizzati (somma = 1.0)
-    tickers: List[str]   # Lista tickers corrispondente
+    """Portfolio weight vector; preserves the supplied allocation exactly."""
+    weights: np.ndarray
+    tickers: List[str]
     timestamp: Optional[str] = None
     metadata: Dict = None
-    
+
     def __post_init__(self):
-        # Normalizza pesi
-        if self.weights.sum() > 0:
-            self.weights = self.weights / self.weights.sum()
-        
-        # Verifica lunghezza
-        assert len(self.weights) == len(self.tickers), \
-            f"Mismatch: {len(self.weights)} weights vs {len(self.tickers)} tickers"
-    
+        self.weights = np.asarray(self.weights, dtype=float)
+        if self.weights.ndim != 1:
+            raise ValueError("weights must be a one-dimensional vector")
+        if len(self.weights) != len(self.tickers):
+            raise ValueError(
+                f"Mismatch: {len(self.weights)} weights vs {len(self.tickers)} tickers"
+            )
+        if not self.tickers or len(set(self.tickers)) != len(self.tickers):
+            raise ValueError("tickers must be a non-empty list of unique symbols")
+        if not np.isfinite(self.weights).all():
+            raise ValueError("weights must all be finite")
+
     def to_dict(self) -> Dict:
         return {
-            'weights': self.weights.tolist(),
-            'tickers': self.tickers,
-            'timestamp': self.timestamp,
-            'metadata': self.metadata or {}
+            "weights": self.weights.tolist(),
+            "tickers": self.tickers,
+            "timestamp": self.timestamp,
+            "metadata": self.metadata or {},
         }
-    
+
     def get_exposure(self) -> float:
-        """Restituisce esposizione totale (assoluta)"""
-        return np.abs(self.weights).sum()
+        """Return total absolute exposure, including long and short positions."""
+        return float(np.abs(self.weights).sum())
+
 
 class WeightCentricPipeline:
-    """Pipeline composita FinRL-X: Selection → Allocation → Timing → Risk"""
-    
+    """Pipeline: Selection -> Allocation -> Timing -> Risk."""
+
     def __init__(self, initial_capital: float = 100000.0):
         self.initial_capital = initial_capital
         self.current_portfolio_value = initial_capital
@@ -56,63 +65,58 @@ class WeightCentricPipeline:
         self.allocation_module = None
         self.timing_module = None
         self.risk_module = None
-    
+
     def set_selection(self, module):
-        """Imposta modulo stock selection"""
         self.selection_module = module
         return self
-    
+
     def set_allocation(self, module):
-        """Imposta modulo portfolio allocation"""
         self.allocation_module = module
         return self
-    
+
     def set_timing(self, module):
-        """Imposta modulo timing adjustment"""
         self.timing_module = module
         return self
-    
+
     def set_risk(self, module):
-        """Imposta modulo risk overlay"""
         self.risk_module = module
         return self
-    
-    def execute(self, market_data: pd.DataFrame, 
-                vix: Optional[float] = None,
+
+    def execute(self, market_data: pd.DataFrame, vix: Optional[float] = None,
                 **kwargs) -> PortfolioWeights:
-        """Esegue pipeline completa secondo Algorithm 1
-        
-        w_t = R_t(T_t(A_t(S_t(X≤t))))
-        """
+        """Run selection, allocation, timing, and risk in order."""
         tickers = market_data.columns.get_level_values(0).unique().tolist()
-        
-        # 1. Stock Selection: seleziona candidato C_t ⊆ U_t
         if self.selection_module:
             candidate_set = self.selection_module.select(market_data, tickers, **kwargs)
         else:
-            candidate_set = tickers  # Default: tutti i tickers
-        
-        # 2. Portfolio Allocation: w_base_t = A(C_t)
+            candidate_set = tickers
+
         if self.allocation_module:
-            w_base = self.allocation_module.allocate(market_data, candidate_set, **kwargs)
+            w_base = self.allocation_module.allocate(
+                market_data, candidate_set, **kwargs
+            )
         else:
-            w_base = np.ones(len(candidate_set)) / len(candidate_set)  # Equal-weight
-        
-        # 3. Timing Adjustment: w_timing_t = T(w_base_t)
+            if not candidate_set:
+                raise ValueError("No tickers selected for allocation")
+            w_base = np.ones(len(candidate_set), dtype=float) / len(candidate_set)
+
         if self.timing_module:
-            w_timing = self.timing_module.adjust(market_data, w_base, candidate_set, **kwargs)
+            w_timing = self.timing_module.adjust(
+                market_data, w_base, candidate_set, **kwargs
+            )
         else:
-            w_timing = w_base.copy()
-        
-        # 4. Risk Overlay: w_t = R(w_timing_t)
+            w_timing = np.asarray(w_base, dtype=float).copy()
+
         if self.risk_module:
-            w_final = self.risk_module.apply(market_data, w_timing, candidate_set, vix=vix, **kwargs)
+            w_final = self.risk_module.apply(
+                market_data, w_timing, candidate_set, vix=vix, **kwargs
+            )
         else:
             w_final = w_timing.copy()
-        
+
         return PortfolioWeights(
             weights=w_final,
             tickers=candidate_set,
             timestamp=str(datetime.now()),
-            metadata={'portfolio_value': self.current_portfolio_value}
+            metadata={"portfolio_value": self.current_portfolio_value},
         )

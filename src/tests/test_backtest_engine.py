@@ -1,38 +1,104 @@
-import pandas as pd
 import numpy as np
-from pathlib import Path
-import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
+import pandas as pd
+import pytest
 from src.backtest.backtest_engine import ExecutionConsistentBacktest
+
 
 def test_backtest_engine_creation():
     engine = ExecutionConsistentBacktest(
-        initial_capital=100000,
-        transaction_cost=0.001,
-        slippage=0.0005
+        initial_capital=100000, transaction_cost=0.001, slippage=0.0005
     )
-    
     assert engine.initial_capital == 100000
-    print("✅ Backtest engine creato")
+
 
 def test_metrics_calculation():
     engine = ExecutionConsistentBacktest()
-    
-    dates = pd.date_range('2024-01-01', periods=100, freq='D')
-    portfolio_values = pd.Series(
-        100000 * np.exp(np.cumsum(np.random.randn(100) * 0.01)),
-        index=dates
+    dates = pd.date_range("2024-01-01", periods=100, freq="D")
+    values = pd.Series(
+        100000 * np.exp(np.cumsum(np.random.default_rng(7).normal(0, 0.01, 100))),
+        index=dates,
     )
-    
-    metrics = engine._calculate_metrics(portfolio_values)
-    
-    assert 'sharpe_ratio' in metrics
-    assert 'max_drawdown' in metrics
-    assert 'cumulative_return' in metrics
-    print("✅ Metrics calcolati correttamente")
+    metrics = engine._calculate_metrics(values)
+    assert "sharpe_ratio" in metrics
+    assert "max_drawdown" in metrics
+    assert "cumulative_return" in metrics
 
-if __name__ == "__main__":
-    test_backtest_engine_creation()
-    test_metrics_calculation()
-    print("\n🎉 Tutti i test backtest engine passati!")
+
+def test_multi_asset_returns_are_temporal_not_cross_sectional():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 110.0, 121.0], "Close_B": [100.0, 90.0, 81.0]},
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0, slippage=0
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([1.0, 0.0]), ["A", "B"]
+    )
+    assert result["portfolio_values"].iloc[0] == pytest.approx(10000)
+    assert result["portfolio_values"].iloc[1] == pytest.approx(11000)
+    assert result["portfolio_values"].iloc[2] == pytest.approx(12100)
+    assert result["final_value"] == pytest.approx(12100)
+
+
+def test_turnover_costs_are_charged_on_rebalance_not_as_weight_scaling():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 100.0, 100.0]},
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([0.5]), ["A"]
+    )
+    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
+    assert result["portfolio_values"].iloc[-1] == pytest.approx(9850.0)
+
+
+def test_max_drawdown_includes_initial_rebalance_cost():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 100.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([0.5]), ["A"]
+    )
+    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
+    assert result["metrics"]["max_drawdown"] == pytest.approx(-0.015)
+
+
+def test_turnover_uses_drifted_weights_after_market_returns():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 200.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    targets = iter([np.array([0.5]), np.array([2.0 / 3.0])])
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: next(targets), ["A"]
+    )
+    # First rebalance costs 150; the 100% price rise drifts the holding to
+    # 2/3 of equity, so the matching second target creates no extra turnover.
+    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
+    assert result["portfolio_values"].iloc[-1] == pytest.approx(14775.0)
+
+
+def test_invalid_prices_or_weight_shapes_fail_explicitly():
+    dates = pd.date_range("2024-01-01", periods=2, freq="D")
+    invalid_prices = pd.DataFrame({"Close_A": [100.0, np.nan]}, index=dates)
+    engine = ExecutionConsistentBacktest(transaction_cost=0, slippage=0)
+    with pytest.raises(ValueError, match="Close prices"):
+        engine.run_backtest(
+            invalid_prices, lambda _ts, _row: np.array([1.0]), ["A"]
+        )
+    valid_prices = pd.DataFrame({"Close_A": [100.0, 101.0]}, index=dates)
+    with pytest.raises(ValueError, match="Expected 1 target weights"):
+        engine.run_backtest(
+            valid_prices, lambda _ts, _row: np.array([0.5, 0.5]), ["A"]
+        )

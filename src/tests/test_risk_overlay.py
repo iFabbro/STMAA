@@ -1,45 +1,93 @@
 import numpy as np
-from pathlib import Path
-import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
+import pytest
 from src.strategy.risk_overlay import RiskOverlayModule
+
 
 def test_risk_overlay_creation():
     overlay = RiskOverlayModule(
-        max_position_size=0.2,
-        vix_threshold_high=30,
-        vix_threshold_low=15
+        max_position_size=0.2, vix_threshold_high=30, vix_threshold_low=15
     )
-    
     assert overlay.max_position_size == 0.2
-    print("✅ RiskOverlayModule creato")
+
 
 def test_vix_scaling():
     overlay = RiskOverlayModule()
-    
-    scale_low = overlay._calculate_vix_scaling(12)
-    assert scale_low == 1.0
-    
-    scale_high = overlay._calculate_vix_scaling(35)
-    assert scale_high == 0.5
-    
+    assert overlay._calculate_vix_scaling(12) == 1.0
+    assert overlay._calculate_vix_scaling(35) == 0.5
     scale_mid = overlay._calculate_vix_scaling(22)
     assert 0.5 < scale_mid < 1.0
-    
-    print("✅ VIX scaling funzionante")
 
-def test_position_cap():
-    _overlay = RiskOverlayModule(max_position_size=0.2)
-    
-    weights = np.array([0.5, 0.3, 0.2])
-    capped = np.clip(weights, -0.2, 0.2)
-    
-    assert capped[0] == 0.2
-    print("✅ Position cap funzionante")
 
-if __name__ == "__main__":
-    test_risk_overlay_creation()
-    test_vix_scaling()
-    test_position_cap()
-    print("\n🎉 Tutti i test risk overlay passati!")
+def test_position_cap_survives_vix_scaling_without_renormalization():
+    overlay = RiskOverlayModule(max_position_size=0.2)
+    result = overlay.apply(
+        None, np.array([0.8, 0.8, -0.7]), ["A", "B", "C"], vix=35
+    )
+    np.testing.assert_allclose(result, np.array([0.1, 0.1, -0.1]))
+    assert np.max(np.abs(result)) <= 0.2
+    assert np.abs(result).sum() == pytest.approx(0.3)
+
+
+def test_low_vix_keeps_caps_and_drawdown_circuit_breaker():
+    overlay = RiskOverlayModule(max_position_size=0.2, max_drawdown_threshold=0.15)
+    result = overlay.apply(None, np.array([0.8, 0.1]), ["A", "B"], vix=12)
+    np.testing.assert_allclose(result, np.array([0.2, 0.1]))
+    stopped = overlay.apply(
+        None, np.array([0.1, 0.1]), ["A", "B"], vix=12, portfolio_value=80000
+    )
+    np.testing.assert_array_equal(stopped, np.zeros(2))
+
+
+def test_invalid_weights_and_vix_fail_explicitly():
+    overlay = RiskOverlayModule(max_position_size=0.2)
+    with pytest.raises(ValueError, match="finite"):
+        overlay.apply(None, np.array([np.nan]), ["A"])
+    with pytest.raises(ValueError, match="vix"):
+        overlay.apply(None, np.array([0.1]), ["A"], vix=float("nan"))
+    with pytest.raises(ValueError, match="Expected 1 weights"):
+        overlay.apply(None, np.array([0.1, 0.2]), ["A"])
+
+
+def test_adaptive_sizing_uses_normalized_atr_and_preserves_signs():
+    overlay = RiskOverlayModule(max_position_size=0.2)
+    result = overlay.adaptive_position_sizing(
+        np.array([0.1, 0.1, -0.1]),
+        np.array([0.01, 0.02, 0.04]),
+    )
+    # Inverse-ATR raw scores are [10, 5, -2.5]; scale maximum to the 20% cap.
+    np.testing.assert_allclose(result, np.array([0.2, 0.1, -0.05]))
+    assert np.max(np.abs(result)) <= overlay.max_position_size
+    assert result[0] > 0 and result[1] > 0 and result[2] < 0
+
+
+def test_adaptive_sizing_respects_cap_and_keeps_zero_weights():
+    overlay = RiskOverlayModule(max_position_size=0.15)
+    result = overlay.adaptive_position_sizing(
+        np.array([0.1, 0.0, -0.1]), np.array([0.01, 0.02, 0.04])
+    )
+    assert np.max(np.abs(result)) <= 0.15
+    assert result[1] == 0.0
+    assert result[0] > 0 and result[2] < 0
+
+
+@pytest.mark.parametrize(
+    ("weights", "atr_values", "message"),
+    [
+        ([0.1, 0.2], [0.01], "equal-length"),
+        ([0.1], [0.0], "strictly positive"),
+        ([0.1], [np.nan], "finite"),
+        ([np.inf], [0.01], "finite"),
+    ],
+)
+def test_adaptive_sizing_rejects_invalid_inputs(weights, atr_values, message):
+    overlay = RiskOverlayModule()
+    with pytest.raises(ValueError, match=message):
+        overlay.adaptive_position_sizing(
+            np.asarray(weights), np.asarray(atr_values)
+        )
+
+
+def test_adaptive_sizing_accepts_empty_vectors():
+    overlay = RiskOverlayModule()
+    result = overlay.adaptive_position_sizing(np.array([]), np.array([]))
+    assert result.shape == (0,)

@@ -199,6 +199,7 @@ def test_execute_trade_passes_vix_to_risk_overlay(monkeypatch):
 
     assert risk.kwargs["vix"] == pytest.approx(32.0)
     assert risk.kwargs["portfolio_value"] == pytest.approx(10000.0)
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(10000.0)
     assert np.allclose(executor.submitted_weights.weights, np.array([0.1, 0.1]))
     assert executor.submitted_weights.metadata["vix"] == pytest.approx(32.0)
     assert executor.submitted_weights.metadata["risk_overlay_applied"] is True
@@ -241,3 +242,96 @@ def test_execute_trade_does_not_submit_orders_when_vix_unavailable(monkeypatch):
     with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
         bot.execute_trade(weights)
     assert executor.submitted is False
+
+
+
+def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.asarray(weights, dtype=float)
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {}
+            self.saved = False
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+
+        def _save_state(self):
+            self.saved = True
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert risk.kwargs["portfolio_value"] == pytest.approx(100000.0)
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.saved is True
+
+
+def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.zeros(len(tickers), dtype=float)
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {"risk_peak_portfolio_value": 120000.0}
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+
+        def _save_state(self):
+            pass
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(120000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
+    np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))

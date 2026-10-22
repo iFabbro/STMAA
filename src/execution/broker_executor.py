@@ -156,6 +156,7 @@ class BrokerExecutor:
                 "equity": float(account.equity),
                 "daytrade_count": account.daytrade_count,
                 "status": account.status,
+                "account_data_fresh": True,
             }
             self.state["portfolio_value"] = data["portfolio_value"]
             self._save_state()
@@ -167,6 +168,7 @@ class BrokerExecutor:
                 "portfolio_value": self.state.get("portfolio_value", self.initial_capital),
                 "buying_power": 0.0,
                 "equity": self.state.get("portfolio_value", self.initial_capital),
+                "account_data_fresh": False,
             }
 
     def _get_open_orders(self):

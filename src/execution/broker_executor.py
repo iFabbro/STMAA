@@ -303,6 +303,11 @@ class BrokerExecutor:
         return liquidations
 
     def get_positions(self) -> Dict[str, Dict]:
+        """Return verified broker positions or fail closed when they are unreadable.
+
+        An API failure must never be represented as an empty portfolio: callers
+        use this result to calculate exposure and position-level risk limits.
+        """
         try:
             positions = self.trading_client.get_all_positions()
             return {
@@ -315,8 +320,10 @@ class BrokerExecutor:
                 for p in positions
             }
         except Exception as e:
-            self.logger.error(f"get_positions error: {e}")
-            return {}
+            self.logger.error("get_positions error; refusing to trade without verified positions: %s", e)
+            raise RuntimeError(
+                "Unable to retrieve broker positions; refusing to execute trades"
+            ) from e
 
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")

@@ -438,7 +438,7 @@ class BrokerExecutor:
                 continue
 
             matched = candidates[0]
-            order_id = str(getattr(matched, "id"))
+            order_id = str(matched.id)
             raw_status = getattr(matched, "status", "")
             status = str(getattr(raw_status, "value", raw_status)).lower()
             if status in terminal_rejections:

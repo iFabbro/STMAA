@@ -1816,3 +1816,102 @@ def test_unresolved_liquidation_stays_blocked_without_unique_broker_match(
     assert fake.closed == []
     assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
     assert executor.state.get("emergency_liquidation_pending", {}) == {}
+
+
+
+def test_corrupt_persisted_broker_state_fails_closed_without_overwriting_file(
+    alpaca_env
+):
+    import json
+    from pathlib import Path
+
+    state_path = Path("logs/execution/broker_state.json")
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    original = '{"emergency_liquidation_pending": '
+    state_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="refusing execution with unverified liquidation state"):
+        BrokerExecutor()
+
+    assert state_path.read_text(encoding="utf-8") == original
+
+
+def test_state_write_replace_failure_preserves_previous_persisted_state(
+    alpaca_env, monkeypatch
+):
+    import json
+    import src.execution.broker_executor as broker_executor_module
+
+    executor = BrokerExecutor()
+    original = executor.state_file.read_text(encoding="utf-8")
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-accepted"}
+
+    def fail_replace(source, destination):
+        raise OSError("simulated atomic replace failure")
+
+    monkeypatch.setattr(broker_executor_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated atomic replace failure"):
+        executor._save_state()
+
+    assert executor.state_file.read_text(encoding="utf-8") == original
+    assert list(executor.state_file.parent.glob(f".{executor.state_file.name}.*.tmp")) == []
+    assert json.loads(original).get("emergency_liquidation_pending", {}) == {}
+
+
+def test_partial_close_order_remains_pending_across_restart_and_repeated_reconciliation(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+    first.state["emergency_liquidation_pending"] = {"AAPL": "close-partial"}
+    first._save_state()
+    fake = SimpleNamespace(
+        closed=[],
+        get_all_positions=lambda: [SimpleNamespace(symbol="AAPL", qty="0.4")],
+        get_order_by_id=lambda order_id: SimpleNamespace(
+            id=order_id, status="partially_filled"
+        ),
+        close_position=lambda symbol: pytest.fail(
+            "Must not submit another close while the prior order is partially filled"
+        ),
+    )
+    first.trading_client = fake
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+    assert first._liquidate_all_positions([]) == []
+    assert first.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-partial"
+    }
+
+    # Restart from disk and reconcile the same broker snapshot again.
+    resumed = BrokerExecutor()
+    resumed.trading_client = fake
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+    assert resumed._liquidate_all_positions([]) == []
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-partial"
+    }
+
+
+def test_failed_pre_submission_state_write_never_sends_close_order(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    fake = SimpleNamespace(
+        closed=[],
+        get_all_positions=lambda: [SimpleNamespace(symbol="AAPL", qty="1")],
+        close_position=lambda symbol: fake.closed.append(symbol),
+    )
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "_save_state",
+        lambda: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+
+    with pytest.raises(OSError, match="disk unavailable"):
+        executor._liquidate_all_positions([])
+
+    assert fake.closed == []

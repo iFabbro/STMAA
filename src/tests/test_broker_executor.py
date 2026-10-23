@@ -1516,3 +1516,47 @@ def test_unresolved_close_intent_survives_restart_without_duplicate_submission(
     assert resumed_executor._liquidate_all_positions([]) == []
     assert resumed_submissions == []
     assert resumed_executor.state["emergency_liquidation_unresolved"]["AAPL"]
+
+
+
+def test_emergency_filled_close_stays_pending_until_positions_confirm_flat(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+            self.positions = [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_all_positions(self):
+            return self.positions
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="filled")
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="close-AAPL", status="filled")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    first = executor._liquidate_all_positions([])
+    assert first[0]["status"] == "filled"
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL"
+    }
+    assert fake.closed == ["AAPL"]
+
+    # The next broker snapshot confirms the position is flat. The filled order
+    # is reconciled and must not be submitted again.
+    fake.positions = []
+    second = executor._liquidate_all_positions([])
+    assert second == []
+    assert executor.state["emergency_liquidation_pending"] == {}
+    assert fake.closed == ["AAPL"]

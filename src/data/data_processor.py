@@ -93,7 +93,10 @@ class DataProcessor:
         gain = delta.clip(lower=0).rolling(window=14).mean()
         loss = (-delta.clip(upper=0)).rolling(window=14).mean()
         rs = gain / loss.replace(0, np.nan)
-        result["RSI"] = 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
+        # A positive gain with zero average loss has RSI 100; a flat window is 50.
+        rsi = rsi.where(loss.ne(0), np.where(gain.gt(0), 100.0, 50.0))
+        result["RSI"] = rsi
 
         exp1 = close.ewm(span=12, adjust=False).mean()
         exp2 = close.ewm(span=26, adjust=False).mean()

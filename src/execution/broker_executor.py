@@ -141,15 +141,28 @@ class BrokerExecutor:
         self.logger.info(f"✅ BrokerExecutor inizializzato – paper={paper_trading}")
 
     def _load_state(self):
-        if self.state_file.exists():
-            try:
-                with open(self.state_file) as f:
-                    self.state = json.load(f)
-                self.logger.info("✅ Stato broker caricato da persistenza")
-            except Exception as e:
-                self.logger.warning(f"State load error: {e}")
-        else:
+        if not self.state_file.exists():
             self._save_state()
+            return
+
+        try:
+            with open(self.state_file, encoding="utf-8") as state_file:
+                loaded_state = json.load(state_file)
+            if not isinstance(loaded_state, dict):
+                raise ValueError("persisted broker state must be a JSON object")
+            for key in ("emergency_liquidation_pending", "emergency_liquidation_unresolved"):
+                if key in loaded_state and not isinstance(loaded_state[key], dict):
+                    raise ValueError(f"persisted broker state field {key} must be an object")
+        except Exception as exc:
+            # A corrupt/unreadable state may contain the only record of an accepted
+            # close request. Never continue with an empty in-memory state: that could
+            # cause a duplicate close after restart.
+            raise RuntimeError(
+                "Unable to load persisted broker state; refusing execution with unverified liquidation state"
+            ) from exc
+
+        self.state.update(loaded_state)
+        self.logger.info("Broker state loaded from persistence")
 
     def _save_state(self):
         """Persist state atomically so an interrupted write cannot truncate it."""
@@ -500,9 +513,10 @@ class BrokerExecutor:
         positions = self.trading_client.get_all_positions()
         liquidations = []
         active_pending = {}
+        # Only confirmed terminal outcomes permit a new close. A replaced order
+        # may have a live child, while suspended/done_for_day can resume.
         terminal_statuses = {
             "filled", "canceled", "cancelled", "expired", "rejected",
-            "replaced", "done_for_day", "suspended",
         }
         for symbol, order_id in pending.items():
             if str(order_id) in remaining_ids:
@@ -601,7 +615,6 @@ class BrokerExecutor:
             # zero quantity; otherwise a retry could submit a duplicate close.
             if status == "filled" or status not in {
                 "canceled", "cancelled", "expired", "rejected",
-                "replaced", "done_for_day", "suspended",
             }:
                 active_pending[symbol] = str(order_id)
             else:

@@ -81,9 +81,34 @@ def test_prediction_uses_latest_market_row_and_same_action_contract():
             return np.array([1.0]), None
 
     agent.model = FakeModel()
-    weights = agent.predict_weights(data)
+    weights = agent.predict_weights(data, current_weights=np.array([0.25]))
     assert captured["observation"][1] == pytest.approx(121.0)
+    assert captured["observation"][6] == pytest.approx(0.25)
     np.testing.assert_allclose(weights, np.array([1.0]))
+
+
+def test_prediction_fails_closed_when_model_is_unavailable():
+    data, tickers = market_data()
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    with pytest.raises(RuntimeError, match="model unavailable"):
+        agent.predict_weights(data)
+
+
+@pytest.mark.parametrize(
+    "current_weights",
+    [
+        np.array([np.nan]),
+        np.array([-0.1]),
+        np.array([1.1]),
+        np.array([0.2, 0.3]),
+    ],
+)
+def test_prediction_rejects_invalid_current_weights(current_weights):
+    data, tickers = market_data()
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    agent.model = object()
+    with pytest.raises(ValueError, match="current_weights"):
+        agent.predict_weights(data, current_weights=current_weights)
 
 
 def test_legacy_model_without_contract_metadata_is_rejected(tmp_path):

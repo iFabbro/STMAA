@@ -55,6 +55,16 @@ class TradingEnv(gym.Env):
         if not np.isfinite(prices).all() or (prices <= 0).any():
             raise ValueError("Close prices must be finite and strictly positive")
 
+        feature_columns = [
+            f"{feature}_{ticker}" for ticker in self.tickers
+            for feature in ("RSI", "MACD", "BB_middle", "ATR")
+            if f"{feature}_{ticker}" in data.columns
+        ]
+        if feature_columns and not np.isfinite(
+            data.loc[:, feature_columns].to_numpy(dtype=float)
+        ).all():
+            raise ValueError("Market features must be finite when provided")
+
         self.initial_capital = float(initial_capital)
         self.transaction_cost = float(transaction_cost)
         self.slippage = float(slippage)

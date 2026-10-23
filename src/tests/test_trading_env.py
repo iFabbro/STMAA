@@ -93,3 +93,10 @@ def test_bad_prices_are_rejected():
     data, tickers = make_data(prices_a=(100.0, np.nan, 120.0))
     with pytest.raises(ValueError, match="finite and strictly positive"):
         TradingEnv(data, tickers)
+
+def test_non_finite_market_features_are_rejected():
+    data, tickers = make_data()
+    data.loc[data.index[0], "MACD_A"] = np.nan
+    with pytest.raises(ValueError, match="Market features"):
+        TradingEnv(data, tickers)
+

@@ -1560,3 +1560,153 @@ def test_emergency_filled_close_stays_pending_until_positions_confirm_flat(
     assert second == []
     assert executor.state["emergency_liquidation_pending"] == {}
     assert fake.closed == ["AAPL"]
+
+
+
+def test_unresolved_liquidation_reconciles_unique_accepted_broker_order(
+    alpaca_env, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            assert filter.symbols == ["AAPL"]
+            return [SimpleNamespace(
+                id="broker-close-1", symbol="AAPL", side="sell", qty="1",
+                status="accepted", created_at=created_at + timedelta(seconds=1),
+            )]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="accepted")
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "broker-close-1"
+    }
+    assert executor.state["emergency_liquidation_unresolved"] == {}
+
+
+def test_unresolved_liquidation_retries_only_after_unique_terminal_rejection(
+    alpaca_env, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            return [SimpleNamespace(
+                id="broker-close-rejected", symbol="AAPL", side="sell", qty="1",
+                status="rejected", created_at=created_at + timedelta(seconds=1),
+            )]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="new-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    result = executor._liquidate_all_positions([])
+
+    assert fake.closed == ["AAPL"]
+    assert result[0]["order_id"] == "new-close"
+    assert executor.state["emergency_liquidation_unresolved"] == {}
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "new-close"
+    }
+
+
+@pytest.mark.parametrize("match_count", [0, 2])
+def test_unresolved_liquidation_stays_blocked_without_unique_broker_match(
+    alpaca_env, monkeypatch, match_count
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            return [
+                SimpleNamespace(
+                    id=f"candidate-{index}", symbol="AAPL", side="sell", qty="1",
+                    status="accepted", created_at=created_at + timedelta(seconds=1),
+                )
+                for index in range(match_count)
+            ]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
+    assert executor.state["emergency_liquidation_pending"] == {}

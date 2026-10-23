@@ -400,6 +400,33 @@ class BrokerExecutor:
         else:
             if not np.isfinite(min_notional) or min_notional < 0:
                 raise ValueError("min_notional must be finite and non-negative")
+
+            # Preflight every required quote before submitting any order. Skipping a
+            # missing quote can leave a target position open while other symbols trade.
+            required_price_tickers = []
+            for ticker in execution_tickers:
+                if ticker in open_order_symbols:
+                    continue
+                target_weight = float(target_weight_by_ticker.get(ticker, 0.0))
+                target_notional = portfolio_value * target_weight
+                current_notional = float(
+                    positions.get(ticker, {}).get("market_value", 0.0) or 0.0
+                )
+                if abs(target_notional - current_notional) >= min_notional:
+                    required_price_tickers.append(ticker)
+
+            missing_prices = [
+                ticker for ticker in required_price_tickers
+                if ticker not in prices
+                or not np.isfinite(prices[ticker])
+                or prices[ticker] <= 0
+            ]
+            if missing_prices:
+                raise RuntimeError(
+                    "Cannot safely rebalance; valid prices unavailable for: "
+                    + ", ".join(sorted(missing_prices))
+                )
+
             pending_reduction = False
             for ticker in execution_tickers:
                 target_weight = float(target_weight_by_ticker.get(ticker, 0.0))

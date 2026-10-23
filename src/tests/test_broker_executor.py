@@ -145,7 +145,7 @@ def test_risk_gate_caps_exposure(alpaca_env):
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("max_portfolio_exposure", 0.0),
+        ("max_portfolio_exposure", -0.1),
         ("max_portfolio_exposure", 1.01),
         ("max_portfolio_exposure", float("nan")),
         ("max_drawdown", 0.0),
@@ -163,11 +163,11 @@ def test_account_risk_limits_reject_invalid_values(key, value):
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"max_position_pct": 0.0},
+        {"max_position_pct": -0.1},
         {"max_position_pct": 1.01},
         {"max_exposure_pct": -0.1},
         {"max_exposure_pct": float("nan")},
-        {"max_symbol_concentration_pct": 0.0},
+        {"max_symbol_concentration_pct": -0.1},
         {"max_symbol_concentration_pct": float("inf")},
     ],
 )

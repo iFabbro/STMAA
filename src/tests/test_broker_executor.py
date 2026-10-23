@@ -591,7 +591,7 @@ def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure
 
     def submit_order(request):
         submitted.append(request)
-        return SimpleNamespace(id=f"order-{len(submitted)}", status="accepted")
+        return SimpleNamespace(id=f"order-{len(submitted)}", status="filled")
 
     monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
     result = executor.execute_weights(

@@ -103,7 +103,7 @@ def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
     monkeypatch.setattr(
         executor,
         "_get_open_orders",
-        lambda: [_FakeOrder("accepted", qty=2, filled_qty=0, limit_price=100.0, symbol="AAPL")],
+        lambda: [_FakeOrder("accepted", qty=2, filled_qty=0, limit_price=100.0, symbol="MSFT")],
     )
     monkeypatch.setattr(
         executor,

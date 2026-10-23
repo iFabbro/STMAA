@@ -1299,3 +1299,64 @@ def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
     with open(executor.state_file, encoding="utf-8") as state_file:
         persisted = json.load(state_file)
     assert persisted["emergency_liquidation_pending"] == {}
+
+
+
+@pytest.mark.parametrize(
+    "broker_status",
+    [
+        "new",
+        "accepted",
+        "partially_filled",
+        "pending_new",
+        "pending_cancel",
+        "pending_replace",
+        "held",
+        "unknown_future_status",
+        "",
+    ],
+)
+def test_emergency_liquidation_preserves_non_terminal_pending_orders(
+    alpaca_env, broker_status
+):
+    """Unknown or non-terminal broker statuses must never trigger duplicate closes."""
+    import json
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {
+        "AAPL": "close-AAPL-existing"
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="2")]
+
+        def get_order_by_id(self, order_id):
+            assert order_id == "close-AAPL-existing"
+            return SimpleNamespace(id=order_id, status=broker_status)
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    executor._get_open_orders = lambda: []
+
+    orders = executor._liquidate_all_positions([])
+
+    assert orders == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL-existing"
+    }
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        persisted = json.load(state_file)
+    assert persisted["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL-existing"
+    }

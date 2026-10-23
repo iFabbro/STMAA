@@ -855,6 +855,9 @@ class BrokerExecutor:
                 "Drawdown circuit breaker: bypassing allocation gates for explicit liquidation"
             )
             orders_executed = self._liquidate_all_positions(open_orders)
+            # The account snapshot was captured before close requests; persisted
+            # values remain useful history but are no longer a fresh current snapshot.
+            self.state["account_data_fresh"] = False
             self.state["last_execution_time"] = datetime.now().isoformat()
             self.state["total_orders"] += len(orders_executed)
             self._save_state()
@@ -1094,6 +1097,9 @@ class BrokerExecutor:
                         "price": price,
                     })
 
+        # Orders may have changed broker holdings after the captured account
+        # snapshot. Keep its values as historical evidence, not as current state.
+        self.state["account_data_fresh"] = False
         self.state["last_execution_time"] = datetime.now().isoformat()
         self.state["total_orders"] += len(orders_executed)
         self._save_state()

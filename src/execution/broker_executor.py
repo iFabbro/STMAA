@@ -397,6 +397,14 @@ class BrokerExecutor:
             ) from e
 
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        target_weights = np.asarray(weights.weights, dtype=float)
+        if target_weights.shape != (len(weights.tickers),) or not np.isfinite(target_weights).all():
+            raise ValueError("Target weights must be a finite vector matching tickers")
+        if (target_weights < 0).any():
+            raise ValueError("Negative target weights are unsupported; refusing to open or increase short positions")
+        if float(target_weights.sum()) > 1.0 + 1e-6:
+            raise ValueError("Target weights gross allocation must not exceed 1")
+
         self.logger.info(f"📤 Executing weights for {len(weights.tickers)} assets")
 
         account = self.get_account_status()

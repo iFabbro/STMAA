@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.strategy.risk_overlay import RiskOverlayModule
@@ -37,3 +38,33 @@ def test_portfolio_weights_reject_invalid_contract():
 def test_pipeline_creation():
     pipeline = WeightCentricPipeline(initial_capital=100000)
     assert pipeline.initial_capital == 100000
+
+
+
+def _market_data_for_pipeline():
+    columns = pd.MultiIndex.from_tuples([("A", "Close"), ("B", "Close")])
+    return pd.DataFrame([[100.0, 100.0]], columns=columns)
+
+
+def test_risk_pipeline_requires_verified_portfolio_value():
+    pipeline = WeightCentricPipeline().set_risk(RiskOverlayModule())
+    with pytest.raises(ValueError, match="portfolio_value is required"):
+        pipeline.execute(_market_data_for_pipeline())
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
+def test_risk_pipeline_rejects_invalid_portfolio_value(value):
+    pipeline = WeightCentricPipeline().set_risk(RiskOverlayModule())
+    with pytest.raises(ValueError, match="portfolio_value must be finite and positive"):
+        pipeline.execute(_market_data_for_pipeline(), portfolio_value=value)
+
+
+def test_risk_pipeline_passes_verified_equity_to_drawdown_circuit_breaker():
+    pipeline = WeightCentricPipeline().set_risk(RiskOverlayModule())
+    result = pipeline.execute(
+        _market_data_for_pipeline(),
+        portfolio_value=80000.0,
+        peak_portfolio_value=100000.0,
+    )
+    np.testing.assert_array_equal(result.weights, np.zeros(2))
+    assert result.metadata["portfolio_value"] == pytest.approx(80000.0)

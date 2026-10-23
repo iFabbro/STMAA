@@ -84,7 +84,24 @@ class WeightCentricPipeline:
 
     def execute(self, market_data: pd.DataFrame, vix: Optional[float] = None,
                 **kwargs) -> PortfolioWeights:
-        """Run selection, allocation, timing, and risk in order."""
+        """Run selection, allocation, timing, and risk in order.
+
+        Risk modules declaring requires_verified_portfolio_value fail closed
+        unless the caller supplies current account equity from a trusted source.
+        """
+        if getattr(self.risk_module, "requires_verified_portfolio_value", False):
+            if "portfolio_value" not in kwargs:
+                raise ValueError(
+                    "portfolio_value is required for the risk overlay drawdown circuit breaker"
+                )
+            try:
+                verified_value = float(kwargs["portfolio_value"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("portfolio_value must be finite and positive") from exc
+            if not np.isfinite(verified_value) or verified_value <= 0:
+                raise ValueError("portfolio_value must be finite and positive")
+            self.current_portfolio_value = verified_value
+
         tickers = market_data.columns.get_level_values(0).unique().tolist()
         if self.selection_module:
             candidate_set = self.selection_module.select(market_data, tickers, **kwargs)

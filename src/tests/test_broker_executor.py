@@ -1386,8 +1386,10 @@ def test_unresolved_close_intent_survives_restart_without_duplicate_submission(
             return SimpleNamespace(status="accepted")
 
     first_executor.trading_client = FirstTradingClient()
-    monkeypatch_open_orders = lambda: []
-    first_executor._get_open_orders = monkeypatch_open_orders
+    def no_open_orders():
+        return []
+
+    first_executor._get_open_orders = no_open_orders
 
     expected_error = (
         "manual reconciliation required"

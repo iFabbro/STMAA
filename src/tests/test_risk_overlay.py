@@ -120,3 +120,32 @@ def test_drawdown_peak_advances_only_when_account_makes_new_high():
     assert overlay.peak_portfolio_value == pytest.approx(110000.0)
     overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=105000.0)
     assert overlay.peak_portfolio_value == pytest.approx(110000.0)
+
+
+def test_stale_external_peak_cannot_lower_internal_high_water_mark():
+    overlay = RiskOverlayModule(max_drawdown_threshold=0.15)
+    overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=120000.0)
+    result = overlay.apply(
+        None, np.array([0.1]), ["A"],
+        portfolio_value=100000.0, peak_portfolio_value=105000.0,
+    )
+    np.testing.assert_array_equal(result, np.zeros(1))
+    assert overlay.peak_portfolio_value == pytest.approx(120000.0)
+
+
+def test_external_peak_higher_than_internal_peak_is_preserved():
+    overlay = RiskOverlayModule(max_drawdown_threshold=0.05)
+    overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=100000.0)
+    result = overlay.apply(
+        None, np.array([0.1]), ["A"],
+        portfolio_value=110000.0, peak_portfolio_value=120000.0,
+    )
+    np.testing.assert_array_equal(result, np.zeros(1))
+    assert overlay.peak_portfolio_value == pytest.approx(120000.0)
+
+
+def test_invalid_internal_high_water_mark_fails_closed():
+    overlay = RiskOverlayModule()
+    overlay.peak_portfolio_value = float("nan")
+    with pytest.raises(ValueError, match="Stored peak_portfolio_value"):
+        overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=100000.0)

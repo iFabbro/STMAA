@@ -67,19 +67,23 @@ class RiskOverlayModule:
             if not np.isfinite(portfolio_value) or portfolio_value <= 0:
                 raise ValueError("portfolio_value must be finite and positive")
 
+            # Treat every supplied peak as an additional candidate, never as a
+            # replacement for the module's already observed high-water mark.
+            peak_candidates = [portfolio_value]
             supplied_peak = kwargs.get("peak_portfolio_value")
             if supplied_peak is not None:
                 supplied_peak = float(supplied_peak)
                 if not np.isfinite(supplied_peak) or supplied_peak <= 0:
                     raise ValueError("peak_portfolio_value must be finite and positive")
-                peak = max(supplied_peak, portfolio_value)
-            elif self.peak_portfolio_value is not None:
-                peak = max(self.peak_portfolio_value, portfolio_value)
-            else:
-                # First verified observation establishes the baseline; do not compare
-                # broker equity against an unrelated configured initial-capital value.
-                peak = portfolio_value
+                peak_candidates.append(supplied_peak)
 
+            if self.peak_portfolio_value is not None:
+                internal_peak = float(self.peak_portfolio_value)
+                if not np.isfinite(internal_peak) or internal_peak <= 0:
+                    raise ValueError("Stored peak_portfolio_value must be finite and positive")
+                peak_candidates.append(internal_peak)
+
+            peak = max(peak_candidates)
             self.current_portfolio_value = portfolio_value
             self.peak_portfolio_value = peak
             drawdown = (peak - portfolio_value) / peak

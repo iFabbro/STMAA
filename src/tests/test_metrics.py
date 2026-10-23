@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from src.utils.metrics import Metrics, PortfolioMetrics
 
 def test_sharpe_annualized():
@@ -27,14 +28,12 @@ def test_total_return_basic():
 
 @pytest.mark.parametrize("capital", [0, -1, float("nan"), float("inf")])
 def test_portfolio_metrics_reject_invalid_initial_capital(capital):
-    import pytest
     with pytest.raises(ValueError, match="initial_capital"):
         PortfolioMetrics(initial_capital=capital)
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), -float("inf")])
 def test_portfolio_metrics_reject_invalid_equity_updates(value):
-    import pytest
     metrics = PortfolioMetrics(initial_capital=1000)
     with pytest.raises(ValueError, match="portfolio_value"):
         metrics.update(value)

@@ -27,6 +27,7 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
         lambda: {
             "cash": 500000.0,
             "portfolio_value": 500000.0,
+            "buying_power": 500000.0,
             "equity": 500000.0,
         },
     )

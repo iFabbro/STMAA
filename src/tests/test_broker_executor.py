@@ -2621,3 +2621,14 @@ def test_account_api_failure_marks_persisted_snapshot_stale_after_prior_success(
     assert stale["account_data_fresh"] is False
     assert saved["account_data_fresh"] is False
     assert saved["last_verified_equity"] == pytest.approx(1100.0)
+
+
+def test_drawdown_baseline_never_falls_back_to_configured_initial_capital(alpaca_env):
+    executor = BrokerExecutor(initial_capital=500000.0)
+
+    with pytest.raises(RuntimeError, match="without verified account equity"):
+        executor._get_peak_equity()
+
+    executor.state["last_verified_equity"] = 12345.0
+    executor.state["equity_source"] = "alpaca_account"
+    assert executor._get_peak_equity() == pytest.approx(12345.0)

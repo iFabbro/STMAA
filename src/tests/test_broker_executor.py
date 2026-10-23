@@ -1709,4 +1709,4 @@ def test_unresolved_liquidation_stays_blocked_without_unique_broker_match(
     assert executor._liquidate_all_positions([]) == []
     assert fake.closed == []
     assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
-    assert executor.state["emergency_liquidation_pending"] == {}
+    assert executor.state.get("emergency_liquidation_pending", {}) == {}

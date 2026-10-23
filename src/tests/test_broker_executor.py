@@ -659,3 +659,39 @@ def test_zero_buying_power_still_allows_risk_reducing_sell(alpaca_env, monkeypat
     assert len(result["orders"]) == 1
     assert submitted[0].qty == pytest.approx(2.0)
     assert str(submitted[0].side).lower().endswith("sell")
+
+
+def test_pending_risk_reduction_blocks_new_exposure_in_same_batch(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 5000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {
+        "A": {"market_value": 1000.0},
+        "B": {"market_value": 500.0},
+        "C": {"market_value": 3500.0},
+    }
+    monkeypatch.setattr(executor, "get_positions", lambda: positions.copy())
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars", lambda tickers: {ticker: 100.0 for ticker in tickers}
+    )
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id=f"order-{len(submitted)}", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.05, 0.1]), tickers=["A", "B"])
+    )
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].symbol == "A"
+    assert str(submitted[0].side).lower().endswith("sell")

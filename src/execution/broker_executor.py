@@ -161,6 +161,8 @@ class BrokerExecutor:
             "last_execution_time": None,
             "total_orders": 0,
             "configured_initial_capital": float(initial_capital),
+            "account_mode": "paper" if paper_trading else "live",
+            "account_id": None,
             # Legacy-compatible value only; its source explicitly marks it unverified.
             "portfolio_value": float(initial_capital),
             "portfolio_value_source": "configured_initial_capital",
@@ -188,6 +190,19 @@ class BrokerExecutor:
                 loaded_state = json.load(state_file)
             if not isinstance(loaded_state, dict):
                 raise ValueError("persisted broker state must be a JSON object")
+            expected_mode = self.state["account_mode"]
+            stored_mode = loaded_state.get("account_mode")
+            if stored_mode is not None and stored_mode != expected_mode:
+                raise ValueError(
+                    f"persisted broker state belongs to {stored_mode} account mode, not {expected_mode}"
+                )
+            if stored_mode is None and any(
+                loaded_state.get(key)
+                for key in ("emergency_liquidation_pending", "emergency_liquidation_unresolved")
+            ):
+                raise ValueError(
+                    "legacy liquidation state has no account-mode provenance; manual reconciliation required"
+                )
             for key in ("emergency_liquidation_pending", "emergency_liquidation_unresolved"):
                 if key in loaded_state and not isinstance(loaded_state[key], dict):
                     raise ValueError(f"persisted broker state field {key} must be an object")
@@ -209,6 +224,16 @@ class BrokerExecutor:
             raise RuntimeError("Persisted equity history must be a list")
         if not history:
             return
+        if self.state.get("metrics_account_mode") != self.state.get("account_mode"):
+            # Legacy history without account-mode provenance cannot be mixed into
+            # this account's returns or drawdown calculations.
+            self.state["equity_history"] = []
+            self.state.pop("metrics_baseline_source", None)
+            return
+        stored_metrics_account_id = self.state.get("metrics_account_id")
+        stored_account_id = self.state.get("account_id")
+        if stored_metrics_account_id and stored_account_id and stored_metrics_account_id != stored_account_id:
+            raise RuntimeError("Persisted metrics history belongs to a different broker account")
         try:
             values = [float(value) for value in history]
         except (TypeError, ValueError) as exc:
@@ -220,6 +245,8 @@ class BrokerExecutor:
             self.metrics.update(value)
         self.state["equity_history"] = values
         self.state["metrics_baseline_source"] = "verified_account"
+        self.state["metrics_account_mode"] = self.state.get("account_mode")
+        self.state["metrics_account_id"] = self.state.get("account_id")
 
     def _ensure_verified_metrics_baseline(self, equity: float):
         """Anchor metrics to verified broker equity on first use, not configured capital."""
@@ -231,11 +258,15 @@ class BrokerExecutor:
         self.metrics = PortfolioMetrics(initial_capital=value)
         self.state["equity_history"] = [value]
         self.state["metrics_baseline_source"] = "verified_account"
+        self.state["metrics_account_mode"] = self.state.get("account_mode")
+        self.state["metrics_account_id"] = self.state.get("account_id")
         self._save_state()
 
     def _persist_metrics_history(self):
         self.state["equity_history"] = list(self.metrics.equity_curve)
         self.state["metrics_baseline_source"] = "verified_account"
+        self.state["metrics_account_mode"] = self.state.get("account_mode")
+        self.state["metrics_account_id"] = self.state.get("account_id")
         self._save_state()
 
     def _save_state(self):
@@ -277,7 +308,11 @@ class BrokerExecutor:
                 "account_data_fresh": True,
                 "account_data_source": "alpaca_account",
                 "account_snapshot_at": datetime.now(timezone.utc).isoformat(),
+                "account_id": str(getattr(account, "id", "") or "") or None,
             }
+            stored_account_id = self.state.get("account_id")
+            if stored_account_id and data["account_id"] and stored_account_id != data["account_id"]:
+                raise ValueError("Broker account ID differs from persisted state; refusing to mix account history")
             numeric_values = (data["cash"], data["portfolio_value"], data["buying_power"], data["equity"])
             if not all(np.isfinite(value) for value in numeric_values):
                 raise ValueError("Broker account returned non-finite account values")
@@ -290,6 +325,7 @@ class BrokerExecutor:
                 "portfolio_value": data["portfolio_value"],
                 "portfolio_value_source": "alpaca_account",
                 "last_verified_portfolio_value": data["portfolio_value"],
+                "account_id": data["account_id"] or self.state.get("account_id"),
                 "equity": data["equity"],
                 "equity_source": "alpaca_account",
                 "last_verified_equity": data["equity"],

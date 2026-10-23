@@ -762,3 +762,87 @@ def test_zero_buying_power_still_allows_short_cover(alpaca_env, monkeypatch):
     assert len(result["orders"]) == 1
     assert submitted[0].qty == pytest.approx(5.0)
     assert str(submitted[0].side).lower().endswith("buy")
+
+
+def test_reserved_notional_fails_closed_when_active_order_cannot_be_priced(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    unknown_order = SimpleNamespace(
+        status="accepted", qty="10", filled_qty="0",
+        limit_price=None, notional=None, symbol="UNKNOWN",
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot estimate exposure for active order"):
+        executor._get_reserved_notional([unknown_order], prices={})
+
+
+def test_reserved_notional_fails_closed_on_invalid_open_order_price(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    invalid_price_order = SimpleNamespace(
+        status="accepted", qty="10", filled_qty="0",
+        limit_price="nan", notional=None, symbol="AAPL",
+    )
+
+    with pytest.raises(RuntimeError, match="invalid limit_price"):
+        executor._get_reserved_notional([invalid_price_order], prices={"AAPL": 100.0})
+
+
+def test_reserved_notional_accepts_notional_order_without_quantity(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    notional_order = SimpleNamespace(
+        status="accepted", qty=None, filled_qty=None,
+        limit_price=None, notional="250.00", symbol="AAPL",
+    )
+
+    assert executor._get_reserved_notional([notional_order], prices={}) == pytest.approx(250.0)
+
+
+def test_reserved_notional_scales_notional_by_remaining_quantity(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    partially_filled_order = SimpleNamespace(
+        status="partially_filled", qty="10", filled_qty="4",
+        limit_price=None, notional="1000", symbol="UNKNOWN",
+    )
+
+    assert executor._get_reserved_notional([partially_filled_order], prices={}) == pytest.approx(600.0)
+
+
+def test_execute_weights_aborts_before_orders_if_open_order_exposure_unknown(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    submitted = []
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(
+        executor, "_get_open_orders",
+        lambda: [SimpleNamespace(
+            status="accepted", qty="10", filled_qty="0",
+            limit_price=None, notional=None, symbol="UNKNOWN",
+        )],
+    )
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {})
+    monkeypatch.setattr(
+        executor.trading_client, "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot estimate exposure for active order"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []

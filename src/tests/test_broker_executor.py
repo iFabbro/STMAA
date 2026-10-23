@@ -2590,3 +2590,34 @@ def test_account_status_refuses_a_different_broker_account_id(alpaca_env):
     assert account["account_data_fresh"] is False
     assert account["equity"] is None
     assert executor.state["account_id"] == "account-A"
+
+
+def test_account_api_failure_marks_persisted_snapshot_stale_after_prior_success(alpaca_env):
+    import json
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    calls = {"count": 0}
+
+    def get_account():
+        calls["count"] += 1
+        if calls["count"] > 1:
+            raise ConnectionError("broker temporarily unavailable")
+        return SimpleNamespace(
+            cash="900.0",
+            portfolio_value="1200.0",
+            buying_power="700.0",
+            equity="1100.0",
+            daytrade_count=0,
+            status="ACTIVE",
+        )
+
+    executor.trading_client = SimpleNamespace(get_account=get_account)
+    assert executor.get_account_status()["account_data_fresh"] is True
+    stale = executor.get_account_status()
+
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        saved = json.load(state_file)
+    assert stale["account_data_fresh"] is False
+    assert saved["account_data_fresh"] is False
+    assert saved["last_verified_equity"] == pytest.approx(1100.0)

@@ -2559,3 +2559,34 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
     restored = BrokerExecutor(initial_capital=500000.0)
     assert restored.metrics.equity_curve == pytest.approx([12345.0, 12400.0])
     assert restored.state["account_data_fresh"] is False
+
+
+def test_persisted_state_refuses_to_mix_paper_and_live_account_modes(alpaca_env):
+    executor = BrokerExecutor(paper_trading=True)
+    executor.state["account_mode"] = "live"
+    executor._save_state()
+
+    with pytest.raises(RuntimeError, match="Unable to load persisted broker state"):
+        BrokerExecutor(paper_trading=True)
+
+
+def test_account_status_refuses_a_different_broker_account_id(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["account_id"] = "account-A"
+    executor.trading_client = SimpleNamespace(get_account=lambda: SimpleNamespace(
+        id="account-B",
+        cash="900.0",
+        portfolio_value="1200.0",
+        buying_power="700.0",
+        equity="1100.0",
+        daytrade_count=0,
+        status="ACTIVE",
+    ))
+
+    account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is False
+    assert account["equity"] is None
+    assert executor.state["account_id"] == "account-A"

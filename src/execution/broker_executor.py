@@ -644,15 +644,12 @@ class BrokerExecutor:
             })
             unresolved.pop(symbol, None)
             self.state["emergency_liquidation_unresolved"] = unresolved
-            # A filled close can precede the positions endpoint reflecting the
-            # fill. Keep its ID pending until a later broker snapshot confirms
-            # zero quantity; otherwise a retry could submit a duplicate close.
-            if status == "filled" or status not in {
-                "canceled", "cancelled", "expired", "rejected",
-            }:
-                active_pending[symbol] = str(order_id)
-            else:
-                active_pending.pop(symbol, None)
+            # Keep every returned order ID pending for at least one reconciliation
+            # cycle, including terminal statuses. Canceled/expired/rejected orders
+            # can contain partial fills, and the current positions snapshot predates
+            # this close response. The next invocation must refresh positions before
+            # deciding whether a residual close is needed.
+            active_pending[symbol] = str(order_id)
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()
         return liquidations

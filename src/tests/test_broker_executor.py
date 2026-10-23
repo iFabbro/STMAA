@@ -2260,3 +2260,110 @@ def test_direct_terminal_partial_close_refreshes_residual_after_restart(
     assert resumed.state["emergency_liquidation_pending"] == {
         "AAPL": "close-residual"
     }
+
+
+
+def test_pending_close_order_lookup_timeout_survives_restart_without_duplicate(
+    alpaca_env, monkeypatch
+):
+    """A transient order-status timeout must retain the persisted close ID."""
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+    first.state["emergency_liquidation_pending"] = {"AAPL": "close-timeout"}
+    first._save_state()
+
+    class FirstTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_order_by_id(self, order_id):
+            raise TimeoutError("order status endpoint timed out")
+
+        def close_position(self, symbol):
+            pytest.fail("Must not resubmit while prior order status is unknown")
+
+    first.trading_client = FirstTradingClient()
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+    assert first._liquidate_all_positions([]) == []
+    assert first.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-timeout"
+    }
+
+    # Restart from disk and repeat the transient failure.
+    resumed = BrokerExecutor()
+    resumed_calls = []
+
+    class ResumedTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_order_by_id(self, order_id):
+            raise TimeoutError("order status endpoint still timed out")
+
+        def close_position(self, symbol):
+            resumed_calls.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    resumed.trading_client = ResumedTradingClient()
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+    assert resumed._liquidate_all_positions([]) == []
+    assert resumed_calls == []
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-timeout"
+    }
+
+
+def test_unresolved_history_timeout_preserves_intent_across_restart(
+    alpaca_env, monkeypatch
+):
+    """Unavailable broker history is not evidence that a close was never accepted."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    first.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    first._save_state()
+
+    class FirstTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            raise TimeoutError("broker order history timed out")
+
+        def close_position(self, symbol):
+            pytest.fail("Must not retry when order history cannot be reconciled")
+
+    first.trading_client = FirstTradingClient()
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+    assert first._liquidate_all_positions([]) == []
+    assert first.state["emergency_liquidation_unresolved"]["AAPL"]
+
+    resumed = BrokerExecutor()
+    resumed_calls = []
+
+    class ResumedTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            raise TimeoutError("broker order history still timed out")
+
+        def close_position(self, symbol):
+            resumed_calls.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    resumed.trading_client = ResumedTradingClient()
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+    assert resumed._liquidate_all_positions([]) == []
+    assert resumed_calls == []
+    assert resumed.state["emergency_liquidation_unresolved"]["AAPL"]

@@ -1,5 +1,6 @@
 import numpy as np
-from .metrics import sharpe_ratio, sortino_ratio, max_drawdown, total_return
+from .metrics import Metrics
+
 
 class PortfolioMetrics:
     def __init__(self, initial_capital=500000.0):
@@ -19,9 +20,9 @@ class PortfolioMetrics:
         eq = np.asarray(self.equity_curve, dtype=float)
         returns = np.diff(eq) / eq[:-1] if eq.size > 1 else np.array([])
         return {
-            "sharpe_ratio": sharpe_ratio(returns),
-            "sortino_ratio": sortino_ratio(returns),
-            "max_drawdown": max_drawdown(eq),
-            "total_return": total_return(eq),
+            "sharpe_ratio": Metrics.sharpe(returns),
+            "sortino_ratio": Metrics.sortino(returns),
+            "max_drawdown": Metrics.max_drawdown(eq),
+            "total_return": Metrics.total_return(eq),
             "regime": "n/a",
         }

@@ -246,6 +246,7 @@ class PPOAgent:
             df=market_data.reset_index(drop=True).copy(),
             tickers=self.tickers,
             initial_capital=self.initial_capital,
+            lookback=0,
         )
         observation, _ = env.reset(options={"start_at_latest": True})
         action, _ = self.model.predict(observation, deterministic=True)

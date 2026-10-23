@@ -488,7 +488,16 @@ class BrokerExecutor:
                 current_notional = float(
                     positions.get(ticker, {}).get("market_value", 0.0) or 0.0
                 )
-                delta_notional = abs(target_notional - current_notional)
+                bounded_target, symbol_risk_block = risk_engine.allow(
+                    ticker,
+                    target_notional,
+                    portfolio_value,
+                    positions,
+                    reserved_notional=reserved_notional,
+                )
+                if symbol_risk_block:
+                    bounded_target = 0.0
+                delta_notional = abs(bounded_target - current_notional)
                 if delta_notional > 1e-8 and delta_notional >= min_notional:
                     required_price_tickers.append(ticker)
 

@@ -1,5 +1,5 @@
 import numpy as np
-from src.utils.metrics import Metrics
+from src.utils.metrics import Metrics, PortfolioMetrics
 
 def test_sharpe_annualized():
     r = np.array([0.01, 0.02, -0.01, 0.03])
@@ -22,3 +22,20 @@ def test_drawdown_duration_basic():
 def test_total_return_basic():
     eq = np.array([100.0, 110.0, 120.0])
     assert round(Metrics.total_return(eq), 2) == 0.20
+
+
+
+@pytest.mark.parametrize("capital", [0, -1, float("nan"), float("inf")])
+def test_portfolio_metrics_reject_invalid_initial_capital(capital):
+    import pytest
+    with pytest.raises(ValueError, match="initial_capital"):
+        PortfolioMetrics(initial_capital=capital)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), -float("inf")])
+def test_portfolio_metrics_reject_invalid_equity_updates(value):
+    import pytest
+    metrics = PortfolioMetrics(initial_capital=1000)
+    with pytest.raises(ValueError, match="portfolio_value"):
+        metrics.update(value)
+    assert metrics.equity_curve == [1000.0]

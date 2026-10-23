@@ -426,6 +426,7 @@ def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
     bot.ppo_agent = FakePPO()
+    bot.executor = DummyExecutor()
     monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
 
     weights = bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]}))

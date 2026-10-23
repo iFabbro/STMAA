@@ -1119,11 +1119,17 @@ def test_emergency_liquidation_resumes_after_partial_close_without_duplicate_clo
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [open_aapl_close])
     resumed = executor._liquidate_all_positions([open_aapl_close])
 
-    assert fake.closed == ["AAPL", "MSFT", "MSFT"]
-    assert [item["ticker"] for item in resumed] == ["MSFT"]
+    # The MSFT close raised after submission began. Its outcome is ambiguous,
+    # so the persisted unresolved intent must prevent an automatic duplicate.
+    # Recovery requires explicit broker reconciliation before retrying MSFT.
+    assert fake.closed == ["AAPL", "MSFT"]
+    assert resumed == []
     assert executor.state["emergency_liquidation_pending"] == {
-        "AAPL": "close-AAPL", "MSFT": "close-MSFT"
+        "AAPL": "close-AAPL"
     }
+    assert executor.state["emergency_liquidation_unresolved"]["MSFT"][
+        "reason"
+    ] == "close_submission_outcome_unconfirmed"
 
 
 def test_emergency_liquidation_aborts_if_broker_does_not_return_close_order_id(

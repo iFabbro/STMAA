@@ -1822,7 +1822,6 @@ def test_unresolved_liquidation_stays_blocked_without_unique_broker_match(
 def test_corrupt_persisted_broker_state_fails_closed_without_overwriting_file(
     alpaca_env
 ):
-    import json
     from pathlib import Path
 
     state_path = Path("logs/execution/broker_state.json")

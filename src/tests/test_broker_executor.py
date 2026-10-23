@@ -1158,6 +1158,9 @@ def test_emergency_liquidation_clears_terminal_pending_order_before_retrying_pos
         def get_all_positions(self):
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="canceled")
+
         def close_position(self, symbol):
             fake.closed.append(symbol)
             return SimpleNamespace(id="close-new", status="accepted")
@@ -1170,3 +1173,94 @@ def test_emergency_liquidation_clears_terminal_pending_order_before_retrying_pos
     assert fake.closed == ["AAPL"]
     assert orders[0]["order_id"] == "close-new"
     assert executor.state["emergency_liquidation_pending"] == {"AAPL": "close-new"}
+
+
+
+def test_emergency_liquidation_keeps_pending_close_when_open_order_snapshot_lags(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-AAPL"}
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="accepted")
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    # The open-order snapshot temporarily omits a broker-accepted close order.
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    orders = executor._liquidate_all_positions([])
+
+    assert orders == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL"
+    }
+
+
+def test_emergency_liquidation_save_state_failure_after_acceptance_does_not_duplicate_close(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    save_calls = []
+
+    def fail_first_save():
+        save_calls.append(True)
+        if len(save_calls) == 1:
+            raise OSError("state disk write failed")
+
+    monkeypatch.setattr(executor, "_save_state", fail_first_save)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="accepted")
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="accepted-close-AAPL", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    # First call sees no order in the snapshot; broker accepts close, then
+    # persistence fails. On retry, order lookup must protect against duplication.
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    with pytest.raises(OSError, match="state disk write failed"):
+        executor._liquidate_all_positions([])
+
+    assert fake.closed == ["AAPL"]
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "accepted-close-AAPL"
+    }
+
+    resumed = executor._liquidate_all_positions([])
+
+    assert resumed == []
+    assert fake.closed == ["AAPL"]
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "accepted-close-AAPL"
+    }
+    assert len(save_calls) >= 2

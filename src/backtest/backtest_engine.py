@@ -13,19 +13,25 @@ class ExecutionConsistentBacktest:
         initial_capital: float = 100000.0,
         transaction_cost: float = 0.001,
         slippage: float = 0.0005,
+        periods_per_year: float = 252.0,
     ):
-        values = np.asarray([initial_capital, transaction_cost, slippage], dtype=float)
+        values = np.asarray(
+            [initial_capital, transaction_cost, slippage, periods_per_year], dtype=float
+        )
         if not np.isfinite(values).all():
-            raise ValueError("Capital and cost parameters must be finite")
+            raise ValueError("Capital, costs, and periods_per_year must be finite")
         if initial_capital <= 0:
             raise ValueError("initial_capital must be positive")
         if transaction_cost < 0 or slippage < 0:
             raise ValueError("transaction_cost and slippage must be non-negative")
         if transaction_cost + slippage >= 1:
             raise ValueError("Combined transaction cost and slippage must be < 1")
+        if periods_per_year <= 0:
+            raise ValueError("periods_per_year must be positive")
         self.initial_capital = float(initial_capital)
         self.transaction_cost = float(transaction_cost)
         self.slippage = float(slippage)
+        self.periods_per_year = float(periods_per_year)
 
     def run_backtest(self, price_data: pd.DataFrame, weights_generator: Callable,
                      tickers: List[str]) -> Dict:
@@ -107,14 +113,14 @@ class ExecutionConsistentBacktest:
         cumulative_return = float(equity_curve[-1] / self.initial_capital - 1.0)
         periods = len(period_returns)
         annualized_return = (
-            float((equity_curve[-1] / self.initial_capital) ** (252 / periods) - 1.0)
+            float((equity_curve[-1] / self.initial_capital) ** (self.periods_per_year / periods) - 1.0)
             if periods > 0 else 0.0
         )
 
         return_std = float(period_returns.std(ddof=1)) if periods > 1 else 0.0
-        annualized_vol = return_std * np.sqrt(252)
+        annualized_vol = return_std * np.sqrt(self.periods_per_year)
         sharpe_ratio = (
-            float(period_returns.mean() / return_std * np.sqrt(252))
+            float(period_returns.mean() / return_std * np.sqrt(self.periods_per_year))
             if return_std > 0 else 0.0
         )
 
@@ -125,7 +131,7 @@ class ExecutionConsistentBacktest:
         downside_returns = np.minimum(period_returns, 0.0)
         downside_deviation = float(np.sqrt(np.mean(np.square(downside_returns))))
         sortino_ratio = (
-            float(period_returns.mean() / downside_deviation * np.sqrt(252))
+            float(period_returns.mean() / downside_deviation * np.sqrt(self.periods_per_year))
             if downside_deviation > 0 else 0.0
         )
         calmar_ratio = (

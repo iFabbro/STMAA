@@ -6,7 +6,10 @@ from src.strategy.weight_interface import PortfolioWeights
 
 
 @pytest.fixture
-def alpaca_env(monkeypatch):
+def alpaca_env(monkeypatch, tmp_path):
+    # Keep each test's broker state isolated; never inherit pending orders from
+    # a developer workspace or a previous test run.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ALPACA_API_KEY", "test-key")
     monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
 

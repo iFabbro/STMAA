@@ -482,8 +482,11 @@ class BrokerExecutor:
             })
             unresolved.pop(symbol, None)
             self.state["emergency_liquidation_unresolved"] = unresolved
-            if status not in {
-                "filled", "canceled", "cancelled", "expired", "rejected",
+            # A filled close can precede the positions endpoint reflecting the
+            # fill. Keep its ID pending until a later broker snapshot confirms
+            # zero quantity; otherwise a retry could submit a duplicate close.
+            if status == "filled" or status not in {
+                "canceled", "cancelled", "expired", "rejected",
                 "replaced", "done_for_day", "suspended",
             }:
                 active_pending[symbol] = str(order_id)

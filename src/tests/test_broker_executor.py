@@ -2456,3 +2456,106 @@ def test_uncertain_order_status_still_reserves_remaining_exposure(
 
     assert executor._estimate_order_notional(order) == pytest.approx(20.0)
 
+
+
+
+def test_account_status_persists_separate_verified_equity_and_portfolio_value(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.trading_client = SimpleNamespace(get_account=lambda: SimpleNamespace(
+        cash="900.0",
+        portfolio_value="1200.0",
+        buying_power="700.0",
+        equity="1100.0",
+        daytrade_count=0,
+        status="ACTIVE",
+    ))
+
+    account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is True
+    assert account["account_data_source"] == "alpaca_account"
+    assert account["portfolio_value"] == pytest.approx(1200.0)
+    assert account["equity"] == pytest.approx(1100.0)
+    assert executor.state["last_verified_portfolio_value"] == pytest.approx(1200.0)
+    assert executor.state["last_verified_equity"] == pytest.approx(1100.0)
+    assert executor.state["portfolio_value_source"] == "alpaca_account"
+    assert executor.state["equity_source"] == "alpaca_account"
+    assert executor.state["account_snapshot_at"] == account["account_snapshot_at"]
+
+
+def test_account_status_never_returns_configured_capital_as_fresh_after_api_failure(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+
+    def fail():
+        raise ConnectionError("broker unavailable")
+
+    executor.trading_client = SimpleNamespace(get_account=fail)
+    account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is False
+    assert account["portfolio_value"] is None
+    assert account["equity"] is None
+    assert account["cash"] is None
+    assert account["buying_power"] is None
+    assert executor.state["last_verified_equity"] is None
+    assert executor.state["portfolio_value_source"] == "configured_initial_capital"
+
+
+def test_execute_weights_sizes_orders_from_verified_equity_not_portfolio_value(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 20000.0,
+        "buying_power": 20000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-24T12:00:00+00:00",
+        "account_data_source": "alpaca_account",
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="equity-sized-order", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert len(submitted) == 1
+    assert submitted[0].qty == pytest.approx(10.0)
+    assert result["portfolio_value"] == pytest.approx(20000.0)
+    assert result["equity"] == pytest.approx(10000.0)
+    assert executor.state["equity_history"][0] == pytest.approx(10000.0)
+
+
+def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
+    import json
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor._ensure_verified_metrics_baseline(12345.0)
+    executor.metrics.update(12400.0)
+    executor._persist_metrics_history()
+
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        saved = json.load(state_file)
+    assert saved["metrics_baseline_source"] == "verified_account"
+    assert saved["equity_history"] == pytest.approx([12345.0, 12400.0])
+
+    restored = BrokerExecutor(initial_capital=500000.0)
+    assert restored.metrics.equity_curve == pytest.approx([12345.0, 12400.0])
+    assert restored.state["account_data_fresh"] is False

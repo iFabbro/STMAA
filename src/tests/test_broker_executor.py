@@ -1741,8 +1741,10 @@ def test_unresolved_liquidation_retries_only_after_unique_terminal_rejection(
     class FakeTradingClient:
         def __init__(self):
             self.closed = []
+            self.position_reads = 0
 
         def get_all_positions(self):
+            self.position_reads += 1
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
         def get_orders(self, filter):
@@ -1750,6 +1752,9 @@ def test_unresolved_liquidation_retries_only_after_unique_terminal_rejection(
                 id="broker-close-rejected", symbol="AAPL", side="sell", qty="1",
                 status="rejected", created_at=created_at + timedelta(seconds=1),
             )]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="rejected")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1759,6 +1764,17 @@ def test_unresolved_liquidation_retries_only_after_unique_terminal_rejection(
     executor.trading_client = fake
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
 
+    # First pass reconciles the ambiguous intent to a unique rejected order.
+    # It must defer retry so the next pass can refresh broker positions.
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_unresolved"] == {}
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "broker-close-rejected"
+    }
+
+    # The next pass verifies the terminal order and fresh position snapshot,
+    # then retries exactly once against the remaining live position.
     result = executor._liquidate_all_positions([])
 
     assert fake.closed == ["AAPL"]

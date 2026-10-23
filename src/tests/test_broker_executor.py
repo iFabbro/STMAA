@@ -2367,3 +2367,58 @@ def test_unresolved_history_timeout_preserves_intent_across_restart(
     assert resumed._liquidate_all_positions([]) == []
     assert resumed_calls == []
     assert resumed.state["emergency_liquidation_unresolved"]["AAPL"]
+
+
+@pytest.mark.parametrize("status", ["done_for_day", "suspended", "replaced"])
+def test_emergency_liquidation_keeps_nonterminal_or_replaced_close_order_pending(
+    alpaca_env, monkeypatch, status
+):
+    """Uncertain close statuses must not permit a duplicate liquidation order."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-existing"}
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_order_by_id(self, order_id):
+            assert order_id == "close-existing"
+            return SimpleNamespace(id=order_id, status=status)
+
+        def close_position(self, symbol):
+            pytest.fail(
+                "Must not submit a duplicate close while the previous order can still execute"
+            )
+
+    executor.trading_client = FakeTradingClient()
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    orders = executor._liquidate_all_positions([])
+
+    assert orders == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-existing"
+    }
+
+
+@pytest.mark.parametrize("status", ["done_for_day", "suspended", "replaced"])
+def test_uncertain_order_status_still_reserves_remaining_exposure(
+    alpaca_env, status
+):
+    """Potentially executable orders must not be excluded from exposure estimates."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    order = SimpleNamespace(
+        status=status,
+        qty="2",
+        filled_qty="0",
+        limit_price="10",
+        symbol="AAPL",
+    )
+
+    assert executor._estimate_order_notional(order) == pytest.approx(20.0)
+

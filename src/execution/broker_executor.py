@@ -336,6 +336,13 @@ class BrokerExecutor:
             return data
         except Exception as e:
             self.logger.error(f"get_account_status error; broker equity is unverified: {e}")
+            # Retain the last verified snapshot as historical data, but mark it stale
+            # in memory and on disk so a restart cannot mistake it for a fresh read.
+            self.state["account_data_fresh"] = False
+            try:
+                self._save_state()
+            except Exception as persist_exc:
+                self.logger.error("Unable to persist stale account-data status: %s", persist_exc)
             # Do not return configured or cached amounts as if they were current.
             return {
                 "cash": None,

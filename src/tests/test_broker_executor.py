@@ -912,3 +912,18 @@ def test_execute_weights_rejects_invalid_target_weight_contract(
 
     assert broker_reads == []
     assert submitted == []
+
+
+def test_reserved_notional_fails_closed_when_filled_quantity_exceeds_order_quantity(
+    alpaca_env,
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    impossible_order = SimpleNamespace(
+        status="accepted", qty="1", filled_qty="2",
+        limit_price="100", notional=None, symbol="AAPL",
+    )
+
+    with pytest.raises(RuntimeError, match="filled_qty exceeds qty"):
+        executor._get_reserved_notional([impossible_order], prices={})

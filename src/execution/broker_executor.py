@@ -477,8 +477,8 @@ class BrokerExecutor:
                 raise RuntimeError("Persisted drawdown peak is invalid")
             return value
         if portfolio_value is None:
-            stored_value = self.state.get("portfolio_value")
-            if stored_value is None:
+            stored_value = self.state.get("last_verified_equity")
+            if stored_value is None or self.state.get("equity_source") != "alpaca_account":
                 raise RuntimeError("Cannot establish drawdown baseline without verified account equity")
             portfolio_value = float(stored_value)
         value = float(portfolio_value)

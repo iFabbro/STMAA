@@ -532,6 +532,8 @@ class BrokerExecutor:
         terminal_statuses = {
             "filled", "canceled", "cancelled", "expired", "rejected",
         }
+        filled_pending = {}
+        refresh_positions = False
         for symbol, order_id in pending.items():
             if str(order_id) in remaining_ids:
                 active_pending[symbol] = order_id
@@ -551,26 +553,41 @@ class BrokerExecutor:
                 active_pending[symbol] = order_id
             else:
                 if recorded_status == "filled":
-                    # A filled close order can disappear from the open-order list
-                    # before the positions endpoint reflects the fill. Keep the
-                    # close pending while a non-zero position is still reported;
-                    # otherwise a retry could submit a second close and reverse
-                    # the position. Missing/invalid quantities fail closed.
-                    matching_positions = [
-                        position for position in positions
-                        if str(getattr(position, "symbol", "")).strip() == symbol
-                    ]
-                    if matching_positions:
-                        try:
-                            remaining_qty = float(
-                                getattr(matching_positions[0], "qty", 0) or 0
-                            )
-                        except (TypeError, ValueError):
-                            active_pending[symbol] = order_id
-                        else:
-                            if not np.isfinite(remaining_qty) or remaining_qty != 0:
-                                active_pending[symbol] = order_id
-                elif recorded_status not in terminal_statuses:
+                    # Defer the flat-position decision until a fresh positions
+                    # snapshot is fetched below. The first snapshot may predate
+                    # the fill or omit a residual position due to propagation lag.
+                    filled_pending[symbol] = order_id
+                    refresh_positions = True
+                elif recorded_status in terminal_statuses:
+                    # A canceled/expired/rejected order can still have partial
+                    # fills. Refresh positions before deciding whether to retry.
+                    refresh_positions = True
+                else:
+                    active_pending[symbol] = order_id
+
+        if refresh_positions:
+            # Do not use the snapshot fetched before order reconciliation to decide
+            # whether a residual position remains after a terminal close order.
+            positions = self.trading_client.get_all_positions()
+
+        for symbol, order_id in filled_pending.items():
+            matching_positions = [
+                position for position in positions
+                if str(getattr(position, "symbol", "")).strip() == symbol
+            ]
+            if len(matching_positions) > 1:
+                # Duplicate symbol rows are not a trustworthy flat-position proof.
+                active_pending[symbol] = order_id
+                continue
+            if not matching_positions:
+                # Absence from a fresh broker snapshot confirms no open position.
+                continue
+            try:
+                remaining_qty = float(getattr(matching_positions[0], "qty", None))
+            except (TypeError, ValueError):
+                active_pending[symbol] = order_id
+            else:
+                if not np.isfinite(remaining_qty) or remaining_qty != 0:
                     active_pending[symbol] = order_id
 
         if active_pending != pending:

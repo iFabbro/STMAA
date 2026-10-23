@@ -334,43 +334,78 @@ class BrokerExecutor:
         return capped, None
 
     def _liquidate_all_positions(self, open_orders) -> List[Dict]:
-        """Cancel open orders, then request broker-side closure of every open position.
+        """Cancel unrelated open orders and safely resume an interrupted liquidation.
 
-        This path is called only when the caller explicitly marks a drawdown
-        circuit breaker and opts into liquidation. Any cancellation/position API
-        error aborts the operation instead of reporting a successful liquidation.
+        Active close orders recorded in state are preserved on retry instead of
+        being cancelled and resubmitted. Broker/API errors abort the operation;
+        a returned order is persisted immediately so a later invocation can
+        reconcile it against the broker's current open-order snapshot.
         """
+        pending = dict(self.state.get("emergency_liquidation_pending", {}))
+        pending_ids = {str(order_id) for order_id in pending.values() if order_id}
         for order in open_orders:
             order_id = getattr(order, "id", None)
             if order_id is None:
                 raise RuntimeError("Cannot safely liquidate while an open order has no ID")
+            if str(order_id) in pending_ids:
+                continue
             self.trading_client.cancel_order_by_id(order_id)
+
         remaining_orders = self._get_open_orders()
-        if remaining_orders:
+        remaining_ids = {str(getattr(order, "id", "")) for order in remaining_orders}
+        unexpected_orders = [
+            order for order in remaining_orders
+            if str(getattr(order, "id", "")) not in pending_ids
+        ]
+        if unexpected_orders:
             raise RuntimeError(
-                "Cannot safely liquidate until broker confirms all open orders are cancelled"
+                "Cannot safely liquidate until broker confirms unrelated open orders are cancelled"
             )
 
         # Query directly so an API failure cannot be mistaken for an empty portfolio.
         positions = self.trading_client.get_all_positions()
         liquidations = []
+        active_pending = {
+            symbol: order_id for symbol, order_id in pending.items()
+            if str(order_id) in remaining_ids
+        }
+        if active_pending != pending:
+            self.state["emergency_liquidation_pending"] = active_pending
+            self._save_state()
         for position in positions:
             symbol = str(getattr(position, "symbol", "")).strip()
-            quantity = float(getattr(position, "qty", 0) or 0)
+            try:
+                quantity = float(getattr(position, "qty", 0) or 0)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity") from exc
             if not symbol or not np.isfinite(quantity):
                 raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity")
-            if quantity == 0:
+            if quantity == 0 or symbol in active_pending:
                 continue
+
             order = self.trading_client.close_position(symbol)
+            order_id = getattr(order, "id", None)
+            if order_id is None:
+                raise RuntimeError(
+                    f"Broker close request for {symbol} returned no order ID; manual reconciliation required"
+                )
+            status = str(getattr(order, "status", "submitted")).lower()
             liquidations.append({
                 "ticker": symbol,
                 "side": "close_position",
                 "quantity": abs(quantity),
-                "order_id": str(getattr(order, "id", "")),
-                "status": str(getattr(order, "status", "submitted")),
+                "order_id": str(order_id),
+                "status": status,
                 "timestamp": datetime.now().isoformat(),
                 "price": None,
             })
+            if status not in {
+                "filled", "canceled", "cancelled", "expired", "rejected",
+                "replaced", "done_for_day", "suspended",
+            }:
+                active_pending[symbol] = str(order_id)
+            self.state["emergency_liquidation_pending"] = active_pending
+            self._save_state()
         return liquidations
 
     def get_positions(self) -> Dict[str, Dict]:
@@ -437,9 +472,17 @@ class BrokerExecutor:
             self.state["last_execution_time"] = datetime.now().isoformat()
             self.state["total_orders"] += len(orders_executed)
             self._save_state()
+            metrics_refresh_error = None
+            try:
+                # Keep emergency-path metrics aligned with the broker snapshot when available.
+                post_liquidation_positions = self.get_positions()
+                self.metrics.update(portfolio_value, post_liquidation_positions)
+            except Exception as exc:
+                metrics_refresh_error = str(exc)
+                self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
             metrics = self.metrics.get_all_metrics()
             self.metrics.write_metrics_json(metrics, "logs/metrics.json")
-            return {
+            result = {
                 "orders": orders_executed,
                 "portfolio_value": portfolio_value,
                 "circuit_breaker_triggered": True,
@@ -447,6 +490,9 @@ class BrokerExecutor:
                 "timestamp": datetime.now().isoformat(),
                 "metrics": metrics,
             }
+            if metrics_refresh_error is not None:
+                result["metrics_refresh_error"] = metrics_refresh_error
+            return result
 
         positions = self.get_positions()
         # A missing symbol in the target vector means a zero target, so include

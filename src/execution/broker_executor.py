@@ -190,33 +190,101 @@ class BrokerExecutor:
         return str(status).lower()
 
     def _estimate_order_notional(self, order, prices: Optional[Dict[str, float]] = None) -> float:
+        """Estimate remaining exposure; fail closed when an active order is unpriceable."""
         prices = prices or {}
         status = self._order_status_value(order)
-        if status in {"filled", "canceled", "expired", "rejected", "replaced", "done_for_day", "suspended"}:
+        if status in {
+            "filled", "canceled", "cancelled", "expired", "rejected",
+            "replaced", "done_for_day", "suspended",
+        }:
             return 0.0
 
-        qty = float(getattr(order, "qty", 0) or 0)
-        filled_qty = float(getattr(order, "filled_qty", 0) or 0)
-        remaining_qty = max(qty - filled_qty, 0.0)
-        if remaining_qty <= 0:
+        raw_qty = getattr(order, "qty", None)
+        raw_filled_qty = getattr(order, "filled_qty", None)
+        raw_notional = getattr(order, "notional", None)
+
+        def parse_positive(value, field: str) -> float:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot estimate exposure for active order: invalid {field}"
+                ) from exc
+            if not np.isfinite(parsed) or parsed <= 0:
+                raise RuntimeError(
+                    f"Cannot estimate exposure for active order: invalid {field}"
+                )
+            return parsed
+
+        def parse_nonnegative(value, field: str) -> float:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot estimate exposure for active order: invalid {field}"
+                ) from exc
+            if not np.isfinite(parsed) or parsed < 0:
+                raise RuntimeError(
+                    f"Cannot estimate exposure for active order: invalid {field}"
+                )
+            return parsed
+
+        qty_missing = raw_qty in (None, "")
+        filled_qty = 0.0 if raw_filled_qty in (None, "") else parse_nonnegative(
+            raw_filled_qty, "filled_qty"
+        )
+        notional = None
+        if raw_notional not in (None, ""):
+            notional = parse_positive(raw_notional, "notional")
+
+        if qty_missing:
+            # Notional-based orders can omit qty. If any quantity was filled,
+            # the remaining notional cannot safely be inferred without qty.
+            if notional is not None and filled_qty == 0:
+                return notional
+            raise RuntimeError(
+                "Cannot estimate exposure for active order: qty and remaining notional unavailable"
+            )
+
+        qty = parse_positive(raw_qty, "qty")
+        if filled_qty > qty:
+            raise RuntimeError(
+                "Cannot estimate exposure for active order: filled_qty exceeds qty"
+            )
+        remaining_qty = qty - filled_qty
+        if remaining_qty == 0:
             return 0.0
 
         limit_price = getattr(order, "limit_price", None)
-        if limit_price not in (None, "", 0):
-            return remaining_qty * float(limit_price)
+        if limit_price not in (None, ""):
+            price = parse_positive(limit_price, "limit_price")
+            return remaining_qty * price
 
         symbol = getattr(order, "symbol", None)
-        if symbol and symbol in prices and prices[symbol] > 0:
-            return remaining_qty * float(prices[symbol])
+        if symbol and symbol in prices:
+            price = parse_positive(prices[symbol], f"market price for {symbol}")
+            return remaining_qty * price
 
-        notional = getattr(order, "notional", None)
-        if notional not in (None, "", 0):
-            return float(notional)
+        # Some broker responses provide the original order notional but no price.
+        # Scale it by the remaining quantity only when total qty is known.
+        if notional is not None:
+            return notional * (remaining_qty / qty)
 
-        return 0.0
+        raise RuntimeError(
+            f"Cannot estimate exposure for active order {symbol or '<unknown symbol>'}: "
+            "no valid limit price, market price, or notional"
+        )
 
     def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
-        return sum(self._estimate_order_notional(order, prices=prices) for order in orders)
+        """Return reserved notional or raise if any active order is unestimable."""
+        estimates = [
+            self._estimate_order_notional(order, prices=prices)
+            for order in orders
+        ]
+        total = float(sum(estimates))
+        if not np.isfinite(total) or total < 0:
+            raise RuntimeError("Cannot estimate aggregate exposure from open orders")
+        return total
 
     def _get_peak_equity(self, portfolio_value: Optional[float] = None) -> float:
         """Return a persisted high-water mark, or initialize from verified equity.
@@ -313,15 +381,21 @@ class BrokerExecutor:
         """
         try:
             positions = self.trading_client.get_all_positions()
-            return {
-                p.symbol: {
-                    "qty": float(p.qty),
-                    "market_value": float(p.market_value),
-                    "avg_entry_price": float(p.avg_entry_price),
-                    "unrealized_pl": float(p.unrealized_pl),
+            parsed_positions = {}
+            for position in positions:
+                symbol = str(getattr(position, "symbol", "")).strip()
+                if not symbol:
+                    raise ValueError("Broker returned a position without a valid symbol")
+                values = {
+                    "qty": float(position.qty),
+                    "market_value": float(position.market_value),
+                    "avg_entry_price": float(position.avg_entry_price),
+                    "unrealized_pl": float(position.unrealized_pl),
                 }
-                for p in positions
-            }
+                if not all(np.isfinite(value) for value in values.values()):
+                    raise ValueError(f"Broker returned non-finite position data for {symbol}")
+                parsed_positions[symbol] = values
+            return parsed_positions
         except Exception as e:
             self.logger.error("get_positions error; refusing to trade without verified positions: %s", e)
             raise RuntimeError(
@@ -420,7 +494,16 @@ class BrokerExecutor:
                 current_notional = float(
                     positions.get(ticker, {}).get("market_value", 0.0) or 0.0
                 )
-                delta_notional = abs(target_notional - current_notional)
+                bounded_target, symbol_risk_block = risk_engine.allow(
+                    ticker,
+                    target_notional,
+                    portfolio_value,
+                    positions,
+                    reserved_notional=reserved_notional,
+                )
+                if symbol_risk_block:
+                    bounded_target = 0.0
+                delta_notional = abs(bounded_target - current_notional)
                 if delta_notional > 1e-8 and delta_notional >= min_notional:
                     required_price_tickers.append(ticker)
 

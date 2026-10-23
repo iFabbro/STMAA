@@ -381,15 +381,21 @@ class BrokerExecutor:
         """
         try:
             positions = self.trading_client.get_all_positions()
-            return {
-                p.symbol: {
-                    "qty": float(p.qty),
-                    "market_value": float(p.market_value),
-                    "avg_entry_price": float(p.avg_entry_price),
-                    "unrealized_pl": float(p.unrealized_pl),
+            parsed_positions = {}
+            for position in positions:
+                symbol = str(getattr(position, "symbol", "")).strip()
+                if not symbol:
+                    raise ValueError("Broker returned a position without a valid symbol")
+                values = {
+                    "qty": float(position.qty),
+                    "market_value": float(position.market_value),
+                    "avg_entry_price": float(position.avg_entry_price),
+                    "unrealized_pl": float(position.unrealized_pl),
                 }
-                for p in positions
-            }
+                if not all(np.isfinite(value) for value in values.values()):
+                    raise ValueError(f"Broker returned non-finite position data for {symbol}")
+                parsed_positions[symbol] = values
+            return parsed_positions
         except Exception as e:
             self.logger.error("get_positions error; refusing to trade without verified positions: %s", e)
             raise RuntimeError(

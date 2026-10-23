@@ -444,7 +444,7 @@ class BrokerExecutor:
                         continue
                     cover_notional = (
                         min(order_notional, abs(current_notional))
-                        if current_notional < 0 and risk_reducing_target
+                        if current_notional < 0
                         else 0.0
                     )
                     additional_exposure = order_notional - cover_notional

@@ -603,4 +603,4 @@ def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure
 
     assert len(result["orders"]) == 5
     total_submitted_notional = sum(order.qty * 100.0 for order in submitted)
-    assert total_submitted_notional <= pytest.approx(5000.0)
+    assert total_submitted_notional <= 5000.0 + 1e-6

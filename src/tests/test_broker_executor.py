@@ -2017,3 +2017,92 @@ def test_liquidation_normalizes_enum_status_values(
     assert executor.state["emergency_liquidation_pending"] == expected_pending
     if expected_close_calls:
         assert result[0]["status"] == "accepted"
+
+def test_filled_close_uses_fresh_positions_snapshot_before_clearing_pending(
+    alpaca_env, monkeypatch
+):
+    """A stale empty snapshot must not clear a filled close while residual qty remains."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-filled"}
+    executor._save_state()
+    snapshots = [
+        [],
+        [SimpleNamespace(symbol="AAPL", qty="0.25")],
+    ]
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.position_calls = 0
+            self.close_calls = []
+
+        def get_all_positions(self):
+            snapshot = snapshots[self.position_calls]
+            self.position_calls += 1
+            return snapshot
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="filled")
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.position_calls == 2
+    assert fake.close_calls == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-filled"
+    }
+
+
+def test_canceled_partial_close_refreshes_residual_position_before_retry(
+    alpaca_env, monkeypatch
+):
+    """A stale flat snapshot must not suppress a retry for a real residual position."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-partial-canceled"}
+    executor._save_state()
+    snapshots = [
+        [],
+        [SimpleNamespace(symbol="AAPL", qty="0.4")],
+    ]
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.position_calls = 0
+            self.close_calls = []
+
+        def get_all_positions(self):
+            snapshot = snapshots[self.position_calls]
+            self.position_calls += 1
+            return snapshot
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(
+                id=order_id, status="canceled", filled_qty="0.6", qty="1"
+            )
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id="residual-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    result = executor._liquidate_all_positions([])
+
+    assert fake.position_calls == 2
+    assert fake.close_calls == ["AAPL"]
+    assert result[0]["order_id"] == "residual-close"
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "residual-close"
+    }

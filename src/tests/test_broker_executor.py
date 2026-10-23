@@ -877,3 +877,38 @@ def test_execute_weights_aborts_before_any_order_when_required_price_missing(
         )
 
     assert submitted == []
+
+
+@pytest.mark.parametrize(
+    "invalid_weights, message",
+    [
+        (np.array([-0.1, 1.1]), "Negative target weights are unsupported"),
+        (np.array([0.7, 0.7]), "gross allocation must not exceed 1"),
+    ],
+)
+def test_execute_weights_rejects_invalid_target_weight_contract(
+    alpaca_env, monkeypatch, invalid_weights, message
+):
+    executor = BrokerExecutor()
+    broker_reads = []
+    submitted = []
+    monkeypatch.setattr(
+        executor, "get_account_status",
+        lambda: broker_reads.append(True) or {
+            "cash": 10000.0, "portfolio_value": 10000.0,
+            "buying_power": 10000.0, "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    monkeypatch.setattr(
+        executor.trading_client, "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        executor.execute_weights(
+            PortfolioWeights(weights=invalid_weights, tickers=["AAPL", "MSFT"])
+        )
+
+    assert broker_reads == []
+    assert submitted == []

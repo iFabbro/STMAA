@@ -540,8 +540,6 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
 
 
 def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch):
-    from types import SimpleNamespace
-
     tickers = [f"T{i}" for i in range(11)]
     executor = BrokerExecutor()
     executor.state["risk_peak_portfolio_value"] = 10000.0

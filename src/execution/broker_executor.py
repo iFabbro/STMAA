@@ -230,7 +230,6 @@ class BrokerExecutor:
         status = self._order_status_value(order)
         if status in {
             "filled", "canceled", "cancelled", "expired", "rejected",
-            "replaced", "done_for_day", "suspended",
         }:
             return 0.0
 
@@ -923,7 +922,6 @@ class BrokerExecutor:
                     orders_executed.append(order_info)
                     if self._order_status_value(order) not in {
                         "canceled", "cancelled", "expired", "rejected",
-                        "replaced", "done_for_day", "suspended",
                     }:
                         # Project accepted/filled deltas because the original broker
                         # position snapshot is stale for the rest of this loop.

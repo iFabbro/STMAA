@@ -488,7 +488,8 @@ class BrokerExecutor:
                 current_notional = float(
                     positions.get(ticker, {}).get("market_value", 0.0) or 0.0
                 )
-                if abs(target_notional - current_notional) >= min_notional:
+                delta_notional = abs(target_notional - current_notional)
+                if delta_notional > 1e-8 and delta_notional >= min_notional:
                     required_price_tickers.append(ticker)
 
             missing_prices = [

@@ -922,3 +922,37 @@ def test_reserved_notional_fails_closed_when_filled_quantity_exceeds_order_quant
 
     with pytest.raises(RuntimeError, match="filled_qty exceeds qty"):
         executor._get_reserved_notional([impossible_order], prices={})
+
+
+def test_execute_weights_preflights_quote_for_risk_forced_position_reduction(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 8000.0, "portfolio_value": 10000.0,
+        "buying_power": 8000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(
+        executor, "get_positions",
+        lambda: {"AAPL": {"market_value": 2000.0}},
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="unexpected", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+
+    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
+        )
+
+    assert submitted == []

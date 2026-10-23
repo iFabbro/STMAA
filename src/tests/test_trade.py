@@ -412,7 +412,7 @@ def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weight
     monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
 
     with pytest.raises(RuntimeError, match="PPO returned"):
-        bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]})
+        bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]}))
 
 
 def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):

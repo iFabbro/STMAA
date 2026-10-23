@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.execution.broker_executor import BrokerExecutor
+from src.execution.broker_executor import BrokerExecutor, RiskEngine, _validate_risk_limits
 from src.strategy.weight_interface import PortfolioWeights
 
 
@@ -140,6 +140,40 @@ def test_risk_gate_caps_exposure(alpaca_env):
     capped, block = executor._risk_gate(970.0, 800.0)
     assert capped <= 500.0
     assert block is None
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("max_portfolio_exposure", 0.0),
+        ("max_portfolio_exposure", 1.01),
+        ("max_portfolio_exposure", float("nan")),
+        ("max_drawdown", 0.0),
+        ("max_drawdown", 1.0),
+        ("max_drawdown", float("inf")),
+    ],
+)
+def test_account_risk_limits_reject_invalid_values(key, value):
+    limits = {"max_portfolio_exposure": 0.50, "max_drawdown": 0.15}
+    limits[key] = value
+    with pytest.raises(ValueError):
+        _validate_risk_limits(limits)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_position_pct": 0.0},
+        {"max_position_pct": 1.01},
+        {"max_exposure_pct": -0.1},
+        {"max_exposure_pct": float("nan")},
+        {"max_symbol_concentration_pct": 0.0},
+        {"max_symbol_concentration_pct": float("inf")},
+    ],
+)
+def test_risk_engine_rejects_invalid_limits(kwargs):
+    with pytest.raises(ValueError, match="limit|finite"):
+        RiskEngine(**kwargs)
 
 
 def test_risk_engine_limits_position(alpaca_env):

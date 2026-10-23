@@ -134,7 +134,7 @@ def test_stale_external_peak_cannot_lower_internal_high_water_mark():
 
 
 def test_external_peak_higher_than_internal_peak_is_preserved():
-    overlay = RiskOverlayModule(max_drawdown_threshold=0.15)
+    overlay = RiskOverlayModule(max_drawdown_threshold=0.05)
     overlay.apply(None, np.array([0.1]), ["A"], portfolio_value=100000.0)
     result = overlay.apply(
         None, np.array([0.1]), ["A"],

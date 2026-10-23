@@ -7,6 +7,10 @@ import pandas as pd
 class RiskOverlayModule:
     """Apply risk controls without re-leveraging normalized weights."""
 
+    # The pipeline must receive current broker/account equity before this overlay
+    # can claim that its drawdown circuit breaker is active.
+    requires_verified_portfolio_value = True
+
     def __init__(self, max_position_size: float = 0.2,
                  max_gross_exposure: float = 1.0,
                  max_drawdown_threshold: float = 0.15,

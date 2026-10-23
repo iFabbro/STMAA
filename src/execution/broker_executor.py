@@ -346,13 +346,12 @@ class BrokerExecutor:
                 f"Notional già impegnato dagli ordini aperti: {reserved_notional:.2f}"
             )
 
-        tradable_budget = portfolio_value
-        if buying_power > 0:
-            tradable_budget = min(portfolio_value, max(0.0, buying_power - reserved_notional))
-        else:
-            tradable_budget = portfolio_value
-
-        tradable_budget, risk_block = self._risk_gate(portfolio_value, tradable_budget)
+        # Buying power limits new purchases, not risk-reducing sells. Keep it
+        # separate from the drawdown/exposure gate so zero cash cannot suppress sells.
+        available_buying_power = (
+            max(0.0, buying_power - reserved_notional) if buying_power > 0 else 0.0
+        )
+        tradable_budget, risk_block = self._risk_gate(portfolio_value, portfolio_value)
         if risk_block:
             self.logger.warning(f"Risk gate attivo: {risk_block}")
 
@@ -361,7 +360,9 @@ class BrokerExecutor:
             f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
         )
         positions = self.get_positions()
-        risk_engine = RiskEngine()
+        risk_engine = RiskEngine(
+            max_exposure_pct=RISK_LIMITS["max_portfolio_exposure"]
+        )
         portfolio_manager = PortfolioManager()
         weights, pm_block = portfolio_manager.allocate(weights, portfolio_value, positions, reserved_notional=reserved_notional)
         if pm_block:
@@ -425,6 +426,14 @@ class BrokerExecutor:
 
                 # Submit only the signed delta needed to reach the bounded target.
                 order_notional = bounded_target - current_notional
+                if order_notional > 0:
+                    if available_buying_power <= 0:
+                        self.logger.warning(
+                            "Insufficient verified buying power for additional %s exposure",
+                            ticker,
+                        )
+                        continue
+                    order_notional = min(order_notional, available_buying_power)
                 if abs(order_notional) < min_notional:
                     continue
 
@@ -463,6 +472,10 @@ class BrokerExecutor:
                         # Reserve this submitted delta for subsequent symbols in
                         # the same rebalance; positions may not reflect it yet.
                         reserved_notional += abs(order_notional)
+                        if side == OrderSide.BUY:
+                            available_buying_power = max(
+                                0.0, available_buying_power - abs(order_notional)
+                            )
                     self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                 except Exception as e:
                     self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")

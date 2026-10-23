@@ -419,6 +419,7 @@ class BrokerExecutor:
         # Otherwise a restart can resurrect a stale pending marker from disk.
         if active_pending or active_pending != pending:
             self._save_state()
+        unresolved = dict(self.state.get("emergency_liquidation_unresolved", {}))
         for position in positions:
             symbol = str(getattr(position, "symbol", "")).strip()
             try:
@@ -427,8 +428,21 @@ class BrokerExecutor:
                 raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity") from exc
             if not symbol or not np.isfinite(quantity):
                 raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity")
-            if quantity == 0 or symbol in active_pending:
+            # An unresolved intent is deliberately fail-closed across process restarts.
+            # Without a broker order ID, automatically retrying could duplicate a close
+            # that the broker accepted but whose response was lost or malformed.
+            if quantity == 0 or symbol in active_pending or symbol in unresolved:
                 continue
+
+            # Persist intent before sending the broker request. If the process dies or
+            # the response is ambiguous, the next run will require reconciliation
+            # rather than blindly submitting a second close for this symbol.
+            unresolved[symbol] = {
+                "created_at": datetime.now().isoformat(),
+                "reason": "close_submission_outcome_unconfirmed",
+            }
+            self.state["emergency_liquidation_unresolved"] = unresolved
+            self._save_state()
 
             order = self.trading_client.close_position(symbol)
             order_id = getattr(order, "id", None)
@@ -446,11 +460,15 @@ class BrokerExecutor:
                 "timestamp": datetime.now().isoformat(),
                 "price": None,
             })
+            unresolved.pop(symbol, None)
+            self.state["emergency_liquidation_unresolved"] = unresolved
             if status not in {
                 "filled", "canceled", "cancelled", "expired", "rejected",
                 "replaced", "done_for_day", "suspended",
             }:
                 active_pending[symbol] = str(order_id)
+            else:
+                active_pending.pop(symbol, None)
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()
         return liquidations

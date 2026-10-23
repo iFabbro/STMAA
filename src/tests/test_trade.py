@@ -75,10 +75,16 @@ def fake_env(monkeypatch):
     monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
 
 
-def test_trade_fallback_writes_hub_state(tmp_path, monkeypatch, fake_env):
+def test_trade_fails_closed_when_ppo_import_is_unavailable(tmp_path, monkeypatch, fake_env):
     monkeypatch.chdir(tmp_path)
+    submitted = []
 
-    monkeypatch.setattr(trade, "BrokerExecutor", DummyExecutor)
+    class TrackingExecutor(DummyExecutor):
+        def execute_weights(self, weights):
+            submitted.append(weights)
+            return super().execute_weights(weights)
+
+    monkeypatch.setattr(trade, "BrokerExecutor", TrackingExecutor)
     monkeypatch.setattr(trade, "AlpacaFeed", DummyFeed)
     monkeypatch.setattr(trade, "DataProcessor", DummyProcessor)
     monkeypatch.setattr(trade, "WeightCentricPipeline", DummyPipeline)
@@ -87,29 +93,12 @@ def test_trade_fallback_writes_hub_state(tmp_path, monkeypatch, fake_env):
     monkeypatch.setattr(trade, "PPOAgent", None)
 
     bot = PaperTradingBot(tickers=["AAPL", "MSFT"], initial_capital=100000.0)
-
     market_data = bot.get_market_data()
-    weights = bot.generate_weights(market_data)
 
-    assert isinstance(weights, PortfolioWeights)
-    assert weights.tickers == ["AAPL", "MSFT"]
-    assert np.allclose(weights.weights, np.array([0.5, 0.5]))
-    assert np.isclose(weights.weights.sum(), 1.0)
+    with pytest.raises(RuntimeError, match="PPO unavailable"):
+        bot.generate_weights(market_data)
 
-    result = bot.execute_trade(weights)
-    bot.update_hub_state(result)
-
-    hub_file = Path("logs/hub_state.json")
-    assert hub_file.exists()
-
-    payload = json.loads(hub_file.read_text())
-    assert payload["portfolio_value"] == 123456.0
-    assert payload["cash"] == 1000.0
-    assert payload["equity"] == 123456.0
-    assert len(payload["orders"]) == 2
-    assert payload["orders"][0]["ticker"] == "AAPL"
-    assert payload["orders"][1]["ticker"] == "MSFT"
-
+    assert submitted == []
 
 
 def test_get_vix_value_returns_latest_valid_close(monkeypatch):

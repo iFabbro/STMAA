@@ -1228,12 +1228,14 @@ def test_emergency_liquidation_save_state_failure_after_acceptance_does_not_dupl
     executor = BrokerExecutor()
     save_calls = []
 
-    def fail_first_save():
+    def fail_post_acceptance_save():
         save_calls.append(True)
-        if len(save_calls) == 1:
+        # First save persists the unresolved intent before submission; the
+        # second save would persist the broker order ID after acceptance.
+        if len(save_calls) == 2:
             raise OSError("state disk write failed")
 
-    monkeypatch.setattr(executor, "_save_state", fail_first_save)
+    monkeypatch.setattr(executor, "_save_state", fail_post_acceptance_save)
 
     class FakeTradingClient:
         def __init__(self):

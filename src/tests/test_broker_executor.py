@@ -1360,3 +1360,63 @@ def test_emergency_liquidation_preserves_non_terminal_pending_orders(
     assert persisted["emergency_liquidation_pending"] == {
         "AAPL": "close-AAPL-existing"
     }
+
+
+
+@pytest.mark.parametrize("close_outcome", ["missing_order_id", "ambiguous_timeout"])
+def test_unresolved_close_intent_survives_restart_without_duplicate_submission(
+    alpaca_env, close_outcome
+):
+    from types import SimpleNamespace
+
+    first_executor = BrokerExecutor()
+    first_submissions = []
+
+    class FirstTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            first_submissions.append(symbol)
+            if close_outcome == "ambiguous_timeout":
+                # Model a broker accepting the request while the response is lost.
+                raise TimeoutError("response lost after broker acceptance")
+            return SimpleNamespace(status="accepted")
+
+    first_executor.trading_client = FirstTradingClient()
+    monkeypatch_open_orders = lambda: []
+    first_executor._get_open_orders = monkeypatch_open_orders
+
+    expected_error = (
+        "manual reconciliation required"
+        if close_outcome == "missing_order_id"
+        else "response lost after broker acceptance"
+    )
+    expected_exception = RuntimeError if close_outcome == "missing_order_id" else TimeoutError
+    with pytest.raises(expected_exception, match=expected_error):
+        first_executor._liquidate_all_positions([])
+
+    assert first_submissions == ["AAPL"]
+    assert first_executor.state["emergency_liquidation_unresolved"]["AAPL"][
+        "reason"
+    ] == "close_submission_outcome_unconfirmed"
+
+    # Simulate a process restart: the next executor must load the persisted intent.
+    resumed_executor = BrokerExecutor()
+    resumed_submissions = []
+
+    class ResumedTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            resumed_submissions.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    resumed_executor.trading_client = ResumedTradingClient()
+    resumed_executor._get_open_orders = lambda: []
+
+    assert resumed_executor.state["emergency_liquidation_unresolved"]["AAPL"]
+    assert resumed_executor._liquidate_all_positions([]) == []
+    assert resumed_submissions == []
+    assert resumed_executor.state["emergency_liquidation_unresolved"]["AAPL"]

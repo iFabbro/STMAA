@@ -365,10 +365,32 @@ class BrokerExecutor:
         # Query directly so an API failure cannot be mistaken for an empty portfolio.
         positions = self.trading_client.get_all_positions()
         liquidations = []
-        active_pending = {
-            symbol: order_id for symbol, order_id in pending.items()
-            if str(order_id) in remaining_ids
+        active_pending = {}
+        terminal_statuses = {
+            "filled", "canceled", "cancelled", "expired", "rejected",
+            "replaced", "done_for_day", "suspended",
         }
+        for symbol, order_id in pending.items():
+            if str(order_id) in remaining_ids:
+                active_pending[symbol] = order_id
+                continue
+
+            # Open-order snapshots can lag behind order acceptance. Reconcile by
+            # ID before clearing a pending close; if the lookup fails, keep the
+            # pending marker rather than risk submitting a duplicate close.
+            try:
+                recorded_order = self.trading_client.get_order_by_id(order_id)
+                recorded_status = str(getattr(recorded_order, "status", "")).lower()
+            except Exception as exc:
+                self.logger.warning(
+                    "Unable to reconcile pending emergency close %s for %s; keeping it pending: %s",
+                    order_id, symbol, exc,
+                )
+                active_pending[symbol] = order_id
+            else:
+                if recorded_status not in terminal_statuses:
+                    active_pending[symbol] = order_id
+
         if active_pending != pending:
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()

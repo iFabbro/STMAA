@@ -397,12 +397,17 @@ class BrokerExecutor:
                 )
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
+                # The broker order must have been created shortly after the
+                # persisted intent. An upper bound prevents a later, unrelated order
+                # with the same symbol/side/quantity from being misidentified.
                 query_after = created_at - timedelta(seconds=5)
+                query_until = created_at + timedelta(minutes=5)
                 orders = self.trading_client.get_orders(
                     filter=GetOrdersRequest(
                         status=QueryOrderStatus.ALL,
                         symbols=[symbol],
                         after=query_after,
+                        until=query_until,
                     )
                 )
                 requested_qty = float(requested_qty)
@@ -443,7 +448,7 @@ class BrokerExecutor:
                 if (
                     np.isfinite(order_qty)
                     and np.isclose(order_qty, requested_qty, rtol=1e-6, atol=1e-8)
-                    and order_created_at >= query_after
+                    and query_after <= order_created_at <= query_until
                 ):
                     candidates.append(order)
 

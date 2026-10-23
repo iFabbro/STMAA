@@ -1914,3 +1914,56 @@ def test_failed_pre_submission_state_write_never_sends_close_order(
         executor._liquidate_all_positions([])
 
     assert fake.closed == []
+
+def test_unresolved_liquidation_ignores_matching_order_outside_intent_time_window(
+    alpaca_env, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            assert filter.after == created_at - timedelta(seconds=5)
+            assert filter.until == created_at + timedelta(minutes=5)
+            # Same symbol, side, and quantity, but created well after the
+            # intent's reconciliation window: this is not sufficient evidence.
+            return [SimpleNamespace(
+                id="unrelated-later-order",
+                symbol="AAPL",
+                side="sell",
+                qty="1",
+                status="accepted",
+                created_at=created_at + timedelta(minutes=30),
+            )]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
+    assert executor.state.get("emergency_liquidation_pending", {}) == {}
+

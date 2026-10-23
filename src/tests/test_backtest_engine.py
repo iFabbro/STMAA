@@ -9,6 +9,7 @@ def test_backtest_engine_creation():
         initial_capital=100000, transaction_cost=0.001, slippage=0.0005
     )
     assert engine.initial_capital == 100000
+    assert engine.periods_per_year == 252
 
 
 def test_metrics_calculation():
@@ -128,3 +129,22 @@ def test_sharpe_and_sortino_use_periodic_returns_not_cagr():
     assert metrics["sharpe_ratio"] == pytest.approx(expected_sharpe)
     assert metrics["sortino_ratio"] == pytest.approx(expected_sortino)
     assert metrics["cumulative_return"] == pytest.approx(0.02)
+
+
+def test_metrics_use_configured_periods_per_year():
+    engine = ExecutionConsistentBacktest(initial_capital=100.0, periods_per_year=3)
+    dates = pd.date_range("2024-01-01", periods=3, freq="D")
+    values = pd.Series([110.0, 99.0, 108.9], index=dates)
+    metrics = engine._calculate_metrics(values)
+    assert metrics["cumulative_return"] == pytest.approx(0.089)
+    assert metrics["annualized_return"] == pytest.approx(0.089)
+    assert metrics["annualized_volatility"] == pytest.approx(0.2)
+    assert metrics["sharpe_ratio"] == pytest.approx(0.5)
+    assert metrics["sortino_ratio"] == pytest.approx(1.0)
+    assert metrics["max_drawdown"] == pytest.approx(-0.1)
+
+
+def test_invalid_periods_per_year_is_rejected():
+    with pytest.raises(ValueError, match="periods_per_year"):
+        ExecutionConsistentBacktest(periods_per_year=0)
+

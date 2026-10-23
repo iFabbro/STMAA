@@ -410,6 +410,11 @@ class BrokerExecutor:
                 raw_qty = getattr(order, "qty", None)
                 raw_created_at = getattr(order, "created_at", None)
                 order_id = getattr(order, "id", None)
+                # A replaced parent is not the live close request. Prefer its
+                # replacement child when that child independently matches the
+                # persisted intent; if it is absent, keep the intent unresolved.
+                if getattr(order, "replaced_by", None):
+                    continue
                 if not order_id or order_symbol != symbol or order_side != expected_side:
                     continue
                 try:
@@ -445,6 +450,10 @@ class BrokerExecutor:
                 # The broker has definitively rejected/cancelled this close, so a
                 # fresh close may be submitted against the latest positions snapshot.
                 unresolved.pop(symbol, None)
+            elif status == "replaced":
+                # Without a usable replacement child, the intent is still ambiguous.
+                # Do not clear it or submit another close based on the parent order.
+                continue
             else:
                 # Filled orders remain pending until a later positions snapshot confirms
                 # flat; all other/unknown statuses are also preserved fail-closed.

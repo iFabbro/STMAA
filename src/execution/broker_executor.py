@@ -415,9 +415,9 @@ class BrokerExecutor:
 
         if active_pending != pending:
             self.state["emergency_liquidation_pending"] = active_pending
-        # Retry persistence even when the in-memory state is unchanged: the
-        # previous write may have failed after the broker accepted a close.
-        if active_pending:
+        # Persist both active pending orders and removals of terminal orders.
+        # Otherwise a restart can resurrect a stale pending marker from disk.
+        if active_pending or active_pending != pending:
             self._save_state()
         for position in positions:
             symbol = str(getattr(position, "symbol", "")).strip()

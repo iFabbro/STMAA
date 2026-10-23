@@ -88,7 +88,7 @@ class PaperTradingBot:
             initial_capital=initial_capital,
         ) if PPO_AVAILABLE else None
 
-        print("✅ PaperTradingBot inizializzato (Alpaca + PPO attivo)" if PPO_AVAILABLE else "✅ PaperTradingBot inizializzato (fallback senza PPO)")
+        print("PaperTradingBot inizializzato (PPO disponibile)" if PPO_AVAILABLE else "PPO non disponibile: la generazione dei pesi e il trading sono disabilitati")
 
     def get_market_data(self) -> pd.DataFrame:
         """Ottieni dati di mercato reali da Alpaca (bars giornaliere)."""
@@ -98,35 +98,30 @@ class PaperTradingBot:
         return data
 
     def generate_weights(self, market_data: pd.DataFrame) -> PortfolioWeights:
-        """Genera weights usando agente PPO reale (Fase 2)."""
+        """Generate target weights with PPO; fail closed when inference is unavailable."""
         if not PPO_AVAILABLE or self.ppo_agent is None:
-            print("⚠️ PPO non disponibile, uso pesi equal-weight di fallback...")
-            n = len(self.tickers)
-            weights = np.array([1.0 / n] * n, dtype=float)
-            return PortfolioWeights(
-                weights=weights,
-                tickers=self.tickers,
-                timestamp=datetime.now().isoformat(),
+            raise RuntimeError(
+                "PPO unavailable; refusing to generate fallback weights or submit trades"
             )
 
-        print("🧠 Generazione weights con PPO...")
-
-        # Addestra PPO se non esiste modello
-        model_path = "models/ppo_trading_model.zip"
-        if not Path(model_path).exists():
-            print("⚠️  Nessun modello PPO trovato, addestramento automatico...")
-            self.ppo_agent.train(market_data, total_timesteps=10000)
-
-        # PPO predice weights
-        weights = self.ppo_agent.predict_weights(market_data)
+        # Trading must never train a policy implicitly. Train and validate a compatible
+        # model explicitly before starting the paper-trading process.
+        weights = np.asarray(self.ppo_agent.predict_weights(market_data), dtype=float)
+        if weights.shape != (len(self.tickers),):
+            raise RuntimeError(
+                f"PPO returned invalid weight shape {weights.shape}; expected {(len(self.tickers),)}"
+            )
+        if not np.isfinite(weights).all() or (weights < 0).any():
+            raise RuntimeError("PPO returned non-finite or negative target weights")
+        if not np.isclose(weights.sum(), 1.0, rtol=1e-6, atol=1e-8):
+            raise RuntimeError("PPO returned target weights that do not sum to 1")
 
         portfolio_weights = PortfolioWeights(
             weights=weights,
             tickers=self.tickers,
             timestamp=datetime.now().isoformat(),
         )
-
-        print(f"✅ Weights PPO: {portfolio_weights.to_dict()}")
+        print(f" PPO target weights: {portfolio_weights.to_dict()}")
         return portfolio_weights
 
     def _latest_completed_vix_session_date(self, now=None):

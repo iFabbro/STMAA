@@ -569,3 +569,38 @@ def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch
 
     assert result["orders"] == []
     assert submitted == []
+
+
+def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    tickers = [f"T{i}" for i in range(10)]
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda requested: {ticker: 100.0 for ticker in requested},
+    )
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id=f"order-{len(submitted)}", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.full(len(tickers), 0.1), tickers=tickers)
+    )
+
+    assert len(result["orders"]) == 5
+    total_submitted_notional = sum(order.qty * 100.0 for order in submitted)
+    assert total_submitted_notional <= pytest.approx(5000.0)

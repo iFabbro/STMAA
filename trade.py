@@ -104,9 +104,39 @@ class PaperTradingBot:
                 "PPO unavailable; refusing to generate fallback weights or submit trades"
             )
 
+        # The PPO observation includes current holdings so the policy can account
+        # for turnover. Obtain a verified account snapshot and pass current weights.
+        account = self.executor.get_account_status()
+        if account.get("account_data_fresh") is False:
+            raise RuntimeError("Cannot verify current broker account value for PPO inference")
+        portfolio_value = float(account.get("portfolio_value", 0.0))
+        if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+            raise RuntimeError("Cannot calculate current PPO holdings weights from invalid equity")
+
+        positions = self.executor.get_positions()
+        if not isinstance(positions, dict):
+            raise RuntimeError("Cannot verify current broker positions for PPO inference")
+        current_weights = []
+        for ticker in self.tickers:
+            position = positions.get(ticker, {})
+            market_value = float(position.get("market_value", 0.0) or 0.0)
+            if not np.isfinite(market_value):
+                raise RuntimeError(f"Invalid current market value for {ticker}")
+            if market_value < 0:
+                raise RuntimeError(
+                    f"Long-only PPO cannot infer safely with an existing short position in {ticker}"
+                )
+            current_weights.append(market_value / portfolio_value)
+        current_weights = np.asarray(current_weights, dtype=float)
+        if float(current_weights.sum()) > 1.0 + 1e-6:
+            raise RuntimeError("Current long holdings exceed account equity; refusing PPO inference")
+
         # Trading must never train a policy implicitly. Train and validate a compatible
         # model explicitly before starting the paper-trading process.
-        weights = np.asarray(self.ppo_agent.predict_weights(market_data), dtype=float)
+        weights = np.asarray(
+            self.ppo_agent.predict_weights(market_data, current_weights=current_weights),
+            dtype=float,
+        )
         if weights.shape != (len(self.tickers),):
             raise RuntimeError(
                 f"PPO returned invalid weight shape {weights.shape}; expected {(len(self.tickers),)}"

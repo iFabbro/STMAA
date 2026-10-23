@@ -456,6 +456,13 @@ class BrokerExecutor:
                         "price": price,
                     }
                     orders_executed.append(order_info)
+                    if self._order_status_value(order) not in {
+                        "filled", "canceled", "cancelled", "expired", "rejected",
+                        "replaced", "done_for_day", "suspended",
+                    }:
+                        # Reserve this submitted delta for subsequent symbols in
+                        # the same rebalance; positions may not reflect it yet.
+                        reserved_notional += abs(order_notional)
                     self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                 except Exception as e:
                     self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")

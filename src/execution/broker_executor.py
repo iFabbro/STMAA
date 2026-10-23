@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import tempfile
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -151,9 +152,30 @@ class BrokerExecutor:
             self._save_state()
 
     def _save_state(self):
+        """Persist state atomically so an interrupted write cannot truncate it."""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.state_file, "w") as f:
-            json.dump(self.state, f)
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.state_file.parent,
+                prefix=f".{self.state_file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as state_file:
+                temp_path = Path(state_file.name)
+                json.dump(self.state, state_file)
+                state_file.flush()
+                os.fsync(state_file.fileno())
+            os.replace(temp_path, self.state_file)
+        except Exception:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    self.logger.exception("Unable to remove temporary broker state file %s", temp_path)
+            raise
 
     def get_account_status(self) -> Dict:
         try:

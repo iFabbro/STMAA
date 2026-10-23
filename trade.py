@@ -243,8 +243,6 @@ class PaperTradingBot:
                 )
 
             self.pipeline.current_portfolio_value = portfolio_value
-            vix_value = self.get_vix_value()
-            print(f"📉 VIX latest completed-session close: {vix_value:.2f}")
             drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)
             circuit_breaker_triggered = drawdown >= float(
                 getattr(risk_module, "max_drawdown_threshold", 1.0)
@@ -252,6 +250,15 @@ class PaperTradingBot:
             liquidate_on_breaker = os.getenv("LIQUIDATE_ON_DRAWDOWN", "false").strip().lower() in {
                 "1", "true", "yes", "on"
             }
+            # An explicitly configured emergency liquidation does not require a VIX
+            # signal: VIX gates new target decisions, not broker-side risk reduction.
+            # Ordinary execution remains fail-closed when VIX is missing or stale.
+            if circuit_breaker_triggered and liquidate_on_breaker:
+                vix_value = None
+                print("Drawdown circuit breaker: bypassing VIX gate for explicit emergency liquidation")
+            else:
+                vix_value = self.get_vix_value()
+                print(f"📉 VIX latest completed-session close: {vix_value:.2f}")
             risked_weights = risk_module.apply(
                 None,
                 weights.weights,

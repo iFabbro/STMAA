@@ -390,3 +390,42 @@ def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
     with pytest.raises(RuntimeError, match="Cannot verify current broker account value"):
         bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
     assert executor.submitted is False
+
+
+@pytest.mark.parametrize(
+    "invalid_weights",
+    [
+        np.array([0.5]),
+        np.array([0.5, np.nan]),
+        np.array([-0.1, 1.1]),
+        np.array([0.4, 0.4]),
+    ],
+)
+def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weights):
+    class FakePPO:
+        def predict_weights(self, market_data):
+            return invalid_weights
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL", "MSFT"]
+    bot.ppo_agent = FakePPO()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+
+    with pytest.raises(RuntimeError, match="PPO returned"):
+        bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]})
+
+
+def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):
+    class FakePPO:
+        def predict_weights(self, market_data):
+            return np.array([0.25, 0.75])
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL", "MSFT"]
+    bot.ppo_agent = FakePPO()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+
+    weights = bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]}))
+
+    assert weights.tickers == ["AAPL", "MSFT"]
+    np.testing.assert_allclose(weights.weights, np.array([0.25, 0.75]))

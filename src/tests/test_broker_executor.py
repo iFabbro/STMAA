@@ -1271,3 +1271,31 @@ def test_emergency_liquidation_save_state_failure_after_acceptance_does_not_dupl
         "AAPL": "accepted-close-AAPL"
     }
     assert len(save_calls) >= 2
+
+
+
+def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
+    alpaca_env,
+):
+    import json
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-old"}
+    executor._save_state()
+
+    class FakeTradingClient:
+        def get_all_positions(self):
+            return []
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="filled")
+
+    executor.trading_client = FakeTradingClient()
+    executor._get_open_orders = lambda: []
+
+    assert executor._liquidate_all_positions([]) == []
+    assert executor.state["emergency_liquidation_pending"] == {}
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        persisted = json.load(state_file)
+    assert persisted["emergency_liquidation_pending"] == {}

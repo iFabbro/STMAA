@@ -1352,6 +1352,50 @@ def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
 
 
 
+def test_filled_pending_close_is_retained_until_position_snapshot_is_flat(
+    alpaca_env,
+):
+    import json
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {
+        "AAPL": "close-AAPL-filled"
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            # Simulate eventual consistency: the order is filled but the
+            # positions endpoint still reports the pre-close quantity.
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="filled")
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    executor._get_open_orders = lambda: []
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL-filled"
+    }
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        persisted = json.load(state_file)
+    assert persisted["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL-filled"
+    }
+
+
 @pytest.mark.parametrize(
     "broker_status",
     [

@@ -148,3 +148,64 @@ def test_invalid_periods_per_year_is_rejected():
     with pytest.raises(ValueError, match="periods_per_year"):
         ExecutionConsistentBacktest(periods_per_year=0)
 
+
+
+
+def test_result_equity_curve_includes_initial_capital_baseline():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 110.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0, slippage=0
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([1.0]), ["A"]
+    )
+
+    assert result["initial_capital"] == pytest.approx(10000)
+    assert result["equity_curve"].tolist() == pytest.approx(
+        [10000, 10000, 11000]
+    )
+    assert result["equity_curve"].iloc[-1] == pytest.approx(result["final_value"])
+    assert result["portfolio_values"].iloc[-1] == pytest.approx(result["final_value"])
+    assert result["metrics"]["cumulative_return"] == pytest.approx(
+        result["equity_curve"].iloc[-1] / result["initial_capital"] - 1
+    )
+
+
+def test_equity_curve_exposes_initial_rebalance_cost():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0]},
+        index=pd.date_range("2024-01-01", periods=1, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([0.5]), ["A"]
+    )
+
+    assert result["equity_curve"].tolist() == pytest.approx([10000, 9850])
+    assert result["metrics"]["cumulative_return"] == pytest.approx(-0.015)
+    assert result["metrics"]["max_drawdown"] == pytest.approx(-0.015)
+
+
+def test_no_trade_backtest_keeps_equity_equal_to_initial_capital():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 105.0, 95.0]},
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(
+        initial_capital=12345, transaction_cost=0, slippage=0
+    )
+    result = engine.run_backtest(
+        prices, lambda _ts, _row: np.array([0.0]), ["A"]
+    )
+
+    assert result["equity_curve"].tolist() == pytest.approx(
+        [12345, 12345, 12345, 12345]
+    )
+    assert result["final_value"] == pytest.approx(12345)
+    assert result["metrics"]["cumulative_return"] == pytest.approx(0)
+    assert result["metrics"]["max_drawdown"] == pytest.approx(0)

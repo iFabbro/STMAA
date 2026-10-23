@@ -26,8 +26,8 @@ def _validate_risk_limits(limits):
     """Fail fast when account-level risk limits are missing or out of range."""
     exposure = float(limits["max_portfolio_exposure"])
     drawdown = float(limits["max_drawdown"])
-    if not np.isfinite(exposure) or not 0 < exposure <= 1:
-        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be finite and in (0, 1]")
+    if not np.isfinite(exposure) or not 0 <= exposure <= 1:
+        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be finite and in [0, 1]")
     if not np.isfinite(drawdown) or not 0 < drawdown < 1:
         raise ValueError("MAX_DRAWDOWN must be finite and in (0, 1)")
     return limits
@@ -83,8 +83,8 @@ class RiskEngine:
         if not np.isfinite(values).all():
             raise ValueError("Risk engine limits must be finite")
         for name, value in limits.items():
-            if not 0 < value <= 1:
-                raise ValueError(f"{name} must be in (0, 1]")
+            if not 0 <= value <= 1:
+                raise ValueError(f"{name} must be in [0, 1]")
         self.max_position_pct = float(max_position_pct)
         self.max_exposure_pct = float(max_exposure_pct)
         self.max_symbol_concentration_pct = float(max_symbol_concentration_pct)

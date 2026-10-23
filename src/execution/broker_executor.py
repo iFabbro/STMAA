@@ -6,7 +6,7 @@ import tempfile
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
@@ -355,6 +355,118 @@ class BrokerExecutor:
             return 0.0, "max_exposure:0.00%"
         return capped, None
 
+    def _reconcile_unresolved_liquidation_intents(self, positions, active_pending):
+        """Resolve persisted ambiguous close intents only with unique broker evidence.
+
+        The close-position endpoint does not expose a client-supplied idempotency key.
+        Therefore, never resubmit an ambiguous request merely because it is absent from
+        the open-order snapshot. Match broker history by symbol, side, quantity, and
+        creation time; zero or multiple matches remain unresolved and fail closed.
+        """
+        unresolved = dict(self.state.get("emergency_liquidation_unresolved", {}))
+        changed = False
+        terminal_rejections = {"canceled", "cancelled", "expired", "rejected"}
+
+        for symbol, intent in list(unresolved.items()):
+            if not isinstance(intent, dict):
+                continue
+            created_at_raw = intent.get("created_at")
+            requested_qty = intent.get("requested_qty")
+            expected_side = str(intent.get("expected_side", "")).lower()
+            if not created_at_raw or requested_qty is None or expected_side not in {"buy", "sell"}:
+                # Legacy intents lack enough evidence for safe automated matching.
+                continue
+
+            try:
+                created_at = (
+                    created_at_raw if isinstance(created_at_raw, datetime)
+                    else datetime.fromisoformat(str(created_at_raw))
+                )
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                query_after = created_at - timedelta(seconds=5)
+                orders = self.trading_client.get_orders(
+                    filter=GetOrdersRequest(
+                        status=QueryOrderStatus.ALL,
+                        symbols=[symbol],
+                        after=query_after,
+                    )
+                )
+                requested_qty = float(requested_qty)
+                if not np.isfinite(requested_qty) or requested_qty <= 0:
+                    continue
+            except Exception as exc:
+                self.logger.warning(
+                    "Unable to query broker history for unresolved liquidation %s; keeping intent: %s",
+                    symbol, exc,
+                )
+                continue
+
+            candidates = []
+            for order in orders:
+                order_symbol = str(getattr(order, "symbol", "") or "").strip()
+                raw_side = getattr(order, "side", "")
+                order_side = str(getattr(raw_side, "value", raw_side)).lower()
+                raw_qty = getattr(order, "qty", None)
+                raw_created_at = getattr(order, "created_at", None)
+                order_id = getattr(order, "id", None)
+                # A replaced parent is not the live close request. Prefer its
+                # replacement child when that child independently matches the
+                # persisted intent; if it is absent, keep the intent unresolved.
+                if getattr(order, "replaced_by", None):
+                    continue
+                if not order_id or order_symbol != symbol or order_side != expected_side:
+                    continue
+                try:
+                    order_qty = float(raw_qty)
+                    order_created_at = (
+                        raw_created_at if isinstance(raw_created_at, datetime)
+                        else datetime.fromisoformat(str(raw_created_at))
+                    )
+                    if order_created_at.tzinfo is None:
+                        order_created_at = order_created_at.replace(tzinfo=timezone.utc)
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    np.isfinite(order_qty)
+                    and np.isclose(order_qty, requested_qty, rtol=1e-6, atol=1e-8)
+                    and order_created_at >= query_after
+                ):
+                    candidates.append(order)
+
+            if len(candidates) != 1:
+                if len(candidates) > 1:
+                    self.logger.error(
+                        "Multiple broker orders match unresolved liquidation for %s; manual reconciliation required",
+                        symbol,
+                    )
+                continue
+
+            matched = candidates[0]
+            order_id = str(matched.id)
+            raw_status = getattr(matched, "status", "")
+            status = str(getattr(raw_status, "value", raw_status)).lower()
+            if status in terminal_rejections:
+                # The broker has definitively rejected/cancelled this close, so a
+                # fresh close may be submitted against the latest positions snapshot.
+                unresolved.pop(symbol, None)
+            elif status == "replaced":
+                # Without a usable replacement child, the intent is still ambiguous.
+                # Do not clear it or submit another close based on the parent order.
+                continue
+            else:
+                # Filled orders remain pending until a later positions snapshot confirms
+                # flat; all other/unknown statuses are also preserved fail-closed.
+                active_pending[symbol] = order_id
+                unresolved.pop(symbol, None)
+            changed = True
+
+        if changed:
+            self.state["emergency_liquidation_unresolved"] = unresolved
+            self.state["emergency_liquidation_pending"] = active_pending
+            self._save_state()
+        return unresolved
+
     def _liquidate_all_positions(self, open_orders) -> List[Dict]:
         """Cancel unrelated open orders and safely resume an interrupted liquidation.
 
@@ -439,7 +551,7 @@ class BrokerExecutor:
         # Otherwise a restart can resurrect a stale pending marker from disk.
         if active_pending or active_pending != pending:
             self._save_state()
-        unresolved = dict(self.state.get("emergency_liquidation_unresolved", {}))
+        unresolved = self._reconcile_unresolved_liquidation_intents(positions, active_pending)
         for position in positions:
             symbol = str(getattr(position, "symbol", "")).strip()
             try:
@@ -458,7 +570,9 @@ class BrokerExecutor:
             # the response is ambiguous, the next run will require reconciliation
             # rather than blindly submitting a second close for this symbol.
             unresolved[symbol] = {
-                "created_at": datetime.now().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "requested_qty": abs(quantity),
+                "expected_side": "sell" if quantity > 0 else "buy",
                 "reason": "close_submission_outcome_unconfirmed",
             }
             self.state["emergency_liquidation_unresolved"] = unresolved

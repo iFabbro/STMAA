@@ -466,7 +466,7 @@ class BrokerExecutor:
                     }
                     orders_executed.append(order_info)
                     if self._order_status_value(order) not in {
-                        "filled", "canceled", "cancelled", "expired", "rejected",
+                        "canceled", "cancelled", "expired", "rejected",
                         "replaced", "done_for_day", "suspended",
                     }:
                         # Reserve this submitted delta for subsequent symbols in

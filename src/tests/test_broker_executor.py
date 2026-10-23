@@ -695,3 +695,40 @@ def test_pending_risk_reduction_blocks_new_exposure_in_same_batch(alpaca_env, mo
     assert len(result["orders"]) == 1
     assert submitted[0].symbol == "A"
     assert str(submitted[0].side).lower().endswith("sell")
+
+
+def test_positions_omitted_from_target_weights_are_closed(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 0.0, "portfolio_value": 10000.0,
+        "buying_power": 0.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": 1000.0, "qty": 10.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions.copy())
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    requested = []
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: requested.extend(tickers) or {ticker: 100.0 for ticker in tickers},
+    )
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="close-omitted", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.0]), tickers=["MSFT"])
+    )
+
+    assert requested == ["MSFT", "AAPL"]
+    assert len(result["orders"]) == 1
+    assert submitted[0].symbol == "AAPL"
+    assert submitted[0].qty == pytest.approx(10.0)
+    assert str(submitted[0].side).lower().endswith("sell")

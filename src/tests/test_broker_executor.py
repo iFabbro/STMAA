@@ -667,8 +667,8 @@ def test_pending_risk_reduction_blocks_new_exposure_in_same_batch(alpaca_env, mo
     executor = BrokerExecutor()
     executor.state["risk_peak_portfolio_value"] = 10000.0
     monkeypatch.setattr(executor, "get_account_status", lambda: {
-        "cash": 5000.0, "portfolio_value": 10000.0,
-        "buying_power": 10000.0, "equity": 10000.0,
+        "cash": 45000.0, "portfolio_value": 50000.0,
+        "buying_power": 50000.0, "equity": 50000.0,
         "account_data_fresh": True,
     })
     positions = {
@@ -689,7 +689,7 @@ def test_pending_risk_reduction_blocks_new_exposure_in_same_batch(alpaca_env, mo
 
     monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
     result = executor.execute_weights(
-        PortfolioWeights(weights=np.array([0.05, 0.1]), tickers=["A", "B"])
+        PortfolioWeights(weights=np.array([0.01, 0.02, 0.07]), tickers=["A", "B", "C"])
     )
 
     assert len(result["orders"]) == 1

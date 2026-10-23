@@ -326,7 +326,7 @@ def test_explicit_liquidation_waits_for_open_orders_to_clear(alpaca_env):
     executor.trading_client = fake
     executor._get_open_orders = lambda: [SimpleNamespace(id="still-open")]
 
-    with pytest.raises(RuntimeError, match="broker confirms all open orders"):
+    with pytest.raises(RuntimeError, match="broker confirms unrelated open orders are cancelled"):
         executor._liquidate_all_positions([SimpleNamespace(id="open-1")])
     assert fake.closed == []
 

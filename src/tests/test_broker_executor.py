@@ -1063,3 +1063,110 @@ def test_drawdown_without_explicit_liquidation_does_not_enter_emergency_path(
     assert result["circuit_breaker_triggered"] is True
     assert result["liquidation_requested"] is False
     assert emergency_calls == []
+
+
+
+def test_emergency_liquidation_resumes_after_partial_close_without_duplicate_close(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+    first_close_order = SimpleNamespace(id="close-AAPL", status="accepted")
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+            self.fail_msft_once = True
+
+        def cancel_order_by_id(self, order_id):
+            raise AssertionError("A recorded liquidation order must not be cancelled on retry")
+
+        def get_all_positions(self):
+            return [
+                SimpleNamespace(symbol="AAPL", qty="3"),
+                SimpleNamespace(symbol="MSFT", qty="2"),
+            ]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            if symbol == "AAPL":
+                return first_close_order
+            if self.fail_msft_once:
+                self.fail_msft_once = False
+                raise RuntimeError("MSFT close failed")
+            return SimpleNamespace(id="close-MSFT", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    with pytest.raises(RuntimeError, match="MSFT close failed"):
+        executor._liquidate_all_positions([])
+
+    assert executor.state["emergency_liquidation_pending"] == {"AAPL": "close-AAPL"}
+    assert fake.closed == ["AAPL", "MSFT"]
+
+    # On retry, the broker still reports AAPL's accepted close order as open.
+    open_aapl_close = SimpleNamespace(id="close-AAPL", symbol="AAPL")
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [open_aapl_close])
+    resumed = executor._liquidate_all_positions([open_aapl_close])
+
+    assert fake.closed == ["AAPL", "MSFT", "MSFT"]
+    assert [item["ticker"] for item in resumed] == ["MSFT"]
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL", "MSFT": "close-MSFT"
+    }
+
+
+def test_emergency_liquidation_aborts_if_broker_does_not_return_close_order_id(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            return SimpleNamespace(status="accepted")
+
+    executor.trading_client = FakeTradingClient()
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    with pytest.raises(RuntimeError, match="manual reconciliation required"):
+        executor._liquidate_all_positions([])
+
+
+def test_emergency_liquidation_clears_terminal_pending_order_before_retrying_position(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-old"}
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+    fake = SimpleNamespace(
+        cancelled=[],
+        closed=[],
+    )
+
+    class FakeTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            fake.closed.append(symbol)
+            return SimpleNamespace(id="close-new", status="accepted")
+
+    executor.trading_client = FakeTradingClient()
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    orders = executor._liquidate_all_positions([])
+
+    assert fake.closed == ["AAPL"]
+    assert orders[0]["order_id"] == "close-new"
+    assert executor.state["emergency_liquidation_pending"] == {"AAPL": "close-new"}

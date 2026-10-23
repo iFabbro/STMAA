@@ -410,7 +410,27 @@ class BrokerExecutor:
                 )
                 active_pending[symbol] = order_id
             else:
-                if recorded_status not in terminal_statuses:
+                if recorded_status == "filled":
+                    # A filled close order can disappear from the open-order list
+                    # before the positions endpoint reflects the fill. Keep the
+                    # close pending while a non-zero position is still reported;
+                    # otherwise a retry could submit a second close and reverse
+                    # the position. Missing/invalid quantities fail closed.
+                    matching_positions = [
+                        position for position in positions
+                        if str(getattr(position, "symbol", "")).strip() == symbol
+                    ]
+                    if matching_positions:
+                        try:
+                            remaining_qty = float(
+                                getattr(matching_positions[0], "qty", 0) or 0
+                            )
+                        except (TypeError, ValueError):
+                            active_pending[symbol] = order_id
+                        else:
+                            if not np.isfinite(remaining_qty) or remaining_qty != 0:
+                                active_pending[symbol] = order_id
+                elif recorded_status not in terminal_statuses:
                     active_pending[symbol] = order_id
 
         if active_pending != pending:

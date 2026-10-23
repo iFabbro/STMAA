@@ -368,6 +368,15 @@ class BrokerExecutor:
             return 0.0, "max_exposure:0.00%"
         return capped, None
 
+    @staticmethod
+    def _status_text(status, default=""):
+        """Normalize broker status strings and string-valued Enum instances."""
+        if status is None:
+            return default
+        value = getattr(status, "value", status)
+        normalized = str(value).strip().lower()
+        return normalized or default
+
     def _reconcile_unresolved_liquidation_intents(self, positions, active_pending):
         """Resolve persisted ambiguous close intents only with unique broker evidence.
 
@@ -533,7 +542,7 @@ class BrokerExecutor:
             # pending marker rather than risk submitting a duplicate close.
             try:
                 recorded_order = self.trading_client.get_order_by_id(order_id)
-                recorded_status = str(getattr(recorded_order, "status", "")).lower()
+                recorded_status = self._status_text(getattr(recorded_order, "status", ""))
             except Exception as exc:
                 self.logger.warning(
                     "Unable to reconcile pending emergency close %s for %s; keeping it pending: %s",
@@ -603,7 +612,7 @@ class BrokerExecutor:
                 raise RuntimeError(
                     f"Broker close request for {symbol} returned no order ID; manual reconciliation required"
                 )
-            status = str(getattr(order, "status", "submitted")).lower()
+            status = self._status_text(getattr(order, "status", None), default="submitted")
             liquidations.append({
                 "ticker": symbol,
                 "side": "close_position",

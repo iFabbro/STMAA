@@ -338,8 +338,12 @@ class BrokerExecutor:
         if not np.isfinite(portfolio_value) or portfolio_value <= 0:
             raise RuntimeError("Cannot execute weights with invalid broker account value")
         buying_power = float(account.get("buying_power", 0.0) or 0.0)
-        prices = self._get_prices_from_bars(weights.tickers)
         open_orders = self._get_open_orders()
+        positions = self.get_positions()
+        # A missing symbol in the target vector means a zero target, so include
+        # existing holdings in the execution universe for explicit rebalancing.
+        execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))
+        prices = self._get_prices_from_bars(execution_tickers)
         reserved_notional = self._get_reserved_notional(open_orders, prices=prices)
         if reserved_notional > 0:
             self.logger.warning(
@@ -359,7 +363,6 @@ class BrokerExecutor:
             f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "
             f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
         )
-        positions = self.get_positions()
         risk_engine = RiskEngine(
             max_exposure_pct=RISK_LIMITS["max_portfolio_exposure"]
         )
@@ -372,6 +375,7 @@ class BrokerExecutor:
         circuit_breaker_triggered = bool(metadata.get("circuit_breaker_triggered", False))
         liquidation_requested = bool(metadata.get("liquidate_on_circuit_breaker", False))
         orders_executed = []
+        target_weight_by_ticker = dict(zip(weights.tickers, weights.weights))
         open_order_symbols = {
             str(getattr(order, "symbol", "")).strip()
             for order in open_orders
@@ -397,7 +401,8 @@ class BrokerExecutor:
             if not np.isfinite(min_notional) or min_notional < 0:
                 raise ValueError("min_notional must be finite and non-negative")
             pending_reduction = False
-            for ticker, target_weight in zip(weights.tickers, weights.weights):
+            for ticker in execution_tickers:
+                target_weight = float(target_weight_by_ticker.get(ticker, 0.0))
                 if ticker in open_order_symbols:
                     self.logger.warning(
                         "Open order already exists for %s; skipping to avoid duplicate orders",

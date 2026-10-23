@@ -103,8 +103,20 @@ class StockTradingEnv(gym.Env):
         super().reset(seed=seed)
         options = options or {}
         self.current_step = len(self.df) - 1 if options.get("start_at_latest") else self.lookback
-        self.balance = self.initial_capital
-        self.stocks = np.zeros(self.n_assets, dtype=float)
+
+        initial_weights = np.asarray(
+            options.get("initial_weights", np.zeros(self.n_assets)), dtype=float
+        )
+        if initial_weights.shape != (self.n_assets,):
+            raise ValueError(f"Expected initial_weights shape {(self.n_assets,)}, got {initial_weights.shape}")
+        if not np.isfinite(initial_weights).all() or (initial_weights < 0).any():
+            raise ValueError("initial_weights must be finite and non-negative")
+        if float(initial_weights.sum()) > 1.0 + 1e-8:
+            raise ValueError("initial_weights gross allocation must not exceed 1")
+
+        prices = self._get_current_prices()
+        self.balance = self.initial_capital * max(0.0, 1.0 - float(initial_weights.sum()))
+        self.stocks = initial_weights * self.initial_capital / prices
         self.prev_total_asset = self.initial_capital
         self.total_asset = self.initial_capital
         return self._get_state(), {}
@@ -211,7 +223,7 @@ class PPOAgent:
             self.load()
             logger.info("PPOAgent loaded from %s", self.model_path)
         else:
-            logger.info("No compatible PPO v2 model found; equal-weight fallback remains active")
+            logger.info("No compatible PPO v2 model found; inference will fail closed until a model is trained or loaded")
 
     def train(self, df: pd.DataFrame, total_timesteps: int = 50000):
         if total_timesteps <= 0:
@@ -237,10 +249,27 @@ class PPOAgent:
         self.save()
         logger.info("PPO training completed")
 
-    def predict_weights(self, market_data: pd.DataFrame) -> np.ndarray:
+    def predict_weights(
+        self,
+        market_data: pd.DataFrame,
+        current_weights: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        if current_weights is None:
+            current_weights = np.zeros(len(self.tickers), dtype=float)
+        else:
+            current_weights = np.asarray(current_weights, dtype=float)
+        if current_weights.shape != (len(self.tickers),):
+            raise ValueError(
+                f"Expected current_weights shape {(len(self.tickers),)}, got {current_weights.shape}"
+            )
+        if not np.isfinite(current_weights).all() or (current_weights < 0).any():
+            raise ValueError("current_weights must be finite and non-negative")
+        if float(current_weights.sum()) > 1.0 + 1e-8:
+            raise ValueError("current_weights gross allocation must not exceed 1")
         if self.model is None:
-            logger.warning("PPO model unavailable; using equal-weight fallback")
-            return np.full(len(self.tickers), 1.0 / len(self.tickers), dtype=float)
+            raise RuntimeError(
+                "PPO model unavailable; train or load a compatible model before inference"
+            )
 
         env = StockTradingEnv(
             df=market_data.reset_index(drop=True).copy(),
@@ -248,7 +277,10 @@ class PPOAgent:
             initial_capital=self.initial_capital,
             lookback=0,
         )
-        observation, _ = env.reset(options={"start_at_latest": True})
+        observation, _ = env.reset(options={
+            "start_at_latest": True,
+            "initial_weights": current_weights,
+        })
         action, _ = self.model.predict(observation, deterministic=True)
         return StockTradingEnv.action_to_weights(action, len(self.tickers))
 

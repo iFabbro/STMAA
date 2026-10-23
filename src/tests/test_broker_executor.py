@@ -386,3 +386,186 @@ def test_execute_weights_does_not_submit_orders_when_positions_are_unreadable(
         executor.execute_weights(weights)
 
     assert fake_client.submitted == []
+
+
+
+def test_execute_weights_holds_position_when_target_is_unchanged(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 9000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": 1000.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request) or SimpleNamespace(id="unexpected", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert result["orders"] == []
+    assert submitted == []
+
+
+def test_execute_weights_sells_only_delta_when_target_is_reduced(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 9000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": 1000.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="delta-sell", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.05]), tickers=["AAPL"])
+    )
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].qty == pytest.approx(5.0)
+    assert str(submitted[0].side).lower().endswith("sell")
+
+
+def test_execute_weights_zero_target_closes_position(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 9000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": 200.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="close-position", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.0]), tickers=["AAPL"])
+    )
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].qty == pytest.approx(2.0)
+    assert str(submitted[0].side).lower().endswith("sell")
+
+
+def test_execute_weights_skips_symbol_with_existing_open_order(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 9000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(
+        executor, "_get_open_orders",
+        lambda: [SimpleNamespace(symbol="AAPL", qty="10", filled_qty="0",
+                                 limit_price=None, notional=None, status="accepted")],
+    )
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request) or SimpleNamespace(id="unexpected", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert result["orders"] == []
+    assert submitted == []
+
+
+def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 7500.0, "portfolio_value": 8000.0,
+        "buying_power": 8000.0, "equity": 8000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": 500.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request) or SimpleNamespace(id="unexpected", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.0]), tickers=["AAPL"])
+    )
+
+    assert result["orders"] == []
+    assert submitted == []
+
+
+def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    tickers = [f"T{i}" for i in range(11)]
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda requested: {ticker: 100.0 for ticker in requested},
+    )
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request) or SimpleNamespace(id="unexpected", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.full(len(tickers), 1.0 / len(tickers)), tickers=tickers)
+    )
+
+    assert result["orders"] == []
+    assert submitted == []

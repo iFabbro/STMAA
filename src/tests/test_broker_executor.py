@@ -172,7 +172,7 @@ def test_account_risk_limits_reject_invalid_values(key, value):
     ],
 )
 def test_risk_engine_rejects_invalid_limits(kwargs):
-    with pytest.raises(ValueError, match="limit|finite"):
+    with pytest.raises(ValueError, match="must be|finite"):
         RiskEngine(**kwargs)
 
 

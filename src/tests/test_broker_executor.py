@@ -1967,3 +1967,53 @@ def test_unresolved_liquidation_ignores_matching_order_outside_intent_time_windo
     assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
     assert executor.state.get("emergency_liquidation_pending", {}) == {}
 
+
+
+@pytest.mark.parametrize(
+    ("broker_status", "positions", "expected_close_calls", "expected_pending"),
+    [
+        ("filled", [], [], {}),
+        ("canceled", [("AAPL", "1")], ["AAPL"], {"AAPL": "new-close"}),
+    ],
+)
+def test_liquidation_normalizes_enum_status_values(
+    alpaca_env, monkeypatch, broker_status, positions, expected_close_calls, expected_pending
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "old-close"}
+    executor._save_state()
+    position_objects = [
+        SimpleNamespace(symbol=symbol, qty=qty) for symbol, qty in positions
+    ]
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.close_calls = []
+
+        def get_all_positions(self):
+            return position_objects
+
+        def get_order_by_id(self, order_id):
+            # Simulate an SDK string-valued Enum: str(status) need not equal status.value.
+            return SimpleNamespace(
+                id=order_id, status=SimpleNamespace(value=broker_status)
+            )
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(
+                id="new-close", status=SimpleNamespace(value="accepted")
+            )
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    result = executor._liquidate_all_positions([])
+
+    assert fake.close_calls == expected_close_calls
+    assert executor.state["emergency_liquidation_pending"] == expected_pending
+    if expected_close_calls:
+        assert result[0]["status"] == "accepted"

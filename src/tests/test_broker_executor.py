@@ -1282,6 +1282,48 @@ def test_emergency_liquidation_save_state_failure_after_acceptance_does_not_dupl
 
 
 
+def test_filled_pending_close_is_preserved_while_position_snapshot_is_stale(
+    alpaca_env,
+):
+    """Do not resubmit a close while the broker still reports the old position."""
+    import json
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-filled"}
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            # Simulate the positions endpoint lagging behind the filled order.
+            return [SimpleNamespace(symbol="AAPL", qty="2")]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="filled")
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    executor._get_open_orders = lambda: []
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-filled"
+    }
+    with open(executor.state_file, encoding="utf-8") as state_file:
+        persisted = json.load(state_file)
+    assert persisted["emergency_liquidation_pending"] == {
+        "AAPL": "close-filled"
+    }
+
+
 def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
     alpaca_env,
 ):

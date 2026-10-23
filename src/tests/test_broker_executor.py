@@ -2106,3 +2106,87 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
     assert executor.state["emergency_liquidation_pending"] == {
         "AAPL": "residual-close"
     }
+
+
+def test_unresolved_canceled_partial_close_refreshes_positions_before_retry(
+    alpaca_env, monkeypatch
+):
+    """Do not retry against a stale pre-fill quantity after reconciling canceled history."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    first.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    first._save_state()
+
+    class FirstTradingClient:
+        def __init__(self):
+            self.close_calls = []
+
+        def get_all_positions(self):
+            # Stale snapshot still reports the original quantity after a partial fill.
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            return [SimpleNamespace(
+                id="broker-close-canceled",
+                symbol="AAPL",
+                side="sell",
+                qty="1",
+                status="canceled",
+                filled_qty="0.6",
+                created_at=created_at + timedelta(seconds=1),
+            )]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="canceled")
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            pytest.fail("Must defer retry until a fresh position snapshot is available")
+
+    first_client = FirstTradingClient()
+    first.trading_client = first_client
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+
+    assert first._liquidate_all_positions([]) == []
+    assert first_client.close_calls == []
+    assert first.state["emergency_liquidation_unresolved"] == {}
+    assert first.state["emergency_liquidation_pending"] == {
+        "AAPL": "broker-close-canceled"
+    }
+
+    # On the next pass/restart, the broker's residual quantity is authoritative.
+    resumed = BrokerExecutor()
+    resumed_client_calls = []
+
+    class ResumedTradingClient:
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="0.4")]
+
+        def get_order_by_id(self, order_id):
+            return SimpleNamespace(id=order_id, status="canceled")
+
+        def close_position(self, symbol):
+            resumed_client_calls.append(symbol)
+            return SimpleNamespace(id="residual-close", status="accepted")
+
+    resumed.trading_client = ResumedTradingClient()
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+
+    result = resumed._liquidate_all_positions([])
+
+    assert resumed_client_calls == ["AAPL"]
+    assert result[0]["quantity"] == pytest.approx(0.4)
+    assert result[0]["order_id"] == "residual-close"
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "residual-close"
+    }

@@ -34,7 +34,11 @@ class DummyExecutor:
             "cash": 1000.0,
             "portfolio_value": 123456.0,
             "equity": 123456.0,
+            "account_data_fresh": True,
         }
+
+    def get_positions(self):
+        return {}
 
 
 class DummyFeed:
@@ -401,12 +405,13 @@ def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
 )
 def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weights):
     class FakePPO:
-        def predict_weights(self, market_data):
+        def predict_weights(self, market_data, current_weights=None):
             return invalid_weights
 
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
     bot.ppo_agent = FakePPO()
+    bot.executor = DummyExecutor()
     monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
 
     with pytest.raises(RuntimeError, match="PPO returned"):
@@ -415,15 +420,75 @@ def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weight
 
 def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):
     class FakePPO:
-        def predict_weights(self, market_data):
+        def predict_weights(self, market_data, current_weights=None):
             return np.array([0.25, 0.75])
 
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
     bot.ppo_agent = FakePPO()
+    bot.executor = DummyExecutor()
     monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
 
     weights = bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]}))
 
     assert weights.tickers == ["AAPL", "MSFT"]
     np.testing.assert_allclose(weights.weights, np.array([0.25, 0.75]))
+
+
+def test_generate_weights_passes_current_holdings_to_ppo(monkeypatch):
+    observed = {}
+
+    class FakePPO:
+        def predict_weights(self, market_data, current_weights=None):
+            observed["current_weights"] = np.asarray(current_weights, dtype=float)
+            return np.array([0.25, 0.75])
+
+    class CurrentPortfolioExecutor:
+        def get_account_status(self):
+            return {
+                "portfolio_value": 10000.0,
+                "account_data_fresh": True,
+            }
+
+        def get_positions(self):
+            return {
+                "AAPL": {"market_value": 2500.0},
+                "MSFT": {"market_value": 5000.0},
+            }
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL", "MSFT"]
+    bot.ppo_agent = FakePPO()
+    bot.executor = CurrentPortfolioExecutor()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+
+    result = bot.generate_weights(pd.DataFrame({
+        "Close_AAPL": [100.0], "Close_MSFT": [100.0]
+    }))
+
+    np.testing.assert_allclose(observed["current_weights"], np.array([0.25, 0.5]))
+    np.testing.assert_allclose(result.weights, np.array([0.25, 0.75]))
+
+
+def test_generate_weights_fails_closed_on_existing_short_position(monkeypatch):
+    class FakePPO:
+        def predict_weights(self, market_data, current_weights=None):
+            raise AssertionError("PPO inference must not run with an existing short")
+
+    class ShortPortfolioExecutor:
+        def get_account_status(self):
+            return {"portfolio_value": 10000.0, "account_data_fresh": True}
+
+        def get_positions(self):
+            return {"AAPL": {"market_value": -100.0}}
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL", "MSFT"]
+    bot.ppo_agent = FakePPO()
+    bot.executor = ShortPortfolioExecutor()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+
+    with pytest.raises(RuntimeError, match="existing short position"):
+        bot.generate_weights(pd.DataFrame({
+            "Close_AAPL": [100.0], "Close_MSFT": [100.0]
+        }))

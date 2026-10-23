@@ -396,6 +396,7 @@ class BrokerExecutor:
         else:
             if not np.isfinite(min_notional) or min_notional < 0:
                 raise ValueError("min_notional must be finite and non-negative")
+            pending_reduction = False
             for ticker, target_weight in zip(weights.tickers, weights.weights):
                 if ticker in open_order_symbols:
                     self.logger.warning(
@@ -426,14 +427,26 @@ class BrokerExecutor:
 
                 # Submit only the signed delta needed to reach the bounded target.
                 order_notional = bounded_target - current_notional
+                risk_reducing_target = (
+                    abs(bounded_target) < abs(current_notional) - 1e-8
+                )
                 if order_notional > 0:
-                    if available_buying_power <= 0:
+                    if pending_reduction and not risk_reducing_target:
                         self.logger.warning(
-                            "Insufficient verified buying power for additional %s exposure",
+                            "Skipping additional buy for %s until pending reductions are confirmed",
                             ticker,
                         )
                         continue
-                    order_notional = min(order_notional, available_buying_power)
+                    cover_notional = (
+                        min(order_notional, abs(current_notional))
+                        if current_notional < 0 and risk_reducing_target
+                        else 0.0
+                    )
+                    additional_exposure = order_notional - cover_notional
+                    if additional_exposure > available_buying_power:
+                        order_notional = cover_notional + available_buying_power
+                    if order_notional <= 0:
+                        continue
                 if abs(order_notional) < min_notional:
                     continue
 
@@ -469,9 +482,14 @@ class BrokerExecutor:
                         "canceled", "cancelled", "expired", "rejected",
                         "replaced", "done_for_day", "suspended",
                     }:
-                        # Reserve this submitted delta for subsequent symbols in
-                        # the same rebalance; positions may not reflect it yet.
-                        reserved_notional += abs(order_notional)
+                        # Project accepted/filled deltas because the original broker
+                        # position snapshot is stale for the rest of this loop.
+                        positions[ticker] = {
+                            **positions.get(ticker, {}),
+                            "market_value": current_notional + order_notional,
+                        }
+                        if abs(current_notional + order_notional) < abs(current_notional) - 1e-8:
+                            pending_reduction = True
                         if side == OrderSide.BUY:
                             available_buying_power = max(
                                 0.0, available_buying_power - abs(order_notional)

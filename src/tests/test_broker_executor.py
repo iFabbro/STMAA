@@ -973,3 +973,93 @@ def test_get_positions_fails_closed_on_non_finite_broker_values(alpaca_env, monk
 
     with pytest.raises(RuntimeError, match="Unable to retrieve broker positions"):
         executor.get_positions()
+
+
+def test_explicit_drawdown_liquidation_bypasses_unknown_open_order_exposure(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    open_order = SimpleNamespace(
+        id="open-unknown", status="accepted", qty="10", filled_qty="0",
+        limit_price=None, notional=None, symbol="UNKNOWN",
+    )
+    liquidated = []
+    submitted = []
+
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [open_order])
+    monkeypatch.setattr(
+        executor, "_liquidate_all_positions",
+        lambda orders: liquidated.extend(orders) or [{
+            "ticker": "AAPL", "side": "close_position", "quantity": 2.0,
+            "order_id": "close-1", "status": "accepted", "price": None,
+            "timestamp": "2026-10-23T00:00:00",
+        }],
+    )
+    monkeypatch.setattr(
+        executor, "get_positions",
+        lambda: (_ for _ in ()).throw(AssertionError("allocation positions gate must be bypassed")),
+    )
+    monkeypatch.setattr(
+        executor, "_get_reserved_notional",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("unknown order exposure must not block explicit liquidation")
+        ),
+    )
+    monkeypatch.setattr(executor.trading_client, "submit_order", lambda request: submitted.append(request))
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+    monkeypatch.setattr(executor.metrics, "get_all_metrics", lambda: {})
+    monkeypatch.setattr(executor.metrics, "write_metrics_json", lambda *args, **kwargs: None)
+
+    result = executor.execute_weights(PortfolioWeights(
+        weights=np.array([0.0]), tickers=["AAPL"],
+        metadata={
+            "circuit_breaker_triggered": True,
+            "liquidate_on_circuit_breaker": True,
+        },
+    ))
+
+    assert liquidated == [open_order]
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidation_requested"] is True
+    assert result["orders"][0]["side"] == "close_position"
+    assert submitted == []
+
+
+def test_drawdown_without_explicit_liquidation_does_not_enter_emergency_path(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    emergency_calls = []
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0, "portfolio_value": 10000.0,
+        "buying_power": 10000.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {})
+    monkeypatch.setattr(executor, "_get_reserved_notional", lambda *args, **kwargs: 0.0)
+    monkeypatch.setattr(executor, "_risk_gate", lambda *args: (10000.0, None))
+    monkeypatch.setattr(executor, "_liquidate_all_positions", lambda orders: emergency_calls.append(orders))
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+    monkeypatch.setattr(executor.metrics, "get_all_metrics", lambda: {})
+    monkeypatch.setattr(executor.metrics, "write_metrics_json", lambda *args, **kwargs: None)
+
+    result = executor.execute_weights(PortfolioWeights(
+        weights=np.array([0.0]), tickers=["AAPL"],
+        metadata={
+            "circuit_breaker_triggered": True,
+            "liquidate_on_circuit_breaker": False,
+        },
+    ))
+
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidation_requested"] is False
+    assert emergency_calls == []

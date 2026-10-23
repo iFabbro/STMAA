@@ -421,6 +421,33 @@ class BrokerExecutor:
             raise RuntimeError("Cannot execute weights with invalid broker account value")
         buying_power = float(account.get("buying_power", 0.0) or 0.0)
         open_orders = self._get_open_orders()
+        metadata = getattr(weights, "metadata", None) or {}
+        circuit_breaker_triggered = bool(metadata.get("circuit_breaker_triggered", False))
+        liquidation_requested = bool(metadata.get("liquidate_on_circuit_breaker", False))
+
+        # Explicit emergency liquidation is a distinct execution path. It must not
+        # depend on price-based exposure estimates, parsed position market values,
+        # or allocation gates. _liquidate_all_positions still cancels and verifies
+        # open orders before asking the broker to close every position.
+        if circuit_breaker_triggered and liquidation_requested:
+            self.logger.warning(
+                "Drawdown circuit breaker: bypassing allocation gates for explicit liquidation"
+            )
+            orders_executed = self._liquidate_all_positions(open_orders)
+            self.state["last_execution_time"] = datetime.now().isoformat()
+            self.state["total_orders"] += len(orders_executed)
+            self._save_state()
+            metrics = self.metrics.get_all_metrics()
+            self.metrics.write_metrics_json(metrics, "logs/metrics.json")
+            return {
+                "orders": orders_executed,
+                "portfolio_value": portfolio_value,
+                "circuit_breaker_triggered": True,
+                "liquidation_requested": True,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": metrics,
+            }
+
         positions = self.get_positions()
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.

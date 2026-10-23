@@ -732,3 +732,33 @@ def test_positions_omitted_from_target_weights_are_closed(alpaca_env, monkeypatc
     assert submitted[0].symbol == "AAPL"
     assert submitted[0].qty == pytest.approx(10.0)
     assert str(submitted[0].side).lower().endswith("sell")
+
+
+def test_zero_buying_power_still_allows_short_cover(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    executor.state["risk_peak_portfolio_value"] = 10000.0
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 0.0, "portfolio_value": 10000.0,
+        "buying_power": 0.0, "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    positions = {"AAPL": {"market_value": -500.0, "qty": -5.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions.copy())
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="cover-short", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.0]), tickers=["AAPL"])
+    )
+
+    assert len(result["orders"]) == 1
+    assert submitted[0].qty == pytest.approx(5.0)
+    assert str(submitted[0].side).lower().endswith("buy")

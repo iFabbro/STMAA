@@ -956,3 +956,20 @@ def test_execute_weights_preflights_quote_for_risk_forced_position_reduction(
         )
 
     assert submitted == []
+
+
+def test_get_positions_fails_closed_on_non_finite_broker_values(alpaca_env, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: [SimpleNamespace(
+            symbol="AAPL", qty="1", market_value="nan",
+            avg_entry_price="100", unrealized_pl="0",
+        )],
+    )
+
+    with pytest.raises(RuntimeError, match="Unable to retrieve broker positions"):
+        executor.get_positions()

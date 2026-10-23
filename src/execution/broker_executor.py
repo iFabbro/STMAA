@@ -474,9 +474,12 @@ class BrokerExecutor:
             raw_status = getattr(matched, "status", "")
             status = str(getattr(raw_status, "value", raw_status)).lower()
             if status in terminal_rejections:
-                # The broker has definitively rejected/cancelled this close, so a
-                # fresh close may be submitted against the latest positions snapshot.
+                # Record the terminal order as pending for one reconciliation cycle.
+                # The positions snapshot passed into this method predates this
+                # broker-history lookup and may still contain the pre-fill quantity.
+                # The next invocation will refresh positions before allowing a retry.
                 unresolved.pop(symbol, None)
+                active_pending.setdefault(symbol, order_id)
             elif status == "replaced":
                 # Without a usable replacement child, the intent is still ambiguous.
                 # Do not clear it or submit another close based on the parent order.

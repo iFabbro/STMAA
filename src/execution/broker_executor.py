@@ -854,10 +854,11 @@ class BrokerExecutor:
             self.logger.warning(
                 "Drawdown circuit breaker: bypassing allocation gates for explicit liquidation"
             )
-            orders_executed = self._liquidate_all_positions(open_orders)
-            # The account snapshot was captured before close requests; persisted
-            # values remain useful history but are no longer a fresh current snapshot.
+            # Mark the pre-liquidation snapshot stale before any broker mutation;
+            # liquidation may raise midway through a sequence of close requests.
             self.state["account_data_fresh"] = False
+            self._save_state()
+            orders_executed = self._liquidate_all_positions(open_orders)
             self.state["last_execution_time"] = datetime.now().isoformat()
             self.state["total_orders"] += len(orders_executed)
             self._save_state()

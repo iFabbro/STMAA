@@ -50,3 +50,27 @@ def test_standalone_portfolio_metrics_uses_shared_metric_definitions():
     result = metrics.get_all_metrics()
     assert result["total_return"] == pytest.approx(0.1)
     assert result["max_drawdown"] == pytest.approx(0.0)
+
+
+
+def test_portfolio_metrics_implementations_share_equity_and_metric_contract():
+    metrics = [
+        PortfolioMetrics(initial_capital=1000),
+        StandalonePortfolioMetrics(initial_capital=1000),
+    ]
+    for instance in metrics:
+        instance.update(1100)
+        instance.update(900)
+
+    first, second = [instance.get_all_metrics() for instance in metrics]
+    assert first.keys() == second.keys()
+    for key in first:
+        if isinstance(first[key], (int, float)):
+            assert first[key] == pytest.approx(second[key])
+        else:
+            assert first[key] == second[key]
+    assert metrics[0].equity_curve == metrics[1].equity_curve == [
+        1000.0, 1100.0, 900.0
+    ]
+    assert first["total_return"] == pytest.approx(-0.1)
+    assert first["max_drawdown"] == pytest.approx(-200 / 1100)

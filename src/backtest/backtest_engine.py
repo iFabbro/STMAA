@@ -92,11 +92,21 @@ class ExecutionConsistentBacktest:
         portfolio_series = pd.Series(
             portfolio_values, index=price_data.index, name="portfolio_value"
         )
+        # Keep the configured starting capital in the public equity path. The
+        # timestamped portfolio_values remain aligned one-to-one with market bars;
+        # equity_curve is an ordered observation sequence including the baseline.
+        equity_curve = pd.Series(
+            np.concatenate(([self.initial_capital], portfolio_series.to_numpy())),
+            name="equity",
+        )
         metrics = self._calculate_metrics(portfolio_series)
+        final_value = float(equity_curve.iloc[-1])
         return {
             "portfolio_values": portfolio_series,
+            "equity_curve": equity_curve,
+            "initial_capital": self.initial_capital,
             "metrics": metrics,
-            "final_value": float(portfolio_value),
+            "final_value": final_value,
         }
 
     def _calculate_metrics(self, portfolio_series: pd.Series) -> Dict:

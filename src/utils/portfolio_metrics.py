@@ -23,6 +23,7 @@ class PortfolioMetrics:
             "sharpe_ratio": Metrics.sharpe(returns),
             "sortino_ratio": Metrics.sortino(returns),
             "max_drawdown": Metrics.max_drawdown(eq),
+            "drawdown_duration": Metrics.drawdown_duration(eq),
             "total_return": Metrics.total_return(eq),
             "regime": "n/a",
         }

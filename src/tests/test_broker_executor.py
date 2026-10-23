@@ -554,11 +554,10 @@ def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch
         executor, "_get_prices_from_bars",
         lambda requested: {ticker: 100.0 for ticker in requested},
     )
-    submitted = []
     monkeypatch.setattr(
         executor.trading_client,
         "submit_order",
-        lambda request: submitted.append(request) or SimpleNamespace(id="unexpected", status="accepted"),
+        lambda request: pytest.fail("No order should be submitted when symbol limit blocks execution"),
     )
 
     result = executor.execute_weights(
@@ -566,7 +565,6 @@ def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch
     )
 
     assert result["orders"] == []
-    assert submitted == []
 
 
 def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure(

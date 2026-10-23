@@ -2206,3 +2206,57 @@ def test_unresolved_canceled_partial_close_refreshes_positions_before_retry(
     assert resumed.state["emergency_liquidation_pending"] == {
         "AAPL": "residual-close"
     }
+
+
+def test_direct_terminal_partial_close_refreshes_residual_after_restart(
+    alpaca_env, monkeypatch
+):
+    """A terminal response may include partial fills; reconcile persisted ID before retry."""
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+    submissions = []
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.position_reads = 0
+
+        def get_all_positions(self):
+            self.position_reads += 1
+            if self.position_reads <= 2:
+                # The initial snapshot and first reconciliation snapshot are stale.
+                return [SimpleNamespace(symbol="AAPL", qty="1")]
+            return [SimpleNamespace(symbol="AAPL", qty="0.4")]
+
+        def close_position(self, symbol):
+            submissions.append(symbol)
+            if len(submissions) == 1:
+                return SimpleNamespace(id="close-partial-canceled", status="canceled")
+            return SimpleNamespace(id="close-residual", status="accepted")
+
+        def get_order_by_id(self, order_id):
+            assert order_id == "close-partial-canceled"
+            return SimpleNamespace(id=order_id, status="canceled")
+
+    fake = FakeTradingClient()
+    first.trading_client = fake
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+
+    first_result = first._liquidate_all_positions([])
+    assert first_result[0]["order_id"] == "close-partial-canceled"
+    assert first.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-partial-canceled"
+    }
+    assert submissions == ["AAPL"]
+
+    # Simulate process restart: the terminal order ID must survive on disk.
+    resumed = BrokerExecutor()
+    resumed.trading_client = fake
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+
+    second_result = resumed._liquidate_all_positions([])
+    assert second_result[0]["order_id"] == "close-residual"
+    assert submissions == ["AAPL", "AAPL"]
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-residual"
+    }

@@ -1265,6 +1265,8 @@ class BrokerExecutor:
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
                     })
+                    # Do not attempt any further symbol after an ambiguous submit.
+                    break
 
         # Orders may have changed broker holdings after the captured account
         # snapshot. Keep its values as historical evidence, not as current state.

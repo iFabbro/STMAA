@@ -114,14 +114,20 @@ def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
     monkeypatch.setattr(
         executor,
         "_get_prices_from_bars",
-        lambda tickers: {"AAPL": 100.0},
+        lambda tickers: {"AAPL": 100.0, "GOOGL": 100.0},
     )
 
-    weights = PortfolioWeights(weights=np.array([1.0]), tickers=["AAPL"])
+    # The first broker submission raises (the test environment has no valid
+    # broker credentials). Its outcome is ambiguous, so later symbols must not
+    # be submitted in the same rebalance and the intent must remain persisted.
+    weights = PortfolioWeights(weights=np.array([0.5, 0.5]), tickers=["AAPL", "GOOGL"])
     result = executor.execute_weights(weights)
 
     assert len(result["orders"]) == 1
-    assert result["orders"][0]["status"] == "failed"
+    assert result["orders"][0]["ticker"] == "AAPL"
+    assert result["orders"][0]["status"] == "unresolved"
+    assert "AAPL" in executor.state["order_submission_unresolved"]
+    assert "GOOGL" not in executor.state["order_submission_unresolved"]
 
 
 def test_risk_gate_blocks_on_drawdown(alpaca_env):

@@ -1237,7 +1237,22 @@ class BrokerExecutor:
                     self.logger.info(f"  {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                 except Exception as e:
                     # An exception does not prove that the broker rejected the order.
-                    # Keep the persisted intent and stop submitting further symbols.
+                    # Restore the durable intent even if a post-submit state write failed.
+                    unresolved[ticker] = {
+                        "client_order_id": client_order_id,
+                        "side": side.value,
+                        "quantity": qty,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "reason": "submission_outcome_unconfirmed",
+                    }
+                    self.state["order_submission_unresolved"] = unresolved
+                    try:
+                        self._save_state()
+                    except Exception as persist_exc:
+                        self.logger.critical(
+                            "Unable to persist ambiguous order intent for %s: %s",
+                            ticker, persist_exc,
+                        )
                     self.logger.error("Ambiguous submission outcome for %s; halting rebalance: %s", ticker, e)
                     orders_executed.append({
                         "ticker": ticker,
@@ -1255,7 +1270,7 @@ class BrokerExecutor:
         # snapshot. Keep its values as historical evidence, not as current state.
         self.state["account_data_fresh"] = False
         self.state["last_execution_time"] = datetime.now().isoformat()
-        self.state["total_orders"] += len(orders_executed)
+        self.state["total_orders"] += self._count_submitted_orders(orders_executed)
         self._save_state()
 
         # Refresh broker equity after order submission. Never combine pre-order

@@ -2561,6 +2561,7 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
     import json
 
     executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["account_id"] = "account-A"
     executor._ensure_verified_metrics_baseline(12345.0)
     executor.metrics.update(12400.0)
     executor._persist_metrics_history()
@@ -2573,6 +2574,71 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
     restored = BrokerExecutor(initial_capital=500000.0)
     assert restored.metrics.equity_curve == pytest.approx([12345.0, 12400.0])
     assert restored.state["account_data_fresh"] is False
+
+
+@pytest.mark.parametrize(
+    ("account_id", "metrics_account_id"),
+    [
+        ("account-A", None),
+        (None, "account-A"),
+        (None, None),
+    ],
+)
+def test_metrics_history_is_discarded_without_complete_account_identity(
+    alpaca_env, account_id, metrics_account_id
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": account_id,
+        "metrics_account_mode": "paper",
+        "metrics_account_id": metrics_account_id,
+        "metrics_baseline_source": "verified_account",
+        "equity_history": [12345.0, 12400.0],
+    })
+    executor._save_state()
+
+    restored = BrokerExecutor(initial_capital=500000.0)
+
+    assert restored.state["equity_history"] == []
+    assert "metrics_baseline_source" not in restored.state
+    assert restored.metrics.equity_curve == [500000.0]
+
+
+def test_drawdown_breaker_does_not_liquidate_without_explicit_request(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=10000.0)
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 5000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 5000.0,
+        "equity": 8000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+    })
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "get_positions",
+        lambda: pytest.fail("Non-liquidating circuit breaker must not rebalance positions"),
+    )
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda tickers: pytest.fail("Non-liquidating circuit breaker must not fetch prices"),
+    )
+
+    result = executor.execute_weights(PortfolioWeights(
+        weights=np.array([0.0]),
+        tickers=["AAPL"],
+        metadata={
+            "circuit_breaker_triggered": True,
+            "liquidate_on_circuit_breaker": False,
+        },
+    ))
+
+    assert result["orders"] == []
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidation_requested"] is False
+    assert result["account_data_fresh"] is True
 
 
 def test_persisted_state_refuses_to_mix_paper_and_live_account_modes(alpaca_env):

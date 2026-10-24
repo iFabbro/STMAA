@@ -226,20 +226,29 @@ class PaperTradingBot:
             executor_state = getattr(self.executor, "state", None)
             if isinstance(executor_state, dict):
                 account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
-                account_id = account.get("account_id") or executor_state.get("account_id")
+                # Provenance must come from the current broker snapshot. A persisted
+                # account ID is historical state and cannot fill a missing ID in this
+                # response; otherwise a stale high-water mark could be trusted.
+                account_id = account.get("account_id")
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
+                stored_peak_account_id = executor_state.get("risk_peak_account_id")
                 provenance_matches = (
                     executor_state.get("risk_peak_equity_source") == "alpaca_account"
                     and executor_state.get("risk_peak_account_mode") == account_mode
-                    and (
-                        not account_id
-                        or account_id == executor_state.get("risk_peak_account_id")
-                    )
+                    and bool(account_id)
+                    and bool(stored_peak_account_id)
+                    and account_id == stored_peak_account_id
                 )
                 # Legacy peaks without matching provenance may have come from
                 # configured initial capital; re-anchor to this verified snapshot.
                 if stored_peak is None or not provenance_matches:
                     stored_peak = portfolio_value
+                    # The overlay also keeps an in-memory high-water mark. Re-anchor
+                    # it whenever persisted provenance is incomplete or mismatched;
+                    # otherwise a stale peak can zero targets while this account's
+                    # circuit-breaker flag remains false.
+                    if hasattr(risk_module, "peak_portfolio_value"):
+                        risk_module.peak_portfolio_value = portfolio_value
                 else:
                     stored_peak = float(stored_peak)
                     if not np.isfinite(stored_peak) or stored_peak <= 0:
@@ -257,11 +266,11 @@ class PaperTradingBot:
                 if callable(save_state):
                     save_state()
             else:
-                module_peak = getattr(risk_module, "peak_portfolio_value", None)
-                peak_portfolio_value = max(
-                    float(module_peak) if module_peak is not None else portfolio_value,
-                    portfolio_value,
-                )
+                # Without persisted account identity there is no trustworthy
+                # provenance for an in-memory peak; anchor to verified equity.
+                peak_portfolio_value = portfolio_value
+                if hasattr(risk_module, "peak_portfolio_value"):
+                    risk_module.peak_portfolio_value = portfolio_value
 
             self.pipeline.current_portfolio_value = portfolio_value
             drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)
@@ -301,7 +310,28 @@ class PaperTradingBot:
                     "liquidate_on_circuit_breaker": liquidate_on_breaker,
                 },
             )
-        result = self.executor.execute_weights(weights)
+        if risk_module is not None and circuit_breaker_triggered and not liquidate_on_breaker:
+            # A zero target is interpreted as a close request by the executor.
+            # When emergency liquidation is not explicitly enabled, do not send
+            # any target weights to the broker at all.
+            print("Drawdown circuit breaker: skipping target execution; liquidation disabled")
+            result = {
+                "orders": [],
+                "portfolio_value": account.get("portfolio_value", portfolio_value),
+                "equity": account.get("equity", portfolio_value),
+                "account_data_fresh": True,
+                "account_data_source": account.get("account_data_source", "alpaca_account"),
+                "account_snapshot_at": account.get("account_snapshot_at"),
+                "pre_execution_portfolio_value": account.get("portfolio_value", portfolio_value),
+                "pre_execution_equity": account.get("equity", portfolio_value),
+                "metrics_equity": None,
+                "target_execution_skipped": True,
+                "circuit_breaker_triggered": True,
+                "liquidate_on_circuit_breaker": False,
+            }
+        else:
+            result = self.executor.execute_weights(weights)
+            result["target_execution_skipped"] = False
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:
             print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")

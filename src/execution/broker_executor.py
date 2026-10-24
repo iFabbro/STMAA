@@ -156,6 +156,9 @@ class BrokerExecutor:
 
         self.metrics = PortfolioMetrics(initial_capital=initial_capital)
 
+        # Only a successful current broker response can verify account identity.
+        # This is intentionally transient and resets on every process start.
+        self._current_account_identity_verified = False
         self.state_file = Path("logs/execution/broker_state.json")
         self.state = {
             "last_execution_time": None,
@@ -232,7 +235,15 @@ class BrokerExecutor:
             return
         stored_metrics_account_id = self.state.get("metrics_account_id")
         stored_account_id = self.state.get("account_id")
-        if stored_metrics_account_id and stored_account_id and stored_metrics_account_id != stored_account_id:
+        # Account mode alone is insufficient provenance: never restore metrics if
+        # either side of the account identity comparison is missing.
+        if not stored_metrics_account_id or not stored_account_id:
+            self.state["equity_history"] = []
+            self.state.pop("metrics_baseline_source", None)
+            self.state.pop("metrics_account_mode", None)
+            self.state.pop("metrics_account_id", None)
+            return
+        if stored_metrics_account_id != stored_account_id:
             raise RuntimeError("Persisted metrics history belongs to a different broker account")
         try:
             values = [float(value) for value in history]
@@ -249,8 +260,15 @@ class BrokerExecutor:
         self.state["metrics_account_id"] = self.state.get("account_id")
 
     def _ensure_verified_metrics_baseline(self, equity: float):
-        """Anchor metrics to verified broker equity on first use, not configured capital."""
-        if self.state.get("metrics_baseline_source") == "verified_account":
+        """Anchor metrics to verified broker equity with matching account identity."""
+        account_id_verified = self._current_account_identity_verified is True
+        account_id = self.state.get("account_id") if account_id_verified else None
+        if (
+            self.state.get("metrics_baseline_source") == "verified_account"
+            and account_id
+            and self.state.get("metrics_account_id") == account_id
+            and self.state.get("metrics_account_mode") == self.state.get("account_mode")
+        ):
             return
         value = float(equity)
         if not np.isfinite(value) or value <= 0:
@@ -259,14 +277,18 @@ class BrokerExecutor:
         self.state["equity_history"] = [value]
         self.state["metrics_baseline_source"] = "verified_account"
         self.state["metrics_account_mode"] = self.state.get("account_mode")
-        self.state["metrics_account_id"] = self.state.get("account_id")
+        self.state["metrics_account_id"] = account_id
         self._save_state()
 
     def _persist_metrics_history(self):
         self.state["equity_history"] = list(self.metrics.equity_curve)
         self.state["metrics_baseline_source"] = "verified_account"
         self.state["metrics_account_mode"] = self.state.get("account_mode")
-        self.state["metrics_account_id"] = self.state.get("account_id")
+        self.state["metrics_account_id"] = (
+            self.state.get("account_id")
+            if self._current_account_identity_verified is True
+            else None
+        )
         self._save_state()
 
     def _save_state(self):
@@ -296,6 +318,7 @@ class BrokerExecutor:
             raise
 
     def get_account_status(self) -> Dict:
+        self._current_account_identity_verified = False
         try:
             account = self.trading_client.get_account()
             data = {
@@ -319,12 +342,26 @@ class BrokerExecutor:
             if data["portfolio_value"] <= 0 or data["equity"] <= 0 or data["buying_power"] < 0:
                 raise ValueError("Broker account returned invalid portfolio value, equity, or buying power")
 
+            self._current_account_identity_verified = bool(data["account_id"])
+            if not self._current_account_identity_verified:
+                # Without a current account ID, old metrics history cannot safely
+                # be attributed to the account behind this snapshot. Re-anchor to
+                # verified equity but leave the history unlinked for restart.
+                self.metrics = PortfolioMetrics(initial_capital=data["equity"])
+                self.state["equity_history"] = [data["equity"]]
+                self.state["metrics_baseline_source"] = "verified_account"
+                self.state["metrics_account_mode"] = self.state.get("account_mode")
+                self.state["metrics_account_id"] = None
+
             # Keep the broker's portfolio_value and equity separate. Risk budgets
             # use equity; persisted values carry provenance and a broker timestamp.
             self.state.update({
                 "portfolio_value": data["portfolio_value"],
                 "portfolio_value_source": "alpaca_account",
                 "last_verified_portfolio_value": data["portfolio_value"],
+                # Preserve the last known ID for explicit account-switch detection,
+                # but do not treat it as verified for this snapshot when the broker
+                # omitted its current ID.
                 "account_id": data["account_id"] or self.state.get("account_id"),
                 "equity": data["equity"],
                 "equity_source": "alpaca_account",
@@ -335,6 +372,7 @@ class BrokerExecutor:
             self._save_state()
             return data
         except Exception as e:
+            self._current_account_identity_verified = False
             self.logger.error(f"get_account_status error; broker equity is unverified: {e}")
             # Retain the last verified snapshot as historical data, but mark it stale
             # in memory and on disk so a restart cannot mistake it for a fresh read.
@@ -474,18 +512,22 @@ class BrokerExecutor:
         peak_mode = self.state.get("risk_peak_account_mode")
         peak_account_id = self.state.get("risk_peak_account_id")
         provenance_matches = (
-            peak_source == "alpaca_account"
+            self._current_account_identity_verified is True
+            and peak_source == "alpaca_account"
             and peak_mode == account_mode
-            and (not account_id or account_id == peak_account_id)
+            and bool(account_id)
+            and bool(peak_account_id)
+            and account_id == peak_account_id
         )
         verified_peak = self.state.get("risk_peak_portfolio_value") if provenance_matches else None
+        legacy_peak_account_id = self.state.get("peak_equity_account_id")
         legacy_peak_is_verified = (
-            self.state.get("peak_equity_source") == "verified_account"
+            self._current_account_identity_verified is True
+            and self.state.get("peak_equity_source") == "verified_account"
             and self.state.get("peak_equity_account_mode") == account_mode
-            and (
-                not account_id
-                or account_id == self.state.get("peak_equity_account_id")
-            )
+            and bool(account_id)
+            and bool(legacy_peak_account_id)
+            and account_id == legacy_peak_account_id
         )
         if verified_peak is None and legacy_peak_is_verified:
             verified_peak = self.state.get("peak_equity")
@@ -509,14 +551,22 @@ class BrokerExecutor:
         if not np.isfinite(value) or value <= 0:
             raise RuntimeError("Cannot update drawdown peak from invalid account equity")
         peak = max(self._get_peak_equity(value), value)
+        # A verified equity value without a current account ID can initialize
+        # this run's risk baseline, but it cannot be persisted as account-linked
+        # high-water-mark history.
+        peak_account_id = (
+            self.state.get("account_id")
+            if self._current_account_identity_verified is True
+            else None
+        )
         self.state["peak_equity"] = peak
         self.state["risk_peak_portfolio_value"] = peak
         self.state["peak_equity_source"] = "verified_account"
         self.state["risk_peak_equity_source"] = "alpaca_account"
         self.state["risk_peak_account_mode"] = self.state.get("account_mode")
-        self.state["risk_peak_account_id"] = self.state.get("account_id")
+        self.state["risk_peak_account_id"] = peak_account_id
         self.state["peak_equity_account_mode"] = self.state.get("account_mode")
-        self.state["peak_equity_account_id"] = self.state.get("account_id")
+        self.state["peak_equity_account_id"] = peak_account_id
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):
@@ -926,6 +976,28 @@ class BrokerExecutor:
             if metrics_refresh_error is not None:
                 result["metrics_refresh_error"] = metrics_refresh_error
             return result
+
+        # A drawdown breaker blocks new target execution by default. Zero weights
+        # otherwise mean "close this position" in the normal rebalance path, which
+        # would silently turn a non-liquidating breaker into a full liquidation.
+        if circuit_breaker_triggered and not liquidation_requested:
+            self.logger.warning(
+                "Drawdown circuit breaker active; skipping target execution because liquidation was not requested"
+            )
+            return {
+                "orders": [],
+                "portfolio_value": broker_portfolio_value,
+                "equity": portfolio_value,
+                "pre_execution_portfolio_value": broker_portfolio_value,
+                "pre_execution_equity": portfolio_value,
+                "account_data_fresh": True,
+                "account_snapshot_at": account.get("account_snapshot_at"),
+                "metrics_equity": None,
+                "circuit_breaker_triggered": True,
+                "liquidation_requested": False,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": self.metrics.get_all_metrics(),
+            }
 
         positions = self.get_positions()
         # A missing symbol in the target vector means a zero target, so include

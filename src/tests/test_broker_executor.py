@@ -128,14 +128,19 @@ def test_risk_gate_blocks_on_drawdown(alpaca_env):
     executor = BrokerExecutor()
     # Explicitly mark the high-water mark as verified. Legacy peak_equity
     # alone is intentionally ignored by _get_peak_equity.
-    executor.state["peak_equity"] = 1000.0
-    executor.state["risk_peak_portfolio_value"] = 1000.0
-    executor.state["peak_equity_source"] = "verified_account"
-    executor.state["risk_peak_equity_source"] = "alpaca_account"
-    executor.state["risk_peak_account_mode"] = "paper"
-    executor.state["risk_peak_account_id"] = None
-    executor.state["peak_equity_account_mode"] = "paper"
-    executor.state["peak_equity_account_id"] = None
+    executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
+        "peak_equity": 1000.0,
+        "risk_peak_portfolio_value": 1000.0,
+        "peak_equity_source": "verified_account",
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "account-A",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": "account-A",
+    })
+    executor._current_account_identity_verified = True
     capped, block = executor._risk_gate(800.0, 500.0)
     assert capped == 0.0
     assert block and block.startswith("max_drawdown")
@@ -566,16 +571,21 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
 
     executor = BrokerExecutor()
     executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
         "risk_peak_portfolio_value": 10000.0,
         "risk_peak_equity_source": "alpaca_account",
         "risk_peak_account_mode": "paper",
-        "risk_peak_account_id": None,
+        "risk_peak_account_id": "account-A",
     })
     monkeypatch.setattr(executor, "get_account_status", lambda: {
         "cash": 7500.0, "portfolio_value": 8000.0,
         "buying_power": 8000.0, "equity": 8000.0,
-        "account_data_fresh": True,
+        "account_data_fresh": True, "account_id": "account-A",
     })
+    # The mocked account snapshot represents a successful response with a
+    # verified current account ID; the real get_account_status sets this flag.
+    executor._current_account_identity_verified = True
     positions = {"AAPL": {"market_value": 500.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
@@ -2499,6 +2509,68 @@ def test_account_status_persists_separate_verified_equity_and_portfolio_value(al
     assert executor.state["account_snapshot_at"] == account["account_snapshot_at"]
 
 
+def test_account_status_missing_current_id_discards_persisted_identity_for_peak_provenance(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
+        "risk_peak_portfolio_value": 500000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "account-A",
+        "peak_equity": 500000.0,
+        "peak_equity_source": "verified_account",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": "account-A",
+        "equity_history": [500000.0, 510000.0],
+        "metrics_baseline_source": "verified_account",
+        "metrics_account_mode": "paper",
+        "metrics_account_id": "account-A",
+    })
+    executor.trading_client = SimpleNamespace(get_account=lambda: SimpleNamespace(
+        cash="900.0",
+        portfolio_value="90000.0",
+        buying_power="700.0",
+        equity="90000.0",
+        daytrade_count=0,
+        status="ACTIVE",
+        id=None,
+    ))
+
+    account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is True
+    assert account["account_id"] is None
+    # Keep the last known ID for detecting a later account switch, but never use it
+    # as proof that this snapshot's account identity was verified.
+    assert executor.state["account_id"] == "account-A"
+    assert executor._current_account_identity_verified is False
+    assert executor.state["metrics_account_id"] is None
+    assert executor.state["equity_history"] == [90000.0]
+    assert executor.metrics.equity_curve == [90000.0]
+    assert executor._get_peak_equity(90000.0) == pytest.approx(90000.0)
+    executor._update_peak_equity(90000.0)
+    assert executor.state["risk_peak_account_id"] is None
+    assert executor.state["peak_equity_account_id"] is None
+
+    # Any further metrics written without identity remain unlinked.
+    executor._ensure_verified_metrics_baseline(90000.0)
+    executor.metrics.update(91000.0)
+    executor._persist_metrics_history()
+    assert executor.state["metrics_account_id"] is None
+    assert executor.state["equity_history"] == [90000.0, 91000.0]
+
+    # A later identified snapshot must not inherit peaks or metrics observed
+    # while the current account identity was unavailable.
+    executor._current_account_identity_verified = True
+    assert executor._get_peak_equity(85000.0) == pytest.approx(85000.0)
+    executor._ensure_verified_metrics_baseline(85000.0)
+    assert executor.metrics.equity_curve == [85000.0]
+    assert executor.state["metrics_account_id"] == "account-A"
+
+
 def test_account_status_never_returns_configured_capital_as_fresh_after_api_failure(alpaca_env):
     from types import SimpleNamespace
 
@@ -2561,6 +2633,9 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
     import json
 
     executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["account_id"] = "account-A"
+    # This unit test models a current broker snapshot with verified account identity.
+    executor._current_account_identity_verified = True
     executor._ensure_verified_metrics_baseline(12345.0)
     executor.metrics.update(12400.0)
     executor._persist_metrics_history()
@@ -2573,6 +2648,71 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
     restored = BrokerExecutor(initial_capital=500000.0)
     assert restored.metrics.equity_curve == pytest.approx([12345.0, 12400.0])
     assert restored.state["account_data_fresh"] is False
+
+
+@pytest.mark.parametrize(
+    ("account_id", "metrics_account_id"),
+    [
+        ("account-A", None),
+        (None, "account-A"),
+        (None, None),
+    ],
+)
+def test_metrics_history_is_discarded_without_complete_account_identity(
+    alpaca_env, account_id, metrics_account_id
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": account_id,
+        "metrics_account_mode": "paper",
+        "metrics_account_id": metrics_account_id,
+        "metrics_baseline_source": "verified_account",
+        "equity_history": [12345.0, 12400.0],
+    })
+    executor._save_state()
+
+    restored = BrokerExecutor(initial_capital=500000.0)
+
+    assert restored.state["equity_history"] == []
+    assert "metrics_baseline_source" not in restored.state
+    assert restored.metrics.equity_curve == [500000.0]
+
+
+def test_drawdown_breaker_does_not_liquidate_without_explicit_request(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=10000.0)
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 5000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 5000.0,
+        "equity": 8000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+    })
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor, "get_positions",
+        lambda: pytest.fail("Non-liquidating circuit breaker must not rebalance positions"),
+    )
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda tickers: pytest.fail("Non-liquidating circuit breaker must not fetch prices"),
+    )
+
+    result = executor.execute_weights(PortfolioWeights(
+        weights=np.array([0.0]),
+        tickers=["AAPL"],
+        metadata={
+            "circuit_breaker_triggered": True,
+            "liquidate_on_circuit_breaker": False,
+        },
+    ))
+
+    assert result["orders"] == []
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidation_requested"] is False
+    assert result["account_data_fresh"] is True
 
 
 def test_persisted_state_refuses_to_mix_paper_and_live_account_modes(alpaca_env):
@@ -2661,11 +2801,52 @@ def test_drawdown_peak_requires_matching_account_provenance(alpaca_env):
         "peak_equity_account_mode": "paper",
         "peak_equity_account_id": "account-A",
     })
+    executor._current_account_identity_verified = True
 
     executor._update_peak_equity(90000.0)
 
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(90000.0)
     assert executor.state["risk_peak_account_id"] == "account-B"
+
+
+@pytest.mark.parametrize(
+    ("account_id", "risk_peak_account_id", "legacy_peak_account_id"),
+    [
+        (None, "account-A", "account-A"),
+        ("account-A", None, "account-A"),
+        ("account-A", "account-A", None),
+        (None, None, None),
+    ],
+)
+def test_drawdown_peak_uses_only_complete_matching_account_identity(
+    alpaca_env, account_id, risk_peak_account_id, legacy_peak_account_id
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": account_id,
+        "account_mode": "paper",
+        "risk_peak_portfolio_value": 500000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": risk_peak_account_id,
+        "peak_equity": 500000.0,
+        "peak_equity_source": "verified_account",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": legacy_peak_account_id,
+    })
+
+    executor._current_account_identity_verified = bool(account_id)
+
+    executor._update_peak_equity(90000.0)
+
+    # A valid saved peak may be used even if the other (legacy/current) copy
+    # has incomplete provenance. Re-anchor only when no saved peak is trusted.
+    expected_peak = 90000.0 if not account_id or (
+        not (risk_peak_account_id == account_id and legacy_peak_account_id == account_id)
+        and risk_peak_account_id is None and legacy_peak_account_id is None
+    ) else 500000.0
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(expected_peak)
+    assert executor.state["peak_equity"] == pytest.approx(expected_peak)
 
 
 def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_baseline(

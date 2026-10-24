@@ -2541,6 +2541,14 @@ def test_account_status_missing_current_id_discards_persisted_identity_for_peak_
     assert executor.state["account_id"] == "account-A"
     assert executor._current_account_identity_verified is False
     assert executor._get_peak_equity(90000.0) == pytest.approx(90000.0)
+    executor._update_peak_equity(90000.0)
+    assert executor.state["risk_peak_account_id"] is None
+    assert executor.state["peak_equity_account_id"] is None
+
+    # A later identified snapshot must not inherit the peak observed while the
+    # current account identity was unavailable.
+    executor._current_account_identity_verified = True
+    assert executor._get_peak_equity(85000.0) == pytest.approx(85000.0)
 
 
 def test_account_status_never_returns_configured_capital_as_fresh_after_api_failure(alpaca_env):

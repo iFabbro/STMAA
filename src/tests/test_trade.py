@@ -322,7 +322,12 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
-            self.state = {"risk_peak_portfolio_value": 120000.0}
+            self.state = {
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": None,
+            }
             self.submitted_weights = None
 
         def get_account_status(self):

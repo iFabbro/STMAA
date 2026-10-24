@@ -2505,6 +2505,40 @@ def test_account_status_persists_separate_verified_equity_and_portfolio_value(al
     assert executor.state["account_snapshot_at"] == account["account_snapshot_at"]
 
 
+def test_account_status_missing_current_id_discards_persisted_identity_for_peak_provenance(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
+        "risk_peak_portfolio_value": 500000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "account-A",
+        "peak_equity": 500000.0,
+        "peak_equity_source": "verified_account",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": "account-A",
+    })
+    executor.trading_client = SimpleNamespace(get_account=lambda: SimpleNamespace(
+        cash="900.0",
+        portfolio_value="90000.0",
+        buying_power="700.0",
+        equity="90000.0",
+        daytrade_count=0,
+        status="ACTIVE",
+        id=None,
+    ))
+
+    account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is True
+    assert account["account_id"] is None
+    assert executor.state["account_id"] is None
+    assert executor._get_peak_equity(90000.0) == pytest.approx(90000.0)
+
+
 def test_account_status_never_returns_configured_capital_as_fresh_after_api_failure(alpaca_env):
     from types import SimpleNamespace
 

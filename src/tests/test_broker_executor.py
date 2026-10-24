@@ -2734,6 +2734,38 @@ def test_drawdown_peak_requires_matching_account_provenance(alpaca_env):
     assert executor.state["risk_peak_account_id"] == "account-B"
 
 
+@pytest.mark.parametrize(
+    ("account_id", "risk_peak_account_id", "legacy_peak_account_id"),
+    [
+        (None, "account-A", "account-A"),
+        ("account-A", None, "account-A"),
+        ("account-A", "account-A", None),
+        (None, None, None),
+    ],
+)
+def test_drawdown_peak_reanchors_without_complete_account_identity(
+    alpaca_env, account_id, risk_peak_account_id, legacy_peak_account_id
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": account_id,
+        "account_mode": "paper",
+        "risk_peak_portfolio_value": 500000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": risk_peak_account_id,
+        "peak_equity": 500000.0,
+        "peak_equity_source": "verified_account",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": legacy_peak_account_id,
+    })
+
+    executor._update_peak_equity(90000.0)
+
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(90000.0)
+    assert executor.state["peak_equity"] == pytest.approx(90000.0)
+
+
 def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_baseline(
     alpaca_env, monkeypatch
 ):

@@ -225,8 +225,21 @@ class PaperTradingBot:
             # retain the historical peak and advance it only when a new high is reached.
             executor_state = getattr(self.executor, "state", None)
             if isinstance(executor_state, dict):
+                account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
+                account_id = account.get("account_id") or executor_state.get("account_id")
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
-                if stored_peak is None:
+                provenance_matches = (
+                    executor_state.get("risk_peak_equity_source") == "alpaca_account"
+                    and executor_state.get("risk_peak_account_mode") == account_mode
+                    and (
+                        not account_id
+                        or not executor_state.get("risk_peak_account_id")
+                        or account_id == executor_state.get("risk_peak_account_id")
+                    )
+                )
+                # Legacy peaks without matching provenance may have come from
+                # configured initial capital; re-anchor to this verified snapshot.
+                if stored_peak is None or not provenance_matches:
                     stored_peak = portfolio_value
                 else:
                     stored_peak = float(stored_peak)
@@ -234,6 +247,13 @@ class PaperTradingBot:
                         raise RuntimeError("Stored risk drawdown peak is invalid")
                 peak_portfolio_value = max(stored_peak, portfolio_value)
                 executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                executor_state["risk_peak_equity_source"] = "alpaca_account"
+                executor_state["risk_peak_account_mode"] = account_mode
+                executor_state["risk_peak_account_id"] = account_id
+                executor_state["peak_equity"] = peak_portfolio_value
+                executor_state["peak_equity_source"] = "verified_account"
+                executor_state["peak_equity_account_mode"] = account_mode
+                executor_state["peak_equity_account_id"] = account_id
                 save_state = getattr(self.executor, "_save_state", None)
                 if callable(save_state):
                     save_state()

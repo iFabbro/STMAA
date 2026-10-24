@@ -156,6 +156,9 @@ class BrokerExecutor:
 
         self.metrics = PortfolioMetrics(initial_capital=initial_capital)
 
+        # Only a successful current broker response can verify account identity.
+        # This is intentionally transient and resets on every process start.
+        self._current_account_identity_verified = False
         self.state_file = Path("logs/execution/broker_state.json")
         self.state = {
             "last_execution_time": None,
@@ -304,6 +307,7 @@ class BrokerExecutor:
             raise
 
     def get_account_status(self) -> Dict:
+        self._current_account_identity_verified = False
         try:
             account = self.trading_client.get_account()
             data = {
@@ -327,13 +331,18 @@ class BrokerExecutor:
             if data["portfolio_value"] <= 0 or data["equity"] <= 0 or data["buying_power"] < 0:
                 raise ValueError("Broker account returned invalid portfolio value, equity, or buying power")
 
+            self._current_account_identity_verified = bool(data["account_id"])
+
             # Keep the broker's portfolio_value and equity separate. Risk budgets
             # use equity; persisted values carry provenance and a broker timestamp.
             self.state.update({
                 "portfolio_value": data["portfolio_value"],
                 "portfolio_value_source": "alpaca_account",
                 "last_verified_portfolio_value": data["portfolio_value"],
-                "account_id": data["account_id"],
+                # Preserve the last known ID for explicit account-switch detection,
+                # but do not treat it as verified for this snapshot when the broker
+                # omitted its current ID.
+                "account_id": data["account_id"] or self.state.get("account_id"),
                 "equity": data["equity"],
                 "equity_source": "alpaca_account",
                 "last_verified_equity": data["equity"],
@@ -343,6 +352,7 @@ class BrokerExecutor:
             self._save_state()
             return data
         except Exception as e:
+            self._current_account_identity_verified = False
             self.logger.error(f"get_account_status error; broker equity is unverified: {e}")
             # Retain the last verified snapshot as historical data, but mark it stale
             # in memory and on disk so a restart cannot mistake it for a fresh read.
@@ -482,7 +492,8 @@ class BrokerExecutor:
         peak_mode = self.state.get("risk_peak_account_mode")
         peak_account_id = self.state.get("risk_peak_account_id")
         provenance_matches = (
-            peak_source == "alpaca_account"
+            self._current_account_identity_verified is True
+            and peak_source == "alpaca_account"
             and peak_mode == account_mode
             and bool(account_id)
             and bool(peak_account_id)
@@ -491,7 +502,8 @@ class BrokerExecutor:
         verified_peak = self.state.get("risk_peak_portfolio_value") if provenance_matches else None
         legacy_peak_account_id = self.state.get("peak_equity_account_id")
         legacy_peak_is_verified = (
-            self.state.get("peak_equity_source") == "verified_account"
+            self._current_account_identity_verified is True
+            and self.state.get("peak_equity_source") == "verified_account"
             and self.state.get("peak_equity_account_mode") == account_mode
             and bool(account_id)
             and bool(legacy_peak_account_id)

@@ -233,7 +233,6 @@ class PaperTradingBot:
                     and executor_state.get("risk_peak_account_mode") == account_mode
                     and (
                         not account_id
-                        or not executor_state.get("risk_peak_account_id")
                         or account_id == executor_state.get("risk_peak_account_id")
                     )
                 )

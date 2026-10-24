@@ -263,11 +263,11 @@ class PaperTradingBot:
                 if callable(save_state):
                     save_state()
             else:
-                module_peak = getattr(risk_module, "peak_portfolio_value", None)
-                peak_portfolio_value = max(
-                    float(module_peak) if module_peak is not None else portfolio_value,
-                    portfolio_value,
-                )
+                # Without persisted account identity there is no trustworthy
+                # provenance for an in-memory peak; anchor to verified equity.
+                peak_portfolio_value = portfolio_value
+                if hasattr(risk_module, "peak_portfolio_value"):
+                    risk_module.peak_portfolio_value = portfolio_value
 
             self.pipeline.current_portfolio_value = portfolio_value
             drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)

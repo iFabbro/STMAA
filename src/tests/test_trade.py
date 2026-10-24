@@ -397,10 +397,13 @@ def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypa
         def __init__(self):
             self.paper_trading = True
             self.state = {
+                # The previous account ID must not substitute for a missing ID in
+                # the current broker snapshot when validating saved peak provenance.
+                "account_id": "account-A",
                 "risk_peak_portfolio_value": 120000.0,
                 "risk_peak_equity_source": "alpaca_account",
                 "risk_peak_account_mode": "paper",
-                "risk_peak_account_id": None,
+                "risk_peak_account_id": "account-A",
             }
             self.submitted_weights = None
 

@@ -260,8 +260,15 @@ class BrokerExecutor:
         self.state["metrics_account_id"] = self.state.get("account_id")
 
     def _ensure_verified_metrics_baseline(self, equity: float):
-        """Anchor metrics to verified broker equity on first use, not configured capital."""
-        if self.state.get("metrics_baseline_source") == "verified_account":
+        """Anchor metrics to verified broker equity with matching account identity."""
+        account_id_verified = self._current_account_identity_verified is True
+        account_id = self.state.get("account_id") if account_id_verified else None
+        if (
+            self.state.get("metrics_baseline_source") == "verified_account"
+            and account_id
+            and self.state.get("metrics_account_id") == account_id
+            and self.state.get("metrics_account_mode") == self.state.get("account_mode")
+        ):
             return
         value = float(equity)
         if not np.isfinite(value) or value <= 0:
@@ -270,14 +277,18 @@ class BrokerExecutor:
         self.state["equity_history"] = [value]
         self.state["metrics_baseline_source"] = "verified_account"
         self.state["metrics_account_mode"] = self.state.get("account_mode")
-        self.state["metrics_account_id"] = self.state.get("account_id")
+        self.state["metrics_account_id"] = account_id
         self._save_state()
 
     def _persist_metrics_history(self):
         self.state["equity_history"] = list(self.metrics.equity_curve)
         self.state["metrics_baseline_source"] = "verified_account"
         self.state["metrics_account_mode"] = self.state.get("account_mode")
-        self.state["metrics_account_id"] = self.state.get("account_id")
+        self.state["metrics_account_id"] = (
+            self.state.get("account_id")
+            if self._current_account_identity_verified is True
+            else None
+        )
         self._save_state()
 
     def _save_state(self):

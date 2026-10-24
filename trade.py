@@ -57,13 +57,15 @@ class PaperTradingBot:
     def __init__(self, tickers: List[str], initial_capital: float = 100000.0):
         self.tickers = tickers
         self.initial_capital = initial_capital
-        self.equity_curve = [initial_capital]
+        # Real account history starts from a verified broker snapshot, not configured capital.
+        self.equity_curve = []
 
         self.executor = BrokerExecutor(
             api_key=os.getenv('ALPACA_API_KEY'),
             api_secret=os.getenv('ALPACA_API_SECRET'),
             base_url=os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets'),
             paper_trading=True,
+            initial_capital=initial_capital,
         )
 
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)
@@ -107,11 +109,11 @@ class PaperTradingBot:
         # The PPO observation includes current holdings so the policy can account
         # for turnover. Obtain a verified account snapshot and pass current weights.
         account = self.executor.get_account_status()
-        if account.get("account_data_fresh") is False:
-            raise RuntimeError("Cannot verify current broker account value for PPO inference")
-        portfolio_value = float(account.get("portfolio_value", 0.0))
+        if account.get("account_data_fresh") is not True:
+            raise RuntimeError("Cannot verify current broker account equity for PPO inference")
+        portfolio_value = float(account.get("equity", 0.0))
         if not np.isfinite(portfolio_value) or portfolio_value <= 0:
-            raise RuntimeError("Cannot calculate current PPO holdings weights from invalid equity")
+            raise RuntimeError("Cannot calculate current PPO holdings weights from invalid broker equity")
 
         positions = self.executor.get_positions()
         if not isinstance(positions, dict):
@@ -212,19 +214,31 @@ class PaperTradingBot:
         risk_module = getattr(self.pipeline, "risk_module", None)
         if risk_module is not None:
             account = self.executor.get_account_status()
-            if account.get("account_data_fresh") is False:
-                raise RuntimeError("Cannot verify current broker account value; refusing to submit target weights")
-            portfolio_value = float(account.get("portfolio_value", self.initial_capital))
+            if account.get("account_data_fresh") is not True:
+                raise RuntimeError("Cannot verify current broker account equity; refusing to submit target weights")
+            portfolio_value = float(account.get("equity", 0.0))
             if not np.isfinite(portfolio_value) or portfolio_value <= 0:
-                raise RuntimeError("Cannot obtain a valid positive account portfolio value")
+                raise RuntimeError("Cannot obtain a valid positive broker equity")
 
             # Persist the high-water mark independently of configured initial capital.
             # A first verified account snapshot establishes the baseline; later runs
             # retain the historical peak and advance it only when a new high is reached.
             executor_state = getattr(self.executor, "state", None)
             if isinstance(executor_state, dict):
+                account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
+                account_id = account.get("account_id") or executor_state.get("account_id")
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
-                if stored_peak is None:
+                provenance_matches = (
+                    executor_state.get("risk_peak_equity_source") == "alpaca_account"
+                    and executor_state.get("risk_peak_account_mode") == account_mode
+                    and (
+                        not account_id
+                        or account_id == executor_state.get("risk_peak_account_id")
+                    )
+                )
+                # Legacy peaks without matching provenance may have come from
+                # configured initial capital; re-anchor to this verified snapshot.
+                if stored_peak is None or not provenance_matches:
                     stored_peak = portfolio_value
                 else:
                     stored_peak = float(stored_peak)
@@ -232,6 +246,13 @@ class PaperTradingBot:
                         raise RuntimeError("Stored risk drawdown peak is invalid")
                 peak_portfolio_value = max(stored_peak, portfolio_value)
                 executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                executor_state["risk_peak_equity_source"] = "alpaca_account"
+                executor_state["risk_peak_account_mode"] = account_mode
+                executor_state["risk_peak_account_id"] = account_id
+                executor_state["peak_equity"] = peak_portfolio_value
+                executor_state["peak_equity_source"] = "verified_account"
+                executor_state["peak_equity_account_mode"] = account_mode
+                executor_state["peak_equity_account_id"] = account_id
                 save_state = getattr(self.executor, "_save_state", None)
                 if callable(save_state):
                     save_state()
@@ -284,16 +305,38 @@ class PaperTradingBot:
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:
             print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")
-        write_snapshot(RUN_ID, "trade", payload={"tickers": self.tickers, "rows": len(result)})
+        write_snapshot(
+            RUN_ID,
+            "trade",
+            portfolio_value=result.get("portfolio_value"),
+            equity=result.get("equity"),
+            payload={
+                "tickers": self.tickers,
+                "rows": len(result),
+                "account_data_source": "alpaca_account" if result.get("account_data_fresh") is True else None,
+                "account_snapshot_at": result.get("account_snapshot_at"),
+                "account_data_fresh": result.get("account_data_fresh", False),
+                "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
+                "pre_execution_equity": result.get("pre_execution_equity"),
+                "metrics_equity": result.get("metrics_equity"),
+                "metrics_refresh_error": result.get("metrics_refresh_error"),
+            },
+        )
         log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})
         return result
 
     def update_hub_state(self, result: Dict):
         status = self.executor.get_account_status()
-        portfolio_value = float(status.get('portfolio_value', self.initial_capital))
-        cash = float(status.get('cash', 0))
-        equity = float(status.get('equity', portfolio_value))
-        self.equity_curve.append(portfolio_value)
+        if status.get("account_data_fresh") is not True:
+            raise RuntimeError("Cannot persist hub state without a fresh broker account snapshot")
+        portfolio_value = float(status["portfolio_value"])
+        equity = float(status["equity"])
+        cash = float(status["cash"])
+        if not all(np.isfinite(value) for value in (portfolio_value, equity, cash)):
+            raise RuntimeError("Cannot persist hub state with invalid broker account values")
+        # The monitoring curve tracks broker equity only; configured initial capital
+        # is not a substitute for the account's actual starting equity.
+        self.equity_curve.append(equity)
 
         orders = result.get('orders', [])
 
@@ -302,6 +345,10 @@ class PaperTradingBot:
             'portfolio_value': portfolio_value,
             'cash': cash,
             'equity': equity,
+            'account_data_fresh': True,
+            'account_data_source': status.get("account_data_source"),
+            'account_snapshot_at': status.get("account_snapshot_at"),
+            'equity_curve_source': "verified_broker_equity",
             'equity_curve': self.equity_curve[-120:],
             'orders': orders,
             'last_result': result,
@@ -333,6 +380,8 @@ class PaperTradingBot:
                 self.update_hub_state(result)
 
                 status = self.executor.get_account_status()
+                if status.get("account_data_fresh") is not True:
+                    raise RuntimeError("Cannot display account status without a fresh broker snapshot")
                 print("\n💰 Status Account:")
                 print(f"  • Cash:            ${status['cash']:,.2f}")
                 print(f"  • Portfolio Value: ${status['portfolio_value']:,.2f}")

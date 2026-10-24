@@ -188,7 +188,7 @@ def test_execute_trade_passes_vix_to_risk_overlay(monkeypatch):
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0, "account_data_fresh": True}
 
         def execute_weights(self, weights):
             self.submitted_weights = weights
@@ -233,7 +233,7 @@ def test_execute_trade_does_not_submit_orders_when_vix_unavailable(monkeypatch):
             self.submitted = False
 
         def get_account_status(self):
-            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0}
+            return {"portfolio_value": 10000.0, "cash": 5000.0, "equity": 10000.0, "account_data_fresh": True}
 
         def execute_weights(self, weights):
             self.submitted = True
@@ -274,12 +274,14 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
-            self.state = {}
+            # Legacy numeric peak may have come from configured capital;
+            # the risk overlay must re-anchor it to this verified broker equity.
+            self.state = {"risk_peak_portfolio_value": 500000.0}
             self.saved = False
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True}
 
         def _save_state(self):
             self.saved = True
@@ -322,11 +324,16 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
-            self.state = {"risk_peak_portfolio_value": 120000.0}
+            self.state = {
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": None,
+            }
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0}
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True}
 
         def _save_state(self):
             pass
@@ -389,7 +396,7 @@ def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
     bot.initial_capital = 500000.0
     bot.pipeline = SimpleNamespace(risk_module=CapturingRisk(), current_portfolio_value=500000.0)
     bot.executor = executor
-    with pytest.raises(RuntimeError, match="Cannot verify current broker account value"):
+    with pytest.raises(RuntimeError, match="Cannot verify current broker account equity"):
         bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
     assert executor.submitted is False
 
@@ -447,6 +454,7 @@ def test_generate_weights_passes_current_holdings_to_ppo(monkeypatch):
         def get_account_status(self):
             return {
                 "portfolio_value": 10000.0,
+                "equity": 10000.0,
                 "account_data_fresh": True,
             }
 
@@ -477,7 +485,7 @@ def test_generate_weights_fails_closed_on_existing_short_position(monkeypatch):
 
     class ShortPortfolioExecutor:
         def get_account_status(self):
-            return {"portfolio_value": 10000.0, "account_data_fresh": True}
+            return {"portfolio_value": 10000.0, "equity": 10000.0, "account_data_fresh": True}
 
         def get_positions(self):
             return {"AAPL": {"market_value": -100.0}}
@@ -512,7 +520,12 @@ def test_execute_trade_explicit_drawdown_liquidation_bypasses_unavailable_vix(
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
-            self.state = {"risk_peak_portfolio_value": 120000.0}
+            self.state = {
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": None,
+            }
             self.submitted_weights = None
 
         def get_account_status(self):

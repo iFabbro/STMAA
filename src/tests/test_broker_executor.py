@@ -570,10 +570,12 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
 
     executor = BrokerExecutor()
     executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
         "risk_peak_portfolio_value": 10000.0,
         "risk_peak_equity_source": "alpaca_account",
         "risk_peak_account_mode": "paper",
-        "risk_peak_account_id": None,
+        "risk_peak_account_id": "account-A",
     })
     monkeypatch.setattr(executor, "get_account_status", lambda: {
         "cash": 7500.0, "portfolio_value": 8000.0,
@@ -2747,7 +2749,7 @@ def test_drawdown_peak_requires_matching_account_provenance(alpaca_env):
         (None, None, None),
     ],
 )
-def test_drawdown_peak_reanchors_without_complete_account_identity(
+def test_drawdown_peak_uses_only_complete_matching_account_identity(
     alpaca_env, account_id, risk_peak_account_id, legacy_peak_account_id
 ):
     executor = BrokerExecutor(initial_capital=500000.0)
@@ -2766,8 +2768,14 @@ def test_drawdown_peak_reanchors_without_complete_account_identity(
 
     executor._update_peak_equity(90000.0)
 
-    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(90000.0)
-    assert executor.state["peak_equity"] == pytest.approx(90000.0)
+    # A valid saved peak may be used even if the other (legacy/current) copy
+    # has incomplete provenance. Re-anchor only when no saved peak is trusted.
+    expected_peak = 90000.0 if not account_id or (
+        not (risk_peak_account_id == account_id and legacy_peak_account_id == account_id)
+        and risk_peak_account_id is None and legacy_peak_account_id is None
+    ) else 500000.0
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(expected_peak)
+    assert executor.state["peak_equity"] == pytest.approx(expected_peak)
 
 
 def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_baseline(

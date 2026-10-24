@@ -79,8 +79,8 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
 
     exposure = _risk_float("MAX_PORTFOLIO_EXPOSURE", env.get("MAX_PORTFOLIO_EXPOSURE"), "0.50")
     drawdown = _risk_float("MAX_DRAWDOWN", env.get("MAX_DRAWDOWN"), "0.15")
-    if not 0 <= exposure <= 1:
-        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be in [0, 1]")
+    if not 0 < exposure <= 1:
+        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be in (0, 1]")
     if not 0 < drawdown < 1:
         raise ValueError("MAX_DRAWDOWN must be in (0, 1)")
 

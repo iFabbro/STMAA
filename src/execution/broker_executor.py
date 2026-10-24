@@ -332,6 +332,15 @@ class BrokerExecutor:
                 raise ValueError("Broker account returned invalid portfolio value, equity, or buying power")
 
             self._current_account_identity_verified = bool(data["account_id"])
+            if not self._current_account_identity_verified:
+                # Without a current account ID, old metrics history cannot safely
+                # be attributed to the account behind this snapshot. Re-anchor to
+                # verified equity but leave the history unlinked for restart.
+                self.metrics = PortfolioMetrics(initial_capital=data["equity"])
+                self.state["equity_history"] = [data["equity"]]
+                self.state["metrics_baseline_source"] = "verified_account"
+                self.state["metrics_account_mode"] = self.state.get("account_mode")
+                self.state["metrics_account_id"] = None
 
             # Keep the broker's portfolio_value and equity separate. Risk budgets
             # use equity; persisted values carry provenance and a broker timestamp.

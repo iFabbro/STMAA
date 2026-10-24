@@ -274,7 +274,9 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
-            self.state = {}
+            # Legacy numeric peak may have come from configured capital;
+            # the risk overlay must re-anchor it to this verified broker equity.
+            self.state = {"risk_peak_portfolio_value": 500000.0}
             self.saved = False
             self.submitted_weights = None
 

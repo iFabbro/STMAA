@@ -377,9 +377,20 @@ def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypa
 
         def __init__(self):
             self.kwargs = None
+            # Simulate an in-memory peak left over from a different/unverified account.
+            self.peak_portfolio_value = 120000.0
 
         def apply(self, market_data, weights, tickers, **kwargs):
             self.kwargs = kwargs
+            portfolio_value = float(kwargs["portfolio_value"])
+            peak = max(
+                portfolio_value,
+                float(kwargs["peak_portfolio_value"]),
+                self.peak_portfolio_value or portfolio_value,
+            )
+            self.peak_portfolio_value = peak
+            if (peak - portfolio_value) / peak >= self.max_drawdown_threshold:
+                return np.zeros(len(tickers), dtype=float)
             return np.asarray(weights, dtype=float)
 
     class StatefulExecutor(DummyExecutor):
@@ -422,7 +433,9 @@ def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypa
     assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
     assert executor.state["risk_peak_account_id"] is None
+    assert risk.peak_portfolio_value == pytest.approx(100000.0)
     assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is False
+    np.testing.assert_allclose(executor.submitted_weights.weights, np.array([0.1]))
 
 
 def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):

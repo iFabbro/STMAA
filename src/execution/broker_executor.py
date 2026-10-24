@@ -465,11 +465,30 @@ class BrokerExecutor:
 
         Configured initial capital is not evidence of historical account equity.
         """
-        # Prefer the overlay's verified high-water mark. The legacy peak_equity
-        # field may have been initialized from configured capital by older versions;
-        # trust it only when this version has recorded its verified provenance.
-        verified_peak = self.state.get("risk_peak_portfolio_value")
-        if verified_peak is None and self.state.get("peak_equity_source") == "verified_account":
+        # A numeric legacy peak is not sufficient evidence: older versions may
+        # have initialized it from configured capital or portfolio_value. Trust a
+        # persisted peak only when its account provenance matches this executor.
+        account_mode = self.state.get("account_mode")
+        account_id = self.state.get("account_id")
+        peak_source = self.state.get("risk_peak_equity_source")
+        peak_mode = self.state.get("risk_peak_account_mode")
+        peak_account_id = self.state.get("risk_peak_account_id")
+        provenance_matches = (
+            peak_source == "alpaca_account"
+            and peak_mode == account_mode
+            and (not account_id or not peak_account_id or account_id == peak_account_id)
+        )
+        verified_peak = self.state.get("risk_peak_portfolio_value") if provenance_matches else None
+        legacy_peak_is_verified = (
+            self.state.get("peak_equity_source") == "verified_account"
+            and self.state.get("peak_equity_account_mode") == account_mode
+            and (
+                not account_id
+                or not self.state.get("peak_equity_account_id")
+                or account_id == self.state.get("peak_equity_account_id")
+            )
+        )
+        if verified_peak is None and legacy_peak_is_verified:
             verified_peak = self.state.get("peak_equity")
         if verified_peak is not None:
             value = float(verified_peak)
@@ -494,6 +513,11 @@ class BrokerExecutor:
         self.state["peak_equity"] = peak
         self.state["risk_peak_portfolio_value"] = peak
         self.state["peak_equity_source"] = "verified_account"
+        self.state["risk_peak_equity_source"] = "alpaca_account"
+        self.state["risk_peak_account_mode"] = self.state.get("account_mode")
+        self.state["risk_peak_account_id"] = self.state.get("account_id")
+        self.state["peak_equity_account_mode"] = self.state.get("account_mode")
+        self.state["peak_equity_account_id"] = self.state.get("account_id")
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):
@@ -854,6 +878,8 @@ class BrokerExecutor:
             self.logger.warning(
                 "Drawdown circuit breaker: bypassing allocation gates for explicit liquidation"
             )
+            # Establish a verified pre-execution baseline before mutating the broker.
+            self._ensure_verified_metrics_baseline(portfolio_value)
             # Mark the pre-liquidation snapshot stale before any broker mutation;
             # liquidation may raise midway through a sequence of close requests.
             self.state["account_data_fresh"] = False
@@ -863,22 +889,34 @@ class BrokerExecutor:
             self.state["total_orders"] += len(orders_executed)
             self._save_state()
             metrics_refresh_error = None
+            post_account = None
             try:
-                # Keep emergency-path metrics aligned with the broker snapshot when available.
+                # Metrics must use a broker snapshot acquired after liquidation,
+                # paired with positions from the post-execution phase.
+                post_account = self.get_account_status()
+                if post_account.get("account_data_fresh") is not True:
+                    raise RuntimeError("Post-liquidation broker equity is not fresh")
+                post_equity = float(post_account["equity"])
+                if not np.isfinite(post_equity) or post_equity <= 0:
+                    raise RuntimeError("Post-liquidation broker equity is invalid")
                 post_liquidation_positions = self.get_positions()
-                self._ensure_verified_metrics_baseline(portfolio_value)
-                self.metrics.update(portfolio_value, post_liquidation_positions)
+                self.metrics.update(post_equity, post_liquidation_positions)
                 self._persist_metrics_history()
             except Exception as exc:
                 metrics_refresh_error = str(exc)
                 self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
             metrics = self.metrics.get_all_metrics()
             self.metrics.write_metrics_json(metrics, "logs/metrics.json")
+            post_snapshot_fresh = bool(post_account and post_account.get("account_data_fresh") is True)
             result = {
                 "orders": orders_executed,
-                "portfolio_value": broker_portfolio_value,
-                "equity": portfolio_value,
-                "account_snapshot_at": account.get("account_snapshot_at"),
+                "portfolio_value": post_account.get("portfolio_value") if post_snapshot_fresh else None,
+                "equity": post_account.get("equity") if post_snapshot_fresh else None,
+                "pre_execution_portfolio_value": broker_portfolio_value,
+                "pre_execution_equity": portfolio_value,
+                "account_data_fresh": post_snapshot_fresh,
+                "account_snapshot_at": post_account.get("account_snapshot_at") if post_snapshot_fresh else None,
+                "metrics_equity": post_account.get("equity") if post_snapshot_fresh else None,
                 "circuit_breaker_triggered": True,
                 "liquidation_requested": True,
                 "timestamp": datetime.now().isoformat(),
@@ -923,6 +961,9 @@ class BrokerExecutor:
         metadata = getattr(weights, "metadata", None) or {}
         circuit_breaker_triggered = bool(metadata.get("circuit_breaker_triggered", False))
         liquidation_requested = bool(metadata.get("liquidate_on_circuit_breaker", False))
+        # Anchor the metric series to verified pre-execution equity. The next
+        # observation must come from a new post-execution broker snapshot.
+        self._ensure_verified_metrics_baseline(portfolio_value)
         orders_executed = []
         target_weight_by_ticker = dict(zip(weights.tickers, weights.weights))
         open_order_symbols = {
@@ -1105,24 +1146,42 @@ class BrokerExecutor:
         self.state["total_orders"] += len(orders_executed)
         self._save_state()
 
-        # Aggiorna metrics
-        new_positions = self.get_positions()
-        self._ensure_verified_metrics_baseline(portfolio_value)
-        self.metrics.update(portfolio_value, new_positions)
-        self._persist_metrics_history()
+        # Refresh broker equity after order submission. Never combine pre-order
+        # equity with post-order positions in a single metric observation.
+        metrics_refresh_error = None
+        post_account = None
+        try:
+            post_account = self.get_account_status()
+            if post_account.get("account_data_fresh") is not True:
+                raise RuntimeError("Post-execution broker equity is not fresh")
+            post_equity = float(post_account["equity"])
+            if not np.isfinite(post_equity) or post_equity <= 0:
+                raise RuntimeError("Post-execution broker equity is invalid")
+            new_positions = self.get_positions()
+            self.metrics.update(post_equity, new_positions)
+            self._persist_metrics_history()
+        except Exception as exc:
+            metrics_refresh_error = str(exc)
+            self.logger.error("Orders submitted but post-execution metrics refresh failed: %s", exc)
         metrics = self.metrics.get_all_metrics()
         self.metrics.write_metrics_json(metrics, "logs/metrics.json")
-
+        post_snapshot_fresh = bool(post_account and post_account.get("account_data_fresh") is True)
         result = {
             "orders": orders_executed,
-            "portfolio_value": broker_portfolio_value,
-            "equity": portfolio_value,
-            "account_snapshot_at": account.get("account_snapshot_at"),
+            "portfolio_value": post_account.get("portfolio_value") if post_snapshot_fresh else None,
+            "equity": post_account.get("equity") if post_snapshot_fresh else None,
+            "pre_execution_portfolio_value": broker_portfolio_value,
+            "pre_execution_equity": portfolio_value,
+            "account_data_fresh": post_snapshot_fresh,
+            "account_snapshot_at": post_account.get("account_snapshot_at") if post_snapshot_fresh else None,
+            "metrics_equity": post_account.get("equity") if post_snapshot_fresh else None,
             "circuit_breaker_triggered": circuit_breaker_triggered,
             "liquidation_requested": circuit_breaker_triggered and liquidation_requested,
             "timestamp": datetime.now().isoformat(),
             "metrics": metrics,
         }
+        if metrics_refresh_error is not None:
+            result["metrics_refresh_error"] = metrics_refresh_error
 
         try:
             hub = Path("logs/hub_state.json")

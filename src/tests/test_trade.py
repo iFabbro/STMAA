@@ -282,7 +282,7 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True}
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True, "account_id": "account-A"}
 
         def _save_state(self):
             self.saved = True
@@ -476,36 +476,11 @@ def test_end_to_end_non_liquidating_breaker_persists_safe_hub_state(tmp_path, mo
     assert persisted["last_result"]["metrics_equity"] is None
 
 
-def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypatch):
-    from types import SimpleNamespace
-
-    class CapturingRisk:
-        max_drawdown_threshold = 0.15
-
-        def __init__(self):
-            self.kwargs = None
-            # Simulate an in-memory peak left over from a different/unverified account.
-            self.peak_portfolio_value = 120000.0
-
-        def apply(self, market_data, weights, tickers, **kwargs):
-            self.kwargs = kwargs
-            portfolio_value = float(kwargs["portfolio_value"])
-            peak = max(
-                portfolio_value,
-                float(kwargs["peak_portfolio_value"]),
-                self.peak_portfolio_value or portfolio_value,
-            )
-            self.peak_portfolio_value = peak
-            if (peak - portfolio_value) / peak >= self.max_drawdown_threshold:
-                return np.zeros(len(tickers), dtype=float)
-            return np.asarray(weights, dtype=float)
-
+def test_execute_trade_fails_closed_when_account_identity_is_missing(monkeypatch):
     class StatefulExecutor(DummyExecutor):
         def __init__(self):
             self.paper_trading = True
             self.state = {
-                # The previous account ID must not substitute for a missing ID in
-                # the current broker snapshot when validating saved peak provenance.
                 "account_id": "account-A",
                 "risk_peak_portfolio_value": 120000.0,
                 "risk_peak_equity_source": "alpaca_account",
@@ -516,8 +491,11 @@ def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypa
 
         def get_account_status(self):
             return {
-                "portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0,
-                "account_data_fresh": True, "account_id": None,
+                "portfolio_value": 100000.0,
+                "cash": 50000.0,
+                "equity": 100000.0,
+                "account_data_fresh": True,
+                "account_id": None,
             }
 
         def _save_state(self):
@@ -525,27 +503,90 @@ def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypa
 
         def execute_weights(self, weights):
             self.submitted_weights = weights
-            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+            raise AssertionError("Must not submit weights without verified account identity")
 
-    risk = CapturingRisk()
+    risk = RiskOverlayModule(max_drawdown_threshold=0.15, initial_capital=500000.0)
     executor = StatefulExecutor()
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.initial_capital = 500000.0
-    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.pipeline = type("Pipeline", (), {"risk_module": risk, "current_portfolio_value": 500000.0})()
     bot.executor = executor
     bot.tickers = ["AAPL"]
     monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+
+    with pytest.raises(RuntimeError, match="Cannot verify current broker account identity"):
+        bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert executor.submitted_weights is None
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
+    assert risk.peak_portfolio_value is None
+
+
+def test_end_to_end_drawdown_explicit_liquidation_bypasses_vix_and_reaches_executor(
+    monkeypatch,
+):
+    class DispatchingExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {
+                "account_id": "account-A",
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": "account-A",
+            }
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0,
+                "equity": 100000.0,
+                "cash": 50000.0,
+                "account_data_fresh": True,
+                "account_data_source": "alpaca_account",
+                "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+                "account_id": "account-A",
+            }
+
+        def _save_state(self):
+            pass
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {
+                "orders": [],
+                "portfolio_value": 100000.0,
+                "equity": 100000.0,
+                "account_data_fresh": True,
+                "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+                "metrics_equity": None,
+                "timestamp": "2026-10-24T10:00:00",
+                "metrics": {},
+            }
+
+    executor = DispatchingExecutor()
+    risk = RiskOverlayModule(max_drawdown_threshold=0.15, initial_capital=500000.0)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = type("Pipeline", (), {"risk_module": risk, "current_portfolio_value": 500000.0})()
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
+    monkeypatch.setattr(
+        bot, "get_vix_value",
+        lambda: (_ for _ in ()).throw(AssertionError("Emergency liquidation must bypass VIX")),
+    )
     monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
     monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
 
-    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    result = bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
 
-    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
-    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
-    assert executor.state["risk_peak_account_id"] is None
-    assert risk.peak_portfolio_value == pytest.approx(100000.0)
-    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is False
-    np.testing.assert_allclose(executor.submitted_weights.weights, np.array([0.1]))
+    assert executor.submitted_weights is not None
+    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
+    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
+    np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
+    assert result["target_execution_skipped"] is False
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
 
 
 def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):

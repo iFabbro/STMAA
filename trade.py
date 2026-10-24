@@ -230,6 +230,11 @@ class PaperTradingBot:
                 # account ID is historical state and cannot fill a missing ID in this
                 # response; otherwise a stale high-water mark could be trusted.
                 account_id = account.get("account_id")
+                if not isinstance(account_id, str) or not account_id.strip():
+                    raise RuntimeError(
+                        "Cannot verify current broker account identity; refusing to submit target weights"
+                    )
+                account_id = account_id.strip()
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
                 stored_peak_account_id = executor_state.get("risk_peak_account_id")
                 provenance_matches = (

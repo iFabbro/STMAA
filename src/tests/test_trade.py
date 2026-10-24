@@ -366,6 +366,7 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     assert result["metrics_equity"] is None
 
     monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
+    bot.liquidate_on_drawdown = True
     bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
     assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
 
@@ -572,6 +573,7 @@ def test_end_to_end_drawdown_explicit_liquidation_bypasses_vix_and_reaches_execu
     bot.executor = executor
     bot.tickers = ["AAPL"]
     monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
+    bot.liquidate_on_drawdown = True
     monkeypatch.setattr(
         bot, "get_vix_value",
         lambda: (_ for _ in ()).throw(AssertionError("Emergency liquidation must bypass VIX")),
@@ -774,6 +776,7 @@ def test_execute_trade_explicit_drawdown_liquidation_bypasses_unavailable_vix(
     executor = StatefulExecutor()
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.initial_capital = 100000.0
+    bot.liquidate_on_drawdown = True
     bot.pipeline = SimpleNamespace(
         risk_module=risk, current_portfolio_value=100000.0
     )

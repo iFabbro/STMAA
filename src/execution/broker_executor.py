@@ -484,16 +484,18 @@ class BrokerExecutor:
         provenance_matches = (
             peak_source == "alpaca_account"
             and peak_mode == account_mode
-            and (not account_id or account_id == peak_account_id)
+            and bool(account_id)
+            and bool(peak_account_id)
+            and account_id == peak_account_id
         )
         verified_peak = self.state.get("risk_peak_portfolio_value") if provenance_matches else None
+        legacy_peak_account_id = self.state.get("peak_equity_account_id")
         legacy_peak_is_verified = (
             self.state.get("peak_equity_source") == "verified_account"
             and self.state.get("peak_equity_account_mode") == account_mode
-            and (
-                not account_id
-                or account_id == self.state.get("peak_equity_account_id")
-            )
+            and bool(account_id)
+            and bool(legacy_peak_account_id)
+            and account_id == legacy_peak_account_id
         )
         if verified_peak is None and legacy_peak_is_verified:
             verified_peak = self.state.get("peak_equity")

@@ -54,7 +54,8 @@ log_event(RUN_ID, "trade", "startup", "trade.py started")
 class PaperTradingBot:
     """Bot trading per paper trading con Alpaca"""
 
-    def __init__(self, tickers: List[str], initial_capital: float = 100000.0):
+    def __init__(self, tickers: List[str], initial_capital: float = 100000.0,
+                 max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 1.0):
         self.tickers = tickers
         self.initial_capital = initial_capital
         # Real account history starts from a verified broker snapshot, not configured capital.
@@ -71,11 +72,11 @@ class PaperTradingBot:
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)
         self.pipeline.set_risk(RiskOverlayModule(
             max_position_size=0.2,
-            max_drawdown_threshold=0.15,
+            max_drawdown_threshold=max_drawdown_threshold,
             vix_threshold_high=30,
             vix_threshold_low=15,
             initial_capital=initial_capital,
-            max_gross_exposure=1.0,
+            max_gross_exposure=max_gross_exposure,
         ))
 
         self.processor = DataProcessor(Path("data"))
@@ -451,7 +452,12 @@ def main():
         print(f"Liquidazione su drawdown: {config.liquidate_on_drawdown}")
 
         tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
-        bot = PaperTradingBot(tickers=tickers, initial_capital=500000.0)
+        bot = PaperTradingBot(
+            tickers=tickers,
+            initial_capital=500000.0,
+            max_drawdown_threshold=config.max_drawdown,
+            max_gross_exposure=config.max_portfolio_exposure,
+        )
 
         # Read-only broker request; no loop or order submission before it passes.
         account = validate_broker_preflight(bot.executor)

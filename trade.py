@@ -228,13 +228,13 @@ class PaperTradingBot:
                 account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
                 account_id = account.get("account_id") or executor_state.get("account_id")
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
+                stored_peak_account_id = executor_state.get("risk_peak_account_id")
                 provenance_matches = (
                     executor_state.get("risk_peak_equity_source") == "alpaca_account"
                     and executor_state.get("risk_peak_account_mode") == account_mode
-                    and (
-                        not account_id
-                        or account_id == executor_state.get("risk_peak_account_id")
-                    )
+                    and bool(account_id)
+                    and bool(stored_peak_account_id)
+                    and account_id == stored_peak_account_id
                 )
                 # Legacy peaks without matching provenance may have come from
                 # configured initial capital; re-anchor to this verified snapshot.

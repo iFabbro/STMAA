@@ -58,6 +58,7 @@ def test_startup_config_rejects_non_paper_or_custom_endpoint(url):
     ("key", "value"),
     [
         ("MAX_PORTFOLIO_EXPOSURE", "nan"),
+        ("MAX_PORTFOLIO_EXPOSURE", "0"),
         ("MAX_PORTFOLIO_EXPOSURE", "1.01"),
         ("MAX_PORTFOLIO_EXPOSURE", "-0.01"),
         ("MAX_DRAWDOWN", "inf"),

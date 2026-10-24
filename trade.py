@@ -301,7 +301,28 @@ class PaperTradingBot:
                     "liquidate_on_circuit_breaker": liquidate_on_breaker,
                 },
             )
-        result = self.executor.execute_weights(weights)
+        if circuit_breaker_triggered and not liquidate_on_breaker:
+            # A zero target is interpreted as a close request by the executor.
+            # When emergency liquidation is not explicitly enabled, do not send
+            # any target weights to the broker at all.
+            print("Drawdown circuit breaker: skipping target execution; liquidation disabled")
+            result = {
+                "orders": [],
+                "portfolio_value": account.get("portfolio_value", portfolio_value),
+                "equity": account.get("equity", portfolio_value),
+                "account_data_fresh": True,
+                "account_data_source": account.get("account_data_source", "alpaca_account"),
+                "account_snapshot_at": account.get("account_snapshot_at"),
+                "pre_execution_portfolio_value": account.get("portfolio_value", portfolio_value),
+                "pre_execution_equity": account.get("equity", portfolio_value),
+                "metrics_equity": account.get("equity", portfolio_value),
+                "target_execution_skipped": True,
+                "circuit_breaker_triggered": True,
+                "liquidate_on_circuit_breaker": False,
+            }
+        else:
+            result = self.executor.execute_weights(weights)
+            result["target_execution_skipped"] = False
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:
             print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")

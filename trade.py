@@ -240,6 +240,12 @@ class PaperTradingBot:
                 # configured initial capital; re-anchor to this verified snapshot.
                 if stored_peak is None or not provenance_matches:
                     stored_peak = portfolio_value
+                    # The overlay also keeps an in-memory high-water mark. Re-anchor
+                    # it whenever persisted provenance is incomplete or mismatched;
+                    # otherwise a stale peak can zero targets while this account's
+                    # circuit-breaker flag remains false.
+                    if hasattr(risk_module, "peak_portfolio_value"):
+                        risk_module.peak_portfolio_value = portfolio_value
                 else:
                     stored_peak = float(stored_peak)
                     if not np.isfinite(stored_peak) or stored_peak <= 0:

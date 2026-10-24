@@ -581,8 +581,11 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
     monkeypatch.setattr(executor, "get_account_status", lambda: {
         "cash": 7500.0, "portfolio_value": 8000.0,
         "buying_power": 8000.0, "equity": 8000.0,
-        "account_data_fresh": True,
+        "account_data_fresh": True, "account_id": "account-A",
     })
+    # The mocked account snapshot represents a successful response with a
+    # verified current account ID; the real get_account_status sets this flag.
+    executor._current_account_identity_verified = True
     positions = {"AAPL": {"market_value": 500.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
@@ -2631,6 +2634,8 @@ def test_metrics_history_restores_from_persisted_verified_equity(alpaca_env):
 
     executor = BrokerExecutor(initial_capital=500000.0)
     executor.state["account_id"] = "account-A"
+    # This unit test models a current broker snapshot with verified account identity.
+    executor._current_account_identity_verified = True
     executor._ensure_verified_metrics_baseline(12345.0)
     executor.metrics.update(12400.0)
     executor._persist_metrics_history()

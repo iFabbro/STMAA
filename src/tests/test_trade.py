@@ -354,13 +354,14 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
     monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
 
-    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+    result = bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
 
     assert risk.kwargs["peak_portfolio_value"] == pytest.approx(120000.0)
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
-    np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
-    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
-    assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is False
+    assert executor.submitted_weights is None
+    assert result["target_execution_skipped"] is True
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidate_on_circuit_breaker"] is False
 
     monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
     bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))

@@ -328,12 +328,13 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
                 "risk_peak_portfolio_value": 120000.0,
                 "risk_peak_equity_source": "alpaca_account",
                 "risk_peak_account_mode": "paper",
-                "risk_peak_account_id": None,
+                "risk_peak_account_id": "account-A",
+                "account_id": "account-A",
             }
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True}
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True, "account_id": "account-A"}
 
         def _save_state(self):
             pass
@@ -365,6 +366,62 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
     assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
 
+
+
+def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    class CapturingRisk:
+        max_drawdown_threshold = 0.15
+
+        def __init__(self):
+            self.kwargs = None
+
+        def apply(self, market_data, weights, tickers, **kwargs):
+            self.kwargs = kwargs
+            return np.asarray(weights, dtype=float)
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": None,
+            }
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0,
+                "account_data_fresh": True, "account_id": None,
+            }
+
+        def _save_state(self):
+            pass
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
+
+    risk = CapturingRisk()
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
+    assert executor.state["risk_peak_account_id"] is None
+    assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is False
 
 
 def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):

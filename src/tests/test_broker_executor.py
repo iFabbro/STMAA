@@ -46,6 +46,17 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
             "MSFT": 300.0,
         },
     )
+    # This test covers a successful rebalance; isolate it from external broker
+    # credentials and return a deterministic accepted response for every symbol.
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: type(
+            "_OrderResponse",
+            (),
+            {"id": f"order-{request.symbol}", "status": "accepted"},
+        )(),
+    )
 
     weights = PortfolioWeights(
         weights=np.array([0.4, 0.3, 0.3]),

@@ -428,6 +428,54 @@ def test_end_to_end_real_risk_overlay_skips_targets_when_breaker_disables_liquid
     assert risk.peak_portfolio_value == pytest.approx(120000.0)
 
 
+
+def test_end_to_end_non_liquidating_breaker_persists_safe_hub_state(tmp_path, monkeypatch):
+    import json
+
+    class SnapshotExecutor:
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0,
+                "cash": 50000.0,
+                "equity": 99500.0,
+                "account_data_fresh": True,
+                "account_data_source": "alpaca_account",
+                "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+            }
+
+    monkeypatch.chdir(tmp_path)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.executor = SnapshotExecutor()
+    bot.equity_curve = []
+    result = {
+        "orders": [],
+        "portfolio_value": 100000.0,
+        "equity": 100000.0,
+        "account_data_fresh": True,
+        "account_data_source": "alpaca_account",
+        "account_snapshot_at": "2026-10-24T09:59:00+00:00",
+        "pre_execution_portfolio_value": 100000.0,
+        "pre_execution_equity": 100000.0,
+        "metrics_equity": None,
+        "target_execution_skipped": True,
+        "circuit_breaker_triggered": True,
+        "liquidate_on_circuit_breaker": False,
+    }
+
+    bot.update_hub_state(result)
+
+    persisted = json.loads((tmp_path / "logs" / "hub_state.json").read_text())
+    assert persisted["account_data_fresh"] is True
+    assert persisted["account_data_source"] == "alpaca_account"
+    assert persisted["equity_curve_source"] == "verified_broker_equity"
+    assert persisted["equity_curve"] == [99500.0]
+    assert persisted["orders"] == []
+    assert persisted["last_result"]["target_execution_skipped"] is True
+    assert persisted["last_result"]["circuit_breaker_triggered"] is True
+    assert persisted["last_result"]["liquidate_on_circuit_breaker"] is False
+    assert persisted["last_result"]["metrics_equity"] is None
+
+
 def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypatch):
     from types import SimpleNamespace
 

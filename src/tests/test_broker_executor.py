@@ -2701,6 +2701,8 @@ def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_bas
 def test_execute_weights_does_not_append_metrics_when_post_snapshot_is_stale(
     alpaca_env, monkeypatch
 ):
+    from types import SimpleNamespace
+
     executor = BrokerExecutor(initial_capital=500000.0)
     snapshots = iter([
         {

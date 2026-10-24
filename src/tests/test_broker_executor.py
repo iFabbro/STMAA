@@ -32,6 +32,7 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
             "portfolio_value": 500000.0,
             "buying_power": 500000.0,
             "equity": 500000.0,
+            "account_data_fresh": True,
         },
     )
     monkeypatch.setattr(executor, "get_positions", lambda: {})
@@ -101,6 +102,7 @@ def test_execute_weights_uses_residual_budget(alpaca_env, monkeypatch):
             "portfolio_value": 1000.0,
             "buying_power": 1000.0,
             "equity": 1000.0,
+            "account_data_fresh": True,
         },
     )
     monkeypatch.setattr(executor, "get_positions", lambda: {})

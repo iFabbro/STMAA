@@ -226,7 +226,10 @@ class PaperTradingBot:
             executor_state = getattr(self.executor, "state", None)
             if isinstance(executor_state, dict):
                 account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
-                account_id = account.get("account_id") or executor_state.get("account_id")
+                # Provenance must come from the current broker snapshot. A persisted
+                # account ID is historical state and cannot fill a missing ID in this
+                # response; otherwise a stale high-water mark could be trusted.
+                account_id = account.get("account_id")
                 stored_peak = executor_state.get("risk_peak_portfolio_value")
                 stored_peak_account_id = executor_state.get("risk_peak_account_id")
                 provenance_matches = (

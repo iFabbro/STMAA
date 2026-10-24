@@ -437,26 +437,34 @@ class PaperTradingBot:
 
 def main():
     print("=" * 70)
-    print("🚀 STMAA - Paper Trading Bot")
+    print("STMAA - Paper Trading Bot")
     print("=" * 70)
 
-    api_key = os.getenv('ALPACA_API_KEY')
-    api_secret = os.getenv('ALPACA_API_SECRET')
+    from src.utils.startup_config import load_startup_config, validate_broker_preflight
 
-    if not api_key or not api_secret:
-        print("\n❌ API keys non configurate!")
-        print("\n📝 Configurazione:")
-        print("  1. cp .env.example .env")
-        print("  2. nano .env  # Inserisci le tue API keys")
-        print("  3. python3 trade.py")
-        return
+    try:
+        config = load_startup_config()
+        # Keep validated settings explicit without printing secrets.
+        print("Configurazione valida: modalità paper")
+        print(f"Limite esposizione: {config.max_portfolio_exposure:.1%}")
+        print(f"Limite drawdown: {config.max_drawdown:.1%}")
+        print(f"Liquidazione su drawdown: {config.liquidate_on_drawdown}")
 
-    print("✅ API keys configurate")
+        tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
+        bot = PaperTradingBot(tickers=tickers, initial_capital=500000.0)
 
-    tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
-    bot = PaperTradingBot(tickers=tickers, initial_capital=500000.0)
-    bot.run_loop(interval_seconds=300)
+        # Read-only broker request; no loop or order submission before it passes.
+        account = validate_broker_preflight(bot.executor)
+        print(
+            "Preflight Alpaca superato: account paper verificato, "
+            "equity=" + format(float(account["equity"]), ",.2f")
+        )
+        bot.run_loop(interval_seconds=300)
+        return 0
+    except Exception as exc:
+        print(f"Avvio bloccato dal preflight: {exc}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

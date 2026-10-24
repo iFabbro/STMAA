@@ -362,6 +362,7 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     assert result["target_execution_skipped"] is True
     assert result["circuit_breaker_triggered"] is True
     assert result["liquidate_on_circuit_breaker"] is False
+    assert result["metrics_equity"] is None
 
     monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
     bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))

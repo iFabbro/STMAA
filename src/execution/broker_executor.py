@@ -333,7 +333,7 @@ class BrokerExecutor:
                 "portfolio_value": data["portfolio_value"],
                 "portfolio_value_source": "alpaca_account",
                 "last_verified_portfolio_value": data["portfolio_value"],
-                "account_id": data["account_id"] or self.state.get("account_id"),
+                "account_id": data["account_id"],
                 "equity": data["equity"],
                 "equity_source": "alpaca_account",
                 "last_verified_equity": data["equity"],

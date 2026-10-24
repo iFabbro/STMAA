@@ -531,14 +531,22 @@ class BrokerExecutor:
         if not np.isfinite(value) or value <= 0:
             raise RuntimeError("Cannot update drawdown peak from invalid account equity")
         peak = max(self._get_peak_equity(value), value)
+        # A verified equity value without a current account ID can initialize
+        # this run's risk baseline, but it cannot be persisted as account-linked
+        # high-water-mark history.
+        peak_account_id = (
+            self.state.get("account_id")
+            if self._current_account_identity_verified is True
+            else None
+        )
         self.state["peak_equity"] = peak
         self.state["risk_peak_portfolio_value"] = peak
         self.state["peak_equity_source"] = "verified_account"
         self.state["risk_peak_equity_source"] = "alpaca_account"
         self.state["risk_peak_account_mode"] = self.state.get("account_mode")
-        self.state["risk_peak_account_id"] = self.state.get("account_id")
+        self.state["risk_peak_account_id"] = peak_account_id
         self.state["peak_equity_account_mode"] = self.state.get("account_mode")
-        self.state["peak_equity_account_id"] = self.state.get("account_id")
+        self.state["peak_equity_account_id"] = peak_account_id
         return peak
 
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):

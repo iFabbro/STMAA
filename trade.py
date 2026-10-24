@@ -324,7 +324,7 @@ class PaperTradingBot:
                 "account_snapshot_at": account.get("account_snapshot_at"),
                 "pre_execution_portfolio_value": account.get("portfolio_value", portfolio_value),
                 "pre_execution_equity": account.get("equity", portfolio_value),
-                "metrics_equity": account.get("equity", portfolio_value),
+                "metrics_equity": None,
                 "target_execution_skipped": True,
                 "circuit_breaker_triggered": True,
                 "liquidate_on_circuit_breaker": False,

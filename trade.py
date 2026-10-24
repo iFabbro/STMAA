@@ -5,6 +5,7 @@ Collega il sistema trading con Alpaca Paper Trading per operatività reale.
 Fase 1: Dati Alpaca reali
 Fase 2: Agente PPO vero
 """
+import argparse
 import os
 import sys
 import time
@@ -55,16 +56,19 @@ class PaperTradingBot:
     """Bot trading per paper trading con Alpaca"""
 
     def __init__(self, tickers: List[str], initial_capital: float = 100000.0,
-                 max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 1.0):
+                 max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 1.0,
+                 liquidate_on_drawdown: bool = False, api_key: str | None = None,
+                 api_secret: str | None = None, base_url: str = "https://paper-api.alpaca.markets"):
         self.tickers = tickers
         self.initial_capital = initial_capital
+        self.liquidate_on_drawdown = liquidate_on_drawdown
         # Real account history starts from a verified broker snapshot, not configured capital.
         self.equity_curve = []
 
         self.executor = BrokerExecutor(
-            api_key=os.getenv('ALPACA_API_KEY'),
-            api_secret=os.getenv('ALPACA_API_SECRET'),
-            base_url=os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets'),
+            api_key=api_key if api_key is not None else os.getenv('ALPACA_API_KEY'),
+            api_secret=api_secret if api_secret is not None else os.getenv('ALPACA_API_SECRET'),
+            base_url=base_url,
             paper_trading=True,
             initial_capital=initial_capital,
         )
@@ -81,8 +85,8 @@ class PaperTradingBot:
 
         self.processor = DataProcessor(Path("data"))
         self.alpaca_feed = AlpacaFeed(
-            api_key=os.getenv('ALPACA_API_KEY'),
-            api_secret=os.getenv('ALPACA_API_SECRET'),
+            api_key=api_key if api_key is not None else os.getenv('ALPACA_API_KEY'),
+            api_secret=api_secret if api_secret is not None else os.getenv('ALPACA_API_SECRET'),
         )
 
         # Agente PPO (Fase 2)
@@ -283,9 +287,7 @@ class PaperTradingBot:
             circuit_breaker_triggered = drawdown >= float(
                 getattr(risk_module, "max_drawdown_threshold", 1.0)
             )
-            liquidate_on_breaker = os.getenv("LIQUIDATE_ON_DRAWDOWN", "false").strip().lower() in {
-                "1", "true", "yes", "on"
-            }
+            liquidate_on_breaker = getattr(self, "liquidate_on_drawdown", False)
             # An explicitly configured emergency liquidation does not require a VIX
             # signal: VIX gates new target decisions, not broker-side risk reduction.
             # Ordinary execution remains fail-closed when VIX is missing or stale.
@@ -436,7 +438,15 @@ class PaperTradingBot:
         print("=" * 62)
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="STMAA paper-trading entry point")
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="validate configuration and read the paper account without starting the trading loop",
+    )
+    args = parser.parse_args(argv)
+
     print("=" * 70)
     print("STMAA - Paper Trading Bot")
     print("=" * 70)
@@ -457,6 +467,10 @@ def main():
             initial_capital=500000.0,
             max_drawdown_threshold=config.max_drawdown,
             max_gross_exposure=config.max_portfolio_exposure,
+            liquidate_on_drawdown=config.liquidate_on_drawdown,
+            api_key=config.api_key,
+            api_secret=config.api_secret,
+            base_url=config.base_url,
         )
 
         # Read-only broker request; no loop or order submission before it passes.
@@ -465,6 +479,10 @@ def main():
             "Preflight Alpaca superato: account paper verificato, "
             "equity=" + format(float(account["equity"]), ",.2f")
         )
+        if args.preflight_only:
+            print("Preflight-only completato: nessun ciclo di trading avviato e nessun ordine richiesto")
+            return 0
+
         bot.run_loop(interval_seconds=300)
         return 0
     except Exception as exc:

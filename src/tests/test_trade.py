@@ -581,7 +581,7 @@ def test_execute_trade_explicit_drawdown_liquidation_bypasses_unavailable_vix(
                 "risk_peak_portfolio_value": 120000.0,
                 "risk_peak_equity_source": "alpaca_account",
                 "risk_peak_account_mode": "paper",
-                "risk_peak_account_id": None,
+                "risk_peak_account_id": "account-A",
             }
             self.submitted_weights = None
 
@@ -591,6 +591,7 @@ def test_execute_trade_explicit_drawdown_liquidation_bypasses_unavailable_vix(
                 "cash": 50000.0,
                 "equity": 100000.0,
                 "account_data_fresh": True,
+                "account_id": "account-A",
             }
 
         def _save_state(self):

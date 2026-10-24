@@ -2521,6 +2521,10 @@ def test_account_status_missing_current_id_discards_persisted_identity_for_peak_
         "peak_equity_source": "verified_account",
         "peak_equity_account_mode": "paper",
         "peak_equity_account_id": "account-A",
+        "equity_history": [500000.0, 510000.0],
+        "metrics_baseline_source": "verified_account",
+        "metrics_account_mode": "paper",
+        "metrics_account_id": "account-A",
     })
     executor.trading_client = SimpleNamespace(get_account=lambda: SimpleNamespace(
         cash="900.0",
@@ -2540,6 +2544,9 @@ def test_account_status_missing_current_id_discards_persisted_identity_for_peak_
     # as proof that this snapshot's account identity was verified.
     assert executor.state["account_id"] == "account-A"
     assert executor._current_account_identity_verified is False
+    assert executor.state["metrics_account_id"] is None
+    assert executor.state["equity_history"] == [90000.0]
+    assert executor.metrics.equity_curve == [90000.0]
     assert executor._get_peak_equity(90000.0) == pytest.approx(90000.0)
     executor._update_peak_equity(90000.0)
     assert executor.state["risk_peak_account_id"] is None

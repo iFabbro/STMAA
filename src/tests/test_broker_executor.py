@@ -128,14 +128,18 @@ def test_risk_gate_blocks_on_drawdown(alpaca_env):
     executor = BrokerExecutor()
     # Explicitly mark the high-water mark as verified. Legacy peak_equity
     # alone is intentionally ignored by _get_peak_equity.
-    executor.state["peak_equity"] = 1000.0
-    executor.state["risk_peak_portfolio_value"] = 1000.0
-    executor.state["peak_equity_source"] = "verified_account"
-    executor.state["risk_peak_equity_source"] = "alpaca_account"
-    executor.state["risk_peak_account_mode"] = "paper"
-    executor.state["risk_peak_account_id"] = None
-    executor.state["peak_equity_account_mode"] = "paper"
-    executor.state["peak_equity_account_id"] = None
+    executor.state.update({
+        "account_id": "account-A",
+        "account_mode": "paper",
+        "peak_equity": 1000.0,
+        "risk_peak_portfolio_value": 1000.0,
+        "peak_equity_source": "verified_account",
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "account-A",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": "account-A",
+    })
     capped, block = executor._risk_gate(800.0, 500.0)
     assert capped == 0.0
     assert block and block.startswith("max_drawdown")

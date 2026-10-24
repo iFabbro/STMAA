@@ -282,7 +282,7 @@ def test_risk_gate_initializes_from_verified_account_equity_not_configured_capit
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
 
 
-def test_risk_gate_ignores_unverified_legacy_peak_and_prefers_verified_peak(alpaca_env):
+def test_risk_gate_ignores_unverified_legacy_peak_and_reanchors_to_current_equity(alpaca_env):
     executor = BrokerExecutor(initial_capital=500000.0)
     executor.state["peak_equity"] = 500000.0  # legacy value without provenance
     executor.state["risk_peak_portfolio_value"] = 100000.0
@@ -291,7 +291,9 @@ def test_risk_gate_ignores_unverified_legacy_peak_and_prefers_verified_peak(alpa
 
     assert block is None
     assert capped == pytest.approx(40000.0)
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(90000.0)
     assert executor.state["peak_equity_source"] == "verified_account"
+    assert executor.state["risk_peak_equity_source"] == "alpaca_account"
 
 
 def test_explicit_liquidation_cancels_open_orders_and_closes_long_and_short_positions(alpaca_env):
@@ -2634,3 +2636,99 @@ def test_drawdown_baseline_never_falls_back_to_configured_initial_capital(alpaca
     executor.state["last_verified_equity"] = 12345.0
     executor.state["equity_source"] = "alpaca_account"
     assert executor._get_peak_equity() == pytest.approx(12345.0)
+
+
+def test_drawdown_peak_requires_matching_account_provenance(alpaca_env):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state.update({
+        "account_id": "account-B",
+        "risk_peak_portfolio_value": 500000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "account-A",
+        "peak_equity": 500000.0,
+        "peak_equity_source": "verified_account",
+        "peak_equity_account_mode": "paper",
+        "peak_equity_account_id": "account-A",
+    })
+
+    executor._update_peak_equity(90000.0)
+
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(90000.0)
+    assert executor.state["risk_peak_account_id"] == "account-B"
+
+
+def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_baseline(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(initial_capital=500000.0)
+    snapshots = iter([
+        {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:00+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
+            "cash": 9800.0, "portfolio_value": 19800.0, "buying_power": 19800.0,
+            "equity": 9800.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:01:00+00:00",
+            "account_data_source": "alpaca_account",
+        },
+    ])
+    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    monkeypatch.setattr(
+        executor.trading_client, "submit_order",
+        lambda request: SimpleNamespace(id="post-equity-order", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert result["pre_execution_equity"] == pytest.approx(10000.0)
+    assert result["equity"] == pytest.approx(9800.0)
+    assert result["metrics_equity"] == pytest.approx(9800.0)
+    assert result["account_data_fresh"] is True
+    assert executor.state["equity_history"] == pytest.approx([10000.0, 9800.0])
+
+
+def test_execute_weights_does_not_append_metrics_when_post_snapshot_is_stale(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    snapshots = iter([
+        {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:00+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
+            "cash": None, "portfolio_value": None, "buying_power": None,
+            "equity": None, "account_data_fresh": False,
+            "account_snapshot_at": None, "account_data_source": None,
+        },
+    ])
+    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+    monkeypatch.setattr(
+        executor.trading_client, "submit_order",
+        lambda request: SimpleNamespace(id="post-equity-stale-order", status="accepted"),
+    )
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert result["account_data_fresh"] is False
+    assert result["equity"] is None
+    assert "metrics_refresh_error" in result
+    assert executor.state["equity_history"] == pytest.approx([10000.0])

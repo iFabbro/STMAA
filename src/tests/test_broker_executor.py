@@ -140,6 +140,7 @@ def test_risk_gate_blocks_on_drawdown(alpaca_env):
         "peak_equity_account_mode": "paper",
         "peak_equity_account_id": "account-A",
     })
+    executor._current_account_identity_verified = True
     capped, block = executor._risk_gate(800.0, 500.0)
     assert capped == 0.0
     assert block and block.startswith("max_drawdown")
@@ -2535,7 +2536,10 @@ def test_account_status_missing_current_id_discards_persisted_identity_for_peak_
 
     assert account["account_data_fresh"] is True
     assert account["account_id"] is None
-    assert executor.state["account_id"] is None
+    # Keep the last known ID for detecting a later account switch, but never use it
+    # as proof that this snapshot's account identity was verified.
+    assert executor.state["account_id"] == "account-A"
+    assert executor._current_account_identity_verified is False
     assert executor._get_peak_equity(90000.0) == pytest.approx(90000.0)
 
 
@@ -2767,6 +2771,7 @@ def test_drawdown_peak_requires_matching_account_provenance(alpaca_env):
         "peak_equity_account_mode": "paper",
         "peak_equity_account_id": "account-A",
     })
+    executor._current_account_identity_verified = True
 
     executor._update_peak_equity(90000.0)
 
@@ -2799,6 +2804,8 @@ def test_drawdown_peak_uses_only_complete_matching_account_identity(
         "peak_equity_account_mode": "paper",
         "peak_equity_account_id": legacy_peak_account_id,
     })
+
+    executor._current_account_identity_verified = bool(account_id)
 
     executor._update_peak_equity(90000.0)
 

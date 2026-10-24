@@ -232,7 +232,15 @@ class BrokerExecutor:
             return
         stored_metrics_account_id = self.state.get("metrics_account_id")
         stored_account_id = self.state.get("account_id")
-        if stored_metrics_account_id and stored_account_id and stored_metrics_account_id != stored_account_id:
+        # Account mode alone is insufficient provenance: never restore metrics if
+        # either side of the account identity comparison is missing.
+        if not stored_metrics_account_id or not stored_account_id:
+            self.state["equity_history"] = []
+            self.state.pop("metrics_baseline_source", None)
+            self.state.pop("metrics_account_mode", None)
+            self.state.pop("metrics_account_id", None)
+            return
+        if stored_metrics_account_id != stored_account_id:
             raise RuntimeError("Persisted metrics history belongs to a different broker account")
         try:
             values = [float(value) for value in history]
@@ -926,6 +934,28 @@ class BrokerExecutor:
             if metrics_refresh_error is not None:
                 result["metrics_refresh_error"] = metrics_refresh_error
             return result
+
+        # A drawdown breaker blocks new target execution by default. Zero weights
+        # otherwise mean "close this position" in the normal rebalance path, which
+        # would silently turn a non-liquidating breaker into a full liquidation.
+        if circuit_breaker_triggered and not liquidation_requested:
+            self.logger.warning(
+                "Drawdown circuit breaker active; skipping target execution because liquidation was not requested"
+            )
+            return {
+                "orders": [],
+                "portfolio_value": broker_portfolio_value,
+                "equity": portfolio_value,
+                "pre_execution_portfolio_value": broker_portfolio_value,
+                "pre_execution_equity": portfolio_value,
+                "account_data_fresh": True,
+                "account_snapshot_at": account.get("account_snapshot_at"),
+                "metrics_equity": None,
+                "circuit_breaker_triggered": True,
+                "liquidation_requested": False,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": self.metrics.get_all_metrics(),
+            }
 
         positions = self.get_positions()
         # A missing symbol in the target vector means a zero target, so include

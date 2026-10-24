@@ -287,7 +287,7 @@ class PaperTradingBot:
             circuit_breaker_triggered = drawdown >= float(
                 getattr(risk_module, "max_drawdown_threshold", 1.0)
             )
-            liquidate_on_breaker = self.liquidate_on_drawdown
+            liquidate_on_breaker = getattr(self, "liquidate_on_drawdown", False)
             # An explicitly configured emergency liquidation does not require a VIX
             # signal: VIX gates new target decisions, not broker-side risk reduction.
             # Ordinary execution remains fail-closed when VIX is missing or stale.

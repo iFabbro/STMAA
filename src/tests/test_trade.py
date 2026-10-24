@@ -282,7 +282,7 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
             self.submitted_weights = None
 
         def get_account_status(self):
-            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True}
+            return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True, "account_id": "account-A"}
 
         def _save_state(self):
             self.saved = True

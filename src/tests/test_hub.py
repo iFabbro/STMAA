@@ -91,7 +91,7 @@ def test_render_missing_state_does_not_invent_financial_values_or_status(
     )
 
     hub.render()
-    out = capsys.readouterr().out
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
 
     assert "n/a (no persisted timestamp)" in out
     assert "unknown (not persisted)" in out
@@ -120,7 +120,7 @@ def test_render_empty_or_invalid_equity_curve_is_safe(tmp_path, monkeypatch, cap
     _patch_render(monkeypatch, state_file)
 
     hub.render()
-    out = capsys.readouterr().out
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
 
     assert "no valid persisted equity history" in out
     assert "n/a (insufficient persisted history)" in out

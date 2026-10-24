@@ -131,6 +131,11 @@ def test_risk_gate_blocks_on_drawdown(alpaca_env):
     executor.state["peak_equity"] = 1000.0
     executor.state["risk_peak_portfolio_value"] = 1000.0
     executor.state["peak_equity_source"] = "verified_account"
+    executor.state["risk_peak_equity_source"] = "alpaca_account"
+    executor.state["risk_peak_account_mode"] = "paper"
+    executor.state["risk_peak_account_id"] = None
+    executor.state["peak_equity_account_mode"] = "paper"
+    executor.state["peak_equity_account_id"] = None
     capped, block = executor._risk_gate(800.0, 500.0)
     assert capped == 0.0
     assert block and block.startswith("max_drawdown")
@@ -560,7 +565,12 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
     from types import SimpleNamespace
 
     executor = BrokerExecutor()
-    executor.state["risk_peak_portfolio_value"] = 10000.0
+    executor.state.update({
+        "risk_peak_portfolio_value": 10000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": None,
+    })
     monkeypatch.setattr(executor, "get_account_status", lambda: {
         "cash": 7500.0, "portfolio_value": 8000.0,
         "buying_power": 8000.0, "equity": 8000.0,

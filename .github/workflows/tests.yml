@@ -25,4 +25,4 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run automated tests
-        run: pytest -q
+        run: python -m pytest src/tests -q

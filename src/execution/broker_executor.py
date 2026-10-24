@@ -888,6 +888,7 @@ class BrokerExecutor:
             self.state["total_orders"] += len(orders_executed)
             self._save_state()
             metrics_refresh_error = None
+            metrics_refreshed = False
             post_account = None
             try:
                 # Metrics must use a broker snapshot acquired after liquidation,
@@ -901,6 +902,7 @@ class BrokerExecutor:
                 post_liquidation_positions = self.get_positions()
                 self.metrics.update(post_equity, post_liquidation_positions)
                 self._persist_metrics_history()
+                metrics_refreshed = True
             except Exception as exc:
                 metrics_refresh_error = str(exc)
                 self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
@@ -915,7 +917,7 @@ class BrokerExecutor:
                 "pre_execution_equity": portfolio_value,
                 "account_data_fresh": post_snapshot_fresh,
                 "account_snapshot_at": post_account.get("account_snapshot_at") if post_snapshot_fresh else None,
-                "metrics_equity": post_account.get("equity") if post_snapshot_fresh else None,
+                "metrics_equity": post_account.get("equity") if metrics_refreshed else None,
                 "circuit_breaker_triggered": True,
                 "liquidation_requested": True,
                 "timestamp": datetime.now().isoformat(),
@@ -1148,6 +1150,7 @@ class BrokerExecutor:
         # Refresh broker equity after order submission. Never combine pre-order
         # equity with post-order positions in a single metric observation.
         metrics_refresh_error = None
+        metrics_refreshed = False
         post_account = None
         try:
             post_account = self.get_account_status()
@@ -1159,6 +1162,7 @@ class BrokerExecutor:
             new_positions = self.get_positions()
             self.metrics.update(post_equity, new_positions)
             self._persist_metrics_history()
+            metrics_refreshed = True
         except Exception as exc:
             metrics_refresh_error = str(exc)
             self.logger.error("Orders submitted but post-execution metrics refresh failed: %s", exc)
@@ -1173,7 +1177,7 @@ class BrokerExecutor:
             "pre_execution_equity": portfolio_value,
             "account_data_fresh": post_snapshot_fresh,
             "account_snapshot_at": post_account.get("account_snapshot_at") if post_snapshot_fresh else None,
-            "metrics_equity": post_account.get("equity") if post_snapshot_fresh else None,
+            "metrics_equity": post_account.get("equity") if metrics_refreshed else None,
             "circuit_breaker_triggered": circuit_breaker_triggered,
             "liquidation_requested": circuit_breaker_triggered and liquidation_requested,
             "timestamp": datetime.now().isoformat(),
@@ -1199,6 +1203,7 @@ class BrokerExecutor:
                         "account_snapshot_at": result["account_snapshot_at"],
                         "account_data_source": post_account.get("account_data_source") if post_snapshot_fresh else None,
                         "metrics_equity": result["metrics_equity"],
+                        "metrics_refresh_error": metrics_refresh_error,
                         "metrics": metrics,
                     },
                     indent=2,

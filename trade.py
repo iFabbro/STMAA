@@ -301,7 +301,7 @@ class PaperTradingBot:
                     "liquidate_on_circuit_breaker": liquidate_on_breaker,
                 },
             )
-        if circuit_breaker_triggered and not liquidate_on_breaker:
+        if risk_module is not None and circuit_breaker_triggered and not liquidate_on_breaker:
             # A zero target is interpreted as a close request by the executor.
             # When emergency liquidation is not explicitly enabled, do not send
             # any target weights to the broker at all.

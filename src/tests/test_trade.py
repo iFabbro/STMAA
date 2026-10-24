@@ -6,6 +6,7 @@ import pytest
 import trade
 from trade import PaperTradingBot
 from src.strategy.weight_interface import PortfolioWeights
+from src.strategy.risk_overlay import RiskOverlayModule
 
 
 class DummyExecutor:
@@ -368,6 +369,63 @@ def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):
     bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
     assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
 
+
+
+def test_end_to_end_real_risk_overlay_skips_targets_when_breaker_disables_liquidation(monkeypatch):
+    from types import SimpleNamespace
+
+    class StatefulExecutor(DummyExecutor):
+        def __init__(self):
+            self.paper_trading = True
+            self.state = {
+                "account_id": "account-A",
+                "risk_peak_portfolio_value": 120000.0,
+                "risk_peak_equity_source": "alpaca_account",
+                "risk_peak_account_mode": "paper",
+                "risk_peak_account_id": "account-A",
+            }
+            self.submitted_weights = None
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 100000.0,
+                "equity": 100000.0,
+                "cash": 50000.0,
+                "account_data_fresh": True,
+                "account_data_source": "alpaca_account",
+                "account_snapshot_at": "2026-10-24T10:00:00+00:00",
+                "account_id": "account-A",
+            }
+
+        def _save_state(self):
+            pass
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-24", "metrics": {}}
+
+    risk = RiskOverlayModule(max_drawdown_threshold=0.15, initial_capital=500000.0)
+    executor = StatefulExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.initial_capital = 500000.0
+    bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    monkeypatch.delenv("LIQUIDATE_ON_DRAWDOWN", raising=False)
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    result = bot.execute_trade(PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"]))
+
+    assert executor.submitted_weights is None
+    assert result["target_execution_skipped"] is True
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidate_on_circuit_breaker"] is False
+    assert result["orders"] == []
+    assert result["metrics_equity"] is None
+    assert executor.state["risk_peak_portfolio_value"] == pytest.approx(120000.0)
+    assert risk.peak_portfolio_value == pytest.approx(120000.0)
 
 
 def test_execute_trade_reanchors_drawdown_peak_without_account_identity(monkeypatch):

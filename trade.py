@@ -313,8 +313,13 @@ class PaperTradingBot:
             payload={
                 "tickers": self.tickers,
                 "rows": len(result),
-                "account_data_source": "alpaca_account",
+                "account_data_source": "alpaca_account" if result.get("account_data_fresh") is True else None,
                 "account_snapshot_at": result.get("account_snapshot_at"),
+                "account_data_fresh": result.get("account_data_fresh", False),
+                "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
+                "pre_execution_equity": result.get("pre_execution_equity"),
+                "metrics_equity": result.get("metrics_equity"),
+                "metrics_refresh_error": result.get("metrics_refresh_error"),
             },
         )
         log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})

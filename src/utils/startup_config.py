@@ -68,7 +68,8 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
     api_key = _required_secret("ALPACA_API_KEY", env.get("ALPACA_API_KEY"))
     api_secret = _required_secret("ALPACA_API_SECRET", env.get("ALPACA_API_SECRET"))
 
-    mode = (env.get("STMAA_TRADING_MODE") or "paper").strip().lower()
+    raw_mode = env.get("STMAA_TRADING_MODE")
+    mode = ("paper" if raw_mode is None else raw_mode.strip()).lower()
     if mode != "paper":
         raise ValueError("STMAA_TRADING_MODE must be 'paper'; live trading is disabled by this entry point")
 

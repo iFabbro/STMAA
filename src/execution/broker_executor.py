@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import tempfile
+import uuid
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -895,7 +896,23 @@ class BrokerExecutor:
                 "Unable to retrieve broker positions; refusing to execute trades"
             ) from e
 
+    @staticmethod
+    def _count_submitted_orders(orders) -> int:
+        """Count broker-acknowledged orders, not local failure records."""
+        return sum(
+            1 for order in orders
+            if order.get("order_id")
+            and str(order.get("status", "")).strip().lower() != "failed"
+        )
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        unresolved_submissions = self.state.get("order_submission_unresolved", {})
+        if unresolved_submissions:
+            symbols = ", ".join(sorted(unresolved_submissions))
+            raise RuntimeError(
+                "Unresolved broker order submission outcome; refusing further orders until "
+                f"manual broker reconciliation is recorded for: {symbols}"
+            )
+
         target_weights = np.asarray(weights.weights, dtype=float)
         if target_weights.shape != (len(weights.tickers),) or not np.isfinite(target_weights).all():
             raise ValueError("Target weights must be a finite vector matching tickers")
@@ -935,7 +952,7 @@ class BrokerExecutor:
             self._save_state()
             orders_executed = self._liquidate_all_positions(open_orders)
             self.state["last_execution_time"] = datetime.now().isoformat()
-            self.state["total_orders"] += len(orders_executed)
+            self.state["total_orders"] += self._count_submitted_orders(orders_executed)
             self._save_state()
             metrics_refresh_error = None
             metrics_refreshed = False
@@ -1165,29 +1182,48 @@ class BrokerExecutor:
                 if qty < 0.000001:
                     continue
 
+                client_order_id = str(uuid.uuid4())
+                # Persist intent before calling the broker: a lost response must not
+                # cause an automatic duplicate order on this or a later process run.
+                unresolved = dict(self.state.get("order_submission_unresolved", {}))
+                unresolved[ticker] = {
+                    "client_order_id": client_order_id,
+                    "side": side.value,
+                    "quantity": qty,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "submission_outcome_unconfirmed",
+                }
+                self.state["order_submission_unresolved"] = unresolved
+                self._save_state()
                 try:
                     order_req = MarketOrderRequest(
                         symbol=ticker,
                         qty=qty,
                         side=side,
                         time_in_force=TimeInForce.DAY,
+                        client_order_id=client_order_id,
                     )
                     order = self.trading_client.submit_order(order_req)
+                    order_id = getattr(order, "id", None)
+                    if not order_id:
+                        raise RuntimeError("Broker response did not include an order ID")
                     order_info = {
                         "ticker": ticker,
                         "side": side.value,
                         "quantity": qty,
-                        "order_id": str(order.id),
+                        "order_id": str(order_id),
+                        "client_order_id": client_order_id,
                         "status": str(order.status),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
                     }
                     orders_executed.append(order_info)
+                    unresolved.pop(ticker, None)
+                    self.state["order_submission_unresolved"] = unresolved
+                    self._save_state()
                     if self._order_status_value(order) not in {
                         "canceled", "cancelled", "expired", "rejected",
                     }:
-                        # Project accepted/filled deltas because the original broker
-                        # position snapshot is stale for the rest of this loop.
                         positions[ticker] = {
                             **positions.get(ticker, {}),
                             "market_value": current_notional + order_notional,
@@ -1198,15 +1234,18 @@ class BrokerExecutor:
                             available_buying_power = max(
                                 0.0, available_buying_power - abs(order_notional)
                             )
-                    self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
+                    self.logger.info(f"  {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                 except Exception as e:
-                    self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")
+                    # An exception does not prove that the broker rejected the order.
+                    # Keep the persisted intent and stop submitting further symbols.
+                    self.logger.error("Ambiguous submission outcome for %s; halting rebalance: %s", ticker, e)
                     orders_executed.append({
                         "ticker": ticker,
                         "side": side.value,
                         "quantity": qty,
                         "order_id": None,
-                        "status": "failed",
+                        "client_order_id": client_order_id,
+                        "status": "unresolved",
                         "error": str(e),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,

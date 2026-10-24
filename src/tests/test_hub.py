@@ -1,4 +1,5 @@
 import json
+import re
 
 import hub
 
@@ -67,7 +68,7 @@ def test_render_uses_snapshot_state(tmp_path, monkeypatch, capsys):
 
     _patch_render(monkeypatch, state_file)
     hub.render()
-    out = capsys.readouterr().out
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
 
     assert "STMAA TRADING HUB" in out
     assert "Portfolio Value" in out

@@ -134,7 +134,6 @@ def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[D
     fee = fees[0]
     fee_qty = as_decimal(fee.get("qty"))
     fee_price = as_decimal(fee.get("price"))
-    fee_net_amount = as_decimal(fee.get("net_amount"))
     # For BTC/USD buys, Alpaca documents the crypto fee quantity in BTC;
     # multiplying its absolute quantity by the broker-reported fee price
     # expresses it in USD. Do not substitute net_amount when it is zero.

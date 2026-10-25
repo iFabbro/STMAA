@@ -904,13 +904,74 @@ class BrokerExecutor:
             if order.get("order_id")
             and str(order.get("status", "")).strip().lower() != "failed"
         )
+    def _record_confirmed_submission(self, ticker: str, order_info: Dict) -> None:
+        """Atomically archive broker acknowledgement and clear its unresolved intent."""
+        client_order_id = str(order_info["client_order_id"])
+        previous_state = dict(self.state)
+        confirmed = dict(self.state.get("order_submission_confirmed", {}))
+        confirmed[client_order_id] = dict(order_info)
+        unresolved = dict(self.state.get("order_submission_unresolved", {}))
+        unresolved.pop(ticker, None)
+        self.state["order_submission_confirmed"] = confirmed
+        self.state["order_submission_unresolved"] = unresolved
+        try:
+            self._save_state()
+        except Exception:
+            # Keep the in-memory state aligned with the last durable unresolved intent.
+            self.state.clear()
+            self.state.update(previous_state)
+            raise
+
+    def _reconcile_unresolved_submissions(self) -> None:
+        """Resolve persisted intents by client ID; never retry an absent/unknown order."""
+        unresolved = dict(self.state.get("order_submission_unresolved", {}))
+        if not unresolved:
+            return
+        for ticker, intent in unresolved.items():
+            client_order_id = intent.get("client_order_id")
+            if not client_order_id:
+                continue
+            try:
+                order = self.trading_client.get_order_by_client_id(client_order_id)
+            except Exception:
+                # Broker reads can be eventually consistent or temporarily unavailable.
+                # The unresolved intent remains durable and continues to block execution.
+                continue
+            order_id = getattr(order, "id", None)
+            if not order_id:
+                continue
+            order_info = {
+                "ticker": ticker,
+                "side": intent.get("side"),
+                "quantity": intent.get("quantity"),
+                "order_id": str(order_id),
+                "client_order_id": str(client_order_id),
+                "status": str(getattr(order, "status", "unknown")),
+                "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "price": intent.get("price"),
+                "reconciled": True,
+            }
+            self._record_confirmed_submission(ticker, order_info)
+
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        self._reconcile_unresolved_submissions()
         unresolved_submissions = self.state.get("order_submission_unresolved", {})
-        if unresolved_submissions:
-            symbols = ", ".join(sorted(unresolved_submissions))
+        confirmed_submissions = self.state.get("order_submission_confirmed", {})
+        active_confirmed = {
+            ticker: order
+            for ticker, order in confirmed_submissions.items()
+            if self._order_status_value(order.get("status", "unknown")) not in {
+                "filled", "canceled", "cancelled", "expired", "rejected"
+            }
+        }
+        if unresolved_submissions or active_confirmed:
+            symbols = sorted(set(unresolved_submissions) | {
+                str(order.get("ticker", client_id))
+                for client_id, order in active_confirmed.items()
+            })
             raise RuntimeError(
-                "Unresolved broker order submission outcome; refusing further orders until "
-                f"manual broker reconciliation is recorded for: {symbols}"
+                "Broker order submission requires reconciliation or terminal status; refusing "
+                f"further orders for: {', '.join(symbols)}"
             )
 
         target_weights = np.asarray(weights.weights, dtype=float)
@@ -1190,6 +1251,7 @@ class BrokerExecutor:
                     "client_order_id": client_order_id,
                     "side": side.value,
                     "quantity": qty,
+                    "price": price,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "reason": "submission_outcome_unconfirmed",
                 }
@@ -1218,9 +1280,7 @@ class BrokerExecutor:
                         "price": price,
                     }
                     orders_executed.append(order_info)
-                    unresolved.pop(ticker, None)
-                    self.state["order_submission_unresolved"] = unresolved
-                    self._save_state()
+                    self._record_confirmed_submission(ticker, order_info)
                     if self._order_status_value(order) not in {
                         "canceled", "cancelled", "expired", "rejected",
                     }:
@@ -1242,6 +1302,7 @@ class BrokerExecutor:
                         "client_order_id": client_order_id,
                         "side": side.value,
                         "quantity": qty,
+                        "price": price,
                         "created_at": datetime.now(timezone.utc).isoformat(),
                         "reason": "submission_outcome_unconfirmed",
                     }

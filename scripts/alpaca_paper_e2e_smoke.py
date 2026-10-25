@@ -3,9 +3,7 @@
 Read-only preflight, then one explicitly bounded $10 notional Paper buy order.
 Never targets a Live endpoint and never retries an ambiguous submission.
 """
-import json
 import os
-import sys
 import time
 import uuid
 from decimal import Decimal
@@ -78,10 +76,10 @@ def main():
             order = executor.trading_client.get_order_by_client_id(client_order_id)
         except Exception:
             print("RECONCILIATION: FAIL; order status remains unknown. No retry performed.")
-            raise SystemExit(2)
+            raise SystemExit(2) from None
         if order is None:
             print("RECONCILIATION: order not found. No retry performed.")
-            raise SystemExit(2)
+            raise SystemExit(2) from None
     order_id = str(getattr(order, "id", ""))
     status = str(getattr(order, "status", "unknown")).lower()
     print(f"ORDER: client_order_id={client_order_id}")

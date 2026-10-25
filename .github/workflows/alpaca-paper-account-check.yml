@@ -1,0 +1,71 @@
+name: Alpaca Paper connection check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpaca-paper-account-check
+  cancel-in-progress: false
+
+jobs:
+  account-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify Alpaca Paper account (read-only)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALPACA_API_KEY}" ] || [ -z "${ALPACA_API_SECRET}" ]; then
+            echo "::error::Required repository secrets are missing or empty."
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          request = urllib.request.Request(
+              "https://paper-api.alpaca.markets/v2/account",
+              headers={
+                  "APCA-API-KEY-ID": os.environ["ALPACA_API_KEY"],
+                  "APCA-API-SECRET-KEY": os.environ["ALPACA_API_SECRET"],
+                  "Accept": "application/json",
+              },
+              method="GET",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  status = response.status
+                  body = response.read()
+          except urllib.error.HTTPError as exc:
+              print(f"HTTP status: {exc.code}")
+              print("Authentication/account check failed; response body suppressed.")
+              sys.exit(1)
+          except Exception as exc:
+              print(f"Request failed: {type(exc).__name__}; details suppressed.")
+              sys.exit(1)
+
+          print(f"HTTP status: {status}")
+          if status != 200:
+              print("Unexpected HTTP status; response body suppressed.")
+              sys.exit(1)
+
+          try:
+              account = json.loads(body)
+          except Exception:
+              print("HTTP 200 received, but response was not valid JSON.")
+              sys.exit(1)
+
+          print("Authentication: OK")
+          print(f"Account status: {account.get('status', 'unknown')}")
+          print(f"Trading blocked: {account.get('trading_blocked', 'unknown')}")
+          print("Endpoint: Alpaca Paper")
+          PY

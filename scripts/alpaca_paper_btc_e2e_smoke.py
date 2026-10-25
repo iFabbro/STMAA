@@ -102,7 +102,9 @@ def main() -> int:
         except Exception:
             raise SystemExit("FAIL: order outcome unknown; no retry performed") from None
         if order is None:
-            raise SystemExit("FAIL: order not found during reconciliation; no retry performed")
+            raise SystemExit(
+                "FAIL: order not found during reconciliation; no retry performed"
+            ) from None
 
     print(f"ORDER: client_order_id={client_order_id}")
     print(f"ORDER: broker_order_id_present={bool(getattr(order, 'id', None))}")

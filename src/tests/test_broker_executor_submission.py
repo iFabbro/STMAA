@@ -86,8 +86,10 @@ def test_restart_waits_for_broker_visibility_then_reconciles_without_resubmissio
         get_order_by_client_id=Mock(
             side_effect=[RuntimeError("not visible yet"), broker_order]
         ),
+        get_order_by_id=Mock(return_value=broker_order),
         submit_order=Mock(),
     )
+    executor.logger = Mock()
     persisted = []
     executor._save_state = lambda: persisted.append(deepcopy(executor.state))
 

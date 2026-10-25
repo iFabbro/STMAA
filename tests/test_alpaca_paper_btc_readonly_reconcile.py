@@ -306,3 +306,42 @@ def test_cfee_output_distinguishes_explicit_link_from_temporal_context():
     nearby = {"order_id": ""}
     assert str(linked.get("order_id", "")) == order_id
     assert str(nearby.get("order_id", "")) != order_id
+
+
+
+def test_main_fails_closed_when_account_read_raises(monkeypatch, capsys):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_account(self):
+            raise RuntimeError("sensitive broker detail")
+
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setattr(reconcile, "TradingClient", FakeClient)
+
+    assert reconcile.main() == 1
+    output = capsys.readouterr().out
+    assert "ACCOUNT: read_error=RuntimeError; details withheld" in output
+    assert "RESULT: INCOMPLETE — account read failed" in output
+    assert "sensitive broker detail" not in output
+
+
+def test_main_fails_closed_when_client_initialization_raises(monkeypatch, capsys):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    def fail_client(*args, **kwargs):
+        raise RuntimeError("sensitive initialization detail")
+
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setattr(reconcile, "TradingClient", fail_client)
+
+    assert reconcile.main() == 1
+    output = capsys.readouterr().out
+    assert "CLIENT: initialization_error=RuntimeError; details withheld" in output
+    assert "RESULT: INCOMPLETE — read-only broker client could not be initialized" in output
+    assert "sensitive initialization detail" not in output

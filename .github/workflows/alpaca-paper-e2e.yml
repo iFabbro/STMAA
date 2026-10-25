@@ -31,8 +31,6 @@ jobs:
     needs: automated-tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: 
-      name: paper-trading
     steps:
       - name: Checkout
         uses: actions/checkout@v7

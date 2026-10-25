@@ -26,7 +26,9 @@ def test_get_open_orders_fails_closed_on_broker_read_error(alpaca_env):
 
     executor.trading_client = FailingClient()
 
-    with pytest.raises(RuntimeError, match="Unable to retrieve or validate broker open orders"):
+    with pytest.raises(
+        RuntimeError, match="Unable to retrieve or validate broker open orders"
+    ):
         executor._get_open_orders()
 
 
@@ -81,7 +83,9 @@ def test_execute_weights_does_not_submit_when_open_orders_are_unreadable(
         lambda request: submitted.append(request),
     )
 
-    with pytest.raises(RuntimeError, match="Unable to retrieve or validate broker open orders"):
+    with pytest.raises(
+        RuntimeError, match="Unable to retrieve or validate broker open orders"
+    ):
         executor.execute_weights(
             PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
         )

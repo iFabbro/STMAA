@@ -28,7 +28,14 @@ TERMINAL = {"filled", "partially_filled", "rejected", "canceled", "cancelled", "
 
 
 def norm_symbol(value: object) -> str:
-    return str(value or "").upper().replace("-", "/")
+    """Canonicalize Alpaca crypto symbols (BTC/USD, BTCUSD, or BTC-USD)."""
+    return str(value or "").upper().replace("/", "").replace("-", "")
+
+
+def norm_status(value: object) -> str:
+    """Normalize alpaca-py enum values and plain strings to stable status names."""
+    raw = getattr(value, "value", value)
+    return str(raw or "unknown").rsplit(".", 1)[-1].lower()
 
 
 def main() -> int:
@@ -127,13 +134,13 @@ def main() -> int:
 
     print(f"ORDER: client_order_id={client_order_id}")
     print(f"ORDER: broker_order_id_present={bool(getattr(order, 'id', None))}")
-    status = str(getattr(order, "status", "unknown")).lower()
+    status = norm_status(getattr(order, "status", "unknown"))
     deadline = time.monotonic() + 90
     while status not in TERMINAL and time.monotonic() < deadline:
         time.sleep(3)
         try:
             order = client.get_order_by_client_id(client_order_id)
-            status = str(getattr(order, "status", "unknown")).lower()
+            status = norm_status(getattr(order, "status", "unknown"))
         except Exception as exc:
             print(f"ORDER POLL: transient read error ({type(exc).__name__}); no resubmission.")
     filled_qty = Decimal(str(getattr(order, "filled_qty", "0") or "0"))

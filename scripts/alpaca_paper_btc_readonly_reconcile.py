@@ -66,7 +66,7 @@ def main() -> int:
     order_status = norm_status(getattr(order, "status", "unknown"))
     filled_qty = Decimal(str(getattr(order, "filled_qty", "0") or "0"))
     avg_price = getattr(order, "filled_avg_price", None)
-    print(f"ORDER: found=True")
+    print("ORDER: found=True")
     print(f"ORDER: client_order_id={CLIENT_ORDER_ID}")
     print(f"ORDER: broker_order_id={getattr(order, 'id', 'n/a')}")
     print(f"ORDER: symbol={order_symbol}")

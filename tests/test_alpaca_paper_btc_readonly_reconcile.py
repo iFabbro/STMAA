@@ -42,3 +42,62 @@ def test_commission_is_only_reported_if_payload_exposes_it():
     assert first_available_decimal(
         order_with_fee, ("commission", "commissions", "fee", "fees")
     ) == ("fee", Decimal("0.01"))
+
+
+
+def test_reconcile_crypto_commission_converts_unique_cfee_to_usd(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-1", "activity_type": "CFEE", "symbol": "BTC/USD",
+              "qty": "-0.0000001", "price": "80500"}],
+            "mocked supported read-only source",
+        ),
+    )
+    amount, source, records = reconcile.reconcile_crypto_commission(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+    )
+    assert amount == Decimal("0.0080500")
+    assert "unique CFEE" in source
+    assert len(records) == 1
+
+
+def test_reconcile_crypto_commission_fails_closed_on_ambiguous_records(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-1"}, {"id": "fee-2"}],
+            "mocked supported read-only source",
+        ),
+    )
+    amount, source, records = reconcile.reconcile_crypto_commission(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+    )
+    assert amount is None
+    assert "matching BTCUSD CFEE records=2" in source
+    assert len(records) == 2
+
+
+def test_reconcile_crypto_commission_fails_closed_when_fee_fields_missing(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-1", "activity_type": "CFEE", "symbol": "BTCUSD",
+              "qty": None, "price": "80500"}],
+            "mocked supported read-only source",
+        ),
+    )
+    amount, source, _ = reconcile.reconcile_crypto_commission(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+    )
+    assert amount is None
+    assert "qty/price missing or invalid" in source

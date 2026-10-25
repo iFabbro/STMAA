@@ -259,9 +259,19 @@ def main() -> int:
         return 2
 
     # Explicitly use Paper. This script contains no order-mutating API calls.
-    client = TradingClient(key, secret, paper=True)
+    try:
+        client = TradingClient(key, secret, paper=True)
+    except Exception as exc:
+        print(f"CLIENT: initialization_error={type(exc).__name__}; details withheld")
+        print("RESULT: INCOMPLETE — read-only broker client could not be initialized")
+        return 1
     print("MODE: Alpaca Paper; READ-ONLY")
-    account = client.get_account()
+    try:
+        account = client.get_account()
+    except Exception as exc:
+        print(f"ACCOUNT: read_error={type(exc).__name__}; details withheld")
+        print("RESULT: INCOMPLETE — account read failed; no order mutation attempted")
+        return 1
     print(f"ACCOUNT: status={norm_status(getattr(account, 'status', 'unknown'))}")
     print(f"ACCOUNT: equity={safe_decimal(getattr(account, 'equity', None))}")
     print(f"ACCOUNT: buying_power={safe_decimal(getattr(account, 'buying_power', None))}")
@@ -341,7 +351,12 @@ def main() -> int:
     else:
         print(f"COMMISSION: amount_usd={commission}")
 
-    positions = client.get_all_positions()
+    try:
+        positions = client.get_all_positions()
+    except Exception as exc:
+        print(f"POSITION: read_error={type(exc).__name__}; details withheld")
+        print("RESULT: INCOMPLETE — positions read failed; no order mutation attempted")
+        return 1
     btc_positions = [p for p in positions if norm_symbol(getattr(p, "symbol", "")) in SYMBOLS]
     print(f"POSITION: btc_position_count={len(btc_positions)}")
     position_qty: Decimal | None = None
@@ -364,7 +379,12 @@ def main() -> int:
     print("POSITION_RECON: result=INFORMATIONAL_ONLY (aggregate position is not order-scoped; prior holdings, later fills/transfers, and broker accounting may contribute)")
     print("POSITION_RECON: not used as a pass/fail condition for single-order fill reconciliation")
 
-    open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
+    try:
+        open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
+    except Exception as exc:
+        print(f"OPEN_ORDERS: read_error={type(exc).__name__}; details withheld")
+        print("RESULT: INCOMPLETE — open-orders read failed; no order mutation attempted")
+        return 1
     btc_open = [o for o in open_orders if norm_symbol(getattr(o, "symbol", "")) in SYMBOLS]
     print(f"OPEN_ORDERS: btc_open_order_count={len(btc_open)}")
     for i, open_order in enumerate(btc_open, start=1):

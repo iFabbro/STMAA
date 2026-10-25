@@ -51,6 +51,99 @@ def first_available_decimal(obj: object, names: tuple[str, ...]) -> tuple[str | 
     return None, None
 
 
+def parse_iso_datetime(value: object):
+    """Parse broker ISO timestamps; return None when absent or malformed."""
+    from datetime import datetime
+
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            from datetime import timezone
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[list[dict], str]:
+    """Read Alpaca Paper account activities; never mutate account state.
+
+    Alpaca documents CFEE activities as the source for crypto trading fees.
+    Legacy CFEE records may not carry order_id, so only a unique BTCUSD fee
+    record in the bounded fill-time window can be associated automatically.
+    """
+    import requests
+    from datetime import timedelta
+
+    filled_at = parse_iso_datetime(getattr(order, "filled_at", None))
+    if filled_at is None:
+        return [], "order filled_at timestamp unavailable"
+    after = (filled_at - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    until = (filled_at + timedelta(days=3)).isoformat().replace("+00:00", "Z")
+    url = "https://paper-api.alpaca.markets/v2/account/activities"
+    headers = {
+        "APCA-API-KEY-ID": key,
+        "APCA-API-SECRET-KEY": secret,
+        "Accept": "application/json",
+    }
+    activities: list[dict] = []
+    page_token = None
+    try:
+        while True:
+            params = {
+                "activity_types": "CFEE",
+                "after": after,
+                "until": until,
+                "direction": "asc",
+                "page_size": 100,
+            }
+            if page_token:
+                params["page_token"] = page_token
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list):
+                return [], "unexpected account activities response shape"
+            activities.extend(item for item in payload if isinstance(item, dict))
+            if len(payload) < 100:
+                break
+            next_token = payload[-1].get("id")
+            if not next_token or next_token == page_token:
+                return [], "activity pagination did not advance safely"
+            page_token = next_token
+    except Exception as exc:
+        # Do not print exception text: it could contain request details.
+        return [], f"account activities read failed ({type(exc).__name__})"
+
+    btc_fees = [
+        item for item in activities
+        if str(item.get("activity_type", "")).upper() == "CFEE"
+        and norm_symbol(item.get("symbol", "")) == "BTCUSD"
+    ]
+    return btc_fees, f"queried CFEE activities from {after} through {until}"
+
+
+def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[Decimal | None, str, list[dict]]:
+    """Return USD-equivalent crypto fee only when one supported CFEE record matches."""
+    fees, source_status = fetch_crypto_fee_activities(order, key, secret)
+    if len(fees) != 1:
+        return None, source_status + f"; matching BTCUSD CFEE records={len(fees)} (requires unique record)", fees
+
+    fee = fees[0]
+    fee_qty = as_decimal(fee.get("qty"))
+    fee_price = as_decimal(fee.get("price"))
+    fee_net_amount = as_decimal(fee.get("net_amount"))
+    # For BTC/USD buys, Alpaca documents the crypto fee quantity in BTC;
+    # multiplying its absolute quantity by the broker-reported fee price
+    # expresses it in USD. Do not substitute net_amount when it is zero.
+    if fee_qty is None or fee_price is None or fee_qty == 0 or fee_price <= 0:
+        return None, source_status + "; CFEE qty/price missing or invalid", fees
+    fee_usd = abs(fee_qty) * fee_price
+    return fee_usd, source_status + "; unique CFEE qty × price converted to USD", fees
+
+
 def main() -> int:
     key = os.environ.get("ALPACA_API_KEY", "")
     secret = os.environ.get("ALPACA_API_SECRET", "")
@@ -105,17 +198,24 @@ def main() -> int:
     else:
         print("RECON: gross_vs_submitted_notional_delta=n/a")
 
-    # Some broker/API models expose fees directly; do not infer a commission
-    # from quantity differences or silently treat an absent field as zero.
-    commission_field, commission = first_available_decimal(
-        order, ("commission", "commissions", "fee", "fees")
-    )
+    # Preferred source: Alpaca Paper Account Activities CFEE records.
+    # Crypto fees can be posted after execution; missing/ambiguous records stay
+    # REVIEW REQUIRED. Never infer zero from an empty result.
+    commission, commission_source, fee_activities = reconcile_crypto_commission(order, key, secret)
+    print(f"COMMISSION: source=Alpaca Paper GET /v2/account/activities activity_types=CFEE")
+    print(f"COMMISSION: lookup={commission_source}")
+    for i, fee_activity in enumerate(fee_activities, start=1):
+        print(f"COMMISSION_ACTIVITY[{i}]: id={fee_activity.get('id', 'n/a')}")
+        print(f"COMMISSION_ACTIVITY[{i}]: activity_type={fee_activity.get('activity_type', 'n/a')}")
+        print(f"COMMISSION_ACTIVITY[{i}]: date={fee_activity.get('date', 'n/a')}")
+        print(f"COMMISSION_ACTIVITY[{i}]: symbol={fee_activity.get('symbol', 'n/a')}")
+        print(f"COMMISSION_ACTIVITY[{i}]: qty={safe_decimal(fee_activity.get('qty'))}")
+        print(f"COMMISSION_ACTIVITY[{i}]: price={safe_decimal(fee_activity.get('price'))}")
+        print(f"COMMISSION_ACTIVITY[{i}]: net_amount={safe_decimal(fee_activity.get('net_amount'))}")
     if commission is None:
-        print("COMMISSION: order_payload_field=unavailable")
         print("COMMISSION: amount=unknown (not assumed to be zero)")
     else:
-        print(f"COMMISSION: source_field={commission_field}")
-        print(f"COMMISSION: amount={commission}")
+        print(f"COMMISSION: amount_usd={commission}")
 
     positions = client.get_all_positions()
     btc_positions = [p for p in positions if norm_symbol(getattr(p, "symbol", "")) in SYMBOLS]
@@ -175,7 +275,7 @@ def main() -> int:
     if not quantity_match:
         reasons.append("position quantity does not match order fill within tolerance")
     if commission is None:
-        reasons.append("commission amount not exposed by order payload; must be sourced from a supported read-only broker record")
+        reasons.append("unique supported Alpaca CFEE activity could not be reconciled to the order")
     print("RESULT: REVIEW REQUIRED — " + "; ".join(reasons))
     return 1
 

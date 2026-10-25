@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-import uuid
 from decimal import Decimal
 from pathlib import Path
 
@@ -68,6 +67,23 @@ def main() -> int:
     if crypto_bp is None or Decimal(str(crypto_bp)) < MAX_NOTIONAL_USD:
         raise SystemExit("FAIL: crypto/non-marginable buying power is insufficient")
 
+    # A fixed broker-side client_order_id is the durable idempotency key.
+    # Unlike runner-local files, Alpaca's order record survives completed runs.
+    # Any lookup error is fail-closed: never submit when prior outcome is uncertain.
+    client_order_id = "stmaa-btc-e2e-singleton"
+    try:
+        prior_order = client.get_order_by_client_id(client_order_id)
+    except Exception as exc:
+        raise SystemExit(
+            f"FAIL: cannot verify prior BTC E2E order ({type(exc).__name__}); refusing submission"
+        ) from None
+    if prior_order is not None:
+        prior_status = str(getattr(prior_order, "status", "unknown")).lower()
+        raise SystemExit(
+            "FAIL: durable BTC E2E idempotency key already exists "
+            f"(status={prior_status}); refusing another order"
+        )
+
     open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
     btc_orders = [o for o in open_orders if norm_symbol(getattr(o, "symbol", "")) == SYMBOL]
     if btc_orders:
@@ -82,9 +98,6 @@ def main() -> int:
     print(f"Existing open {SYMBOL} orders: 0")
     print("Environment: Alpaca Paper; no Live endpoint configured.")
 
-    run_id = os.environ.get("GITHUB_RUN_ID", str(uuid.uuid4()))
-    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    client_order_id = f"stmaa-btc-e2e-{run_id}-{attempt}"[:48]
     request = MarketOrderRequest(
         symbol=SYMBOL,
         notional=float(MAX_NOTIONAL_USD),
@@ -131,17 +144,32 @@ def main() -> int:
     print(f"POSTCHECK: btc_position_present={bool(btc_positions)}")
     print(f"POSTCHECK: btc_open_orders={len(btc_open)}")
 
-    # Exercise STMAA's state persistence path without changing existing positions.
+    # Persist the broker order identity/status in STMAA state and verify the
+    # actual round-trip, not merely that a file exists.
+    executor.state["btc_paper_e2e_order"] = {
+        "client_order_id": client_order_id,
+        "broker_order_id": str(getattr(order, "id", "") or ""),
+        "symbol": SYMBOL,
+        "side": "buy",
+        "notional_usd": str(MAX_NOTIONAL_USD),
+        "status": status,
+        "filled_qty": str(filled_qty),
+        "filled_avg_price": str(avg_price) if avg_price is not None else None,
+    }
     executor._save_state()
+    expected_order_state = dict(executor.state["btc_paper_e2e_order"])
     restarted = BrokerExecutor(
         api_key=key,
         api_secret=secret,
         base_url=PAPER_ENDPOINT,
         paper_trading=True,
     )
-    if not restarted.state_file.exists():
-        raise SystemExit("FAIL: STMAA persisted state file was not found after reload")
-    print("RESTART: persisted_state_loaded=True")
+    actual_order_state = restarted.state.get("btc_paper_e2e_order")
+    if actual_order_state != expected_order_state:
+        raise SystemExit(
+            "FAIL: BTC order state did not survive save/reload round-trip"
+        )
+    print("RESTART: persisted_state_round_trip=PASS")
 
     if status != "filled" or filled_qty <= 0 or avg_price is None:
         raise SystemExit(

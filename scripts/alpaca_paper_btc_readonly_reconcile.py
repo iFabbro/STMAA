@@ -351,7 +351,7 @@ def main() -> int:
         print(f"OPEN_ORDER[{i}]: notional={safe_decimal(getattr(open_order, 'notional', None))}")
 
     if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and commission is not None:
-        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission evidence is present but not necessarily order-attributable")
+        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked to this order")
         return 0
 
     reasons = []

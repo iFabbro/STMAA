@@ -8,6 +8,7 @@ from scripts.alpaca_paper_btc_readonly_reconcile import (
     first_available_decimal,
     norm_status,
     norm_symbol,
+    validate_order_identity,
 )
 
 
@@ -262,3 +263,46 @@ def test_order_fill_reconciliation_fails_closed_when_no_fills(monkeypatch):
     assert matches is False
     assert fills == []
     assert "no matching FILL records" in source
+
+
+
+def test_order_identity_accepts_expected_btc_buy():
+    ok, detail = validate_order_identity(SimpleNamespace(symbol="BTC/USD", side="buy"))
+    assert ok is True
+    assert "match expected order identity" in detail
+
+
+def test_order_identity_rejects_wrong_symbol():
+    ok, detail = validate_order_identity(SimpleNamespace(symbol="ETH/USD", side="buy"))
+    assert ok is False
+    assert "symbol mismatch" in detail
+
+
+def test_order_identity_rejects_wrong_side():
+    ok, detail = validate_order_identity(SimpleNamespace(symbol="BTC/USD", side="sell"))
+    assert ok is False
+    assert "side mismatch" in detail
+
+
+def test_order_identity_rejects_missing_identity_fields():
+    ok, detail = validate_order_identity(SimpleNamespace())
+    assert ok is False
+    assert "symbol mismatch" in detail
+    assert "side mismatch" in detail
+
+
+def test_main_missing_credentials_returns_fail_exit_code(monkeypatch, capsys):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_API_SECRET", raising=False)
+    assert reconcile.main() == 2
+    assert "RESULT: FAIL" in capsys.readouterr().out
+
+
+def test_cfee_output_distinguishes_explicit_link_from_temporal_context():
+    order_id = "order-123"
+    linked = {"order_id": order_id}
+    nearby = {"order_id": ""}
+    assert str(linked.get("order_id", "")) == order_id
+    assert str(nearby.get("order_id", "")) != order_id

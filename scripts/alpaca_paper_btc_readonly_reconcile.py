@@ -13,6 +13,8 @@ from alpaca.trading.enums import QueryOrderStatus
 from alpaca.trading.requests import GetOrdersRequest
 
 CLIENT_ORDER_ID = "stmaa-btc-e2e-singleton"
+EXPECTED_SYMBOL = "BTCUSD"
+EXPECTED_SIDE = "buy"
 SYMBOLS = {"BTCUSD", "BTC/USD", "BTC-USD"}
 # Tiny rounding tolerance for comparing broker-reported crypto quantities.
 QTY_TOLERANCE = Decimal("0.000000001")
@@ -20,6 +22,19 @@ QTY_TOLERANCE = Decimal("0.000000001")
 
 def norm_symbol(value: object) -> str:
     return str(value or "").upper().replace("/", "").replace("-", "")
+
+
+def validate_order_identity(order: object) -> tuple[bool, str]:
+    """Fail closed unless the fetched order matches the expected BTC buy."""
+    symbol = norm_symbol(getattr(order, "symbol", ""))
+    side_raw = getattr(order, "side", "")
+    side = str(getattr(side_raw, "value", side_raw) or "").rsplit(".", 1)[-1].lower()
+    errors = []
+    if symbol != EXPECTED_SYMBOL:
+        errors.append(f"symbol mismatch: expected={EXPECTED_SYMBOL}, actual={symbol or 'missing'}")
+    if side != EXPECTED_SIDE:
+        errors.append(f"side mismatch: expected={EXPECTED_SIDE}, actual={side or 'missing'}")
+    return not errors, "; ".join(errors) if errors else "symbol and side match expected order identity"
 
 
 def norm_status(value: object) -> str:
@@ -280,6 +295,12 @@ def main() -> int:
     print(f"ORDER: submitted_at={getattr(order, 'submitted_at', None)}")
     print(f"ORDER: filled_at={getattr(order, 'filled_at', None)}")
 
+    identity_ok, identity_detail = validate_order_identity(order)
+    print(f"ORDER_IDENTITY: {identity_detail}")
+    if not identity_ok:
+        print("RESULT: FAIL — fetched order identity does not match expected BTC buy; reconciliation aborted")
+        return 1
+
     gross_fill_notional = filled_qty * avg_price if avg_price is not None else None
     print(f"RECON: gross_fill_notional={safe_decimal(gross_fill_notional)}")
     submitted_notional = as_decimal(getattr(order, "notional", None))
@@ -305,6 +326,10 @@ def main() -> int:
     print(f"COMMISSION: lookup={commission_source}")
     for i, fee_activity in enumerate(fee_activities, start=1):
         print(f"COMMISSION_ACTIVITY[{i}]: id={fee_activity.get('id', 'n/a')}")
+        print(f"COMMISSION_ACTIVITY[{i}]: order_id={fee_activity.get('order_id', 'n/a')}")
+        explicitly_linked = bool(getattr(order, "id", None)) and str(fee_activity.get("order_id", "") or "") == str(getattr(order, "id", "") or "")
+        attribution = "EXPLICIT_ORDER_LINK" if explicitly_linked else "UNLINKED_TEMPORAL_CONTEXT_ONLY"
+        print(f"COMMISSION_ACTIVITY[{i}]: attribution={attribution}")
         print(f"COMMISSION_ACTIVITY[{i}]: activity_type={fee_activity.get('activity_type', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: date={fee_activity.get('date', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: symbol={fee_activity.get('symbol', 'n/a')}")

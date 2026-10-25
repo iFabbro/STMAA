@@ -201,7 +201,7 @@ def main() -> int:
     # Crypto fees can be posted after execution; missing/ambiguous records stay
     # REVIEW REQUIRED. Never infer zero from an empty result.
     commission, commission_source, fee_activities = reconcile_crypto_commission(order, key, secret)
-    print(f"COMMISSION: source=Alpaca Paper GET /v2/account/activities activity_types=CFEE")
+    print("COMMISSION: source=Alpaca Paper GET /v2/account/activities activity_types=CFEE")
     print(f"COMMISSION: lookup={commission_source}")
     for i, fee_activity in enumerate(fee_activities, start=1):
         print(f"COMMISSION_ACTIVITY[{i}]: id={fee_activity.get('id', 'n/a')}")

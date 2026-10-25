@@ -75,6 +75,89 @@ def parse_iso_datetime(value: object):
         return None
 
 
+def fetch_order_fill_activities(order: object, key: str, secret: str) -> tuple[list[dict], str]:
+    """Read FILL activities for this exact order using Alpaca's documented order_id filter."""
+    import requests
+
+    order_id = str(getattr(order, "id", "") or "")
+    if not order_id:
+        return [], "broker order ID unavailable; FILL activity lookup skipped"
+    url = "https://paper-api.alpaca.markets/v2/account/activities"
+    headers = {
+        "APCA-API-KEY-ID": key,
+        "APCA-API-SECRET-KEY": secret,
+        "Accept": "application/json",
+    }
+    activities: list[dict] = []
+    page_token = None
+    try:
+        while True:
+            params = {
+                "activity_types": "FILL",
+                "order_id": order_id,
+                "direction": "asc",
+                "page_size": 100,
+            }
+            if page_token:
+                params["page_token"] = page_token
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list):
+                return [], "unexpected FILL account activities response shape"
+            activities.extend(item for item in payload if isinstance(item, dict))
+            if len(payload) < 100:
+                break
+            next_token = payload[-1].get("id")
+            if not next_token or next_token == page_token:
+                return [], "FILL activity pagination did not advance safely"
+            page_token = next_token
+    except Exception as exc:
+        return [], f"order FILL activity read failed ({type(exc).__name__})"
+
+    # Fail closed if the endpoint returns records not tied to the requested order.
+    if any(str(item.get("order_id", "")) != order_id for item in activities):
+        return [], "FILL activity response contained a different order_id"
+    fills = [
+        item for item in activities
+        if str(item.get("activity_type", "")).upper() == "FILL"
+        and norm_symbol(item.get("symbol", "")) == norm_symbol(getattr(order, "symbol", ""))
+    ]
+    return fills, f"queried FILL activities filtered by order_id={order_id}; raw records={len(activities)}"
+
+
+def reconcile_order_fill_activities(order: object, key: str, secret: str) -> tuple[bool, str, list[dict]]:
+    """Compare summed broker FILL quantities and weighted price with the order summary."""
+    fills, source_status = fetch_order_fill_activities(order, key, secret)
+    expected_qty = as_decimal(getattr(order, "filled_qty", None))
+    expected_price = as_decimal(getattr(order, "filled_avg_price", None))
+    if not fills:
+        return False, source_status + "; no matching FILL records (requires at least one)", fills
+    if expected_qty is None or expected_qty <= 0 or expected_price is None or expected_price <= 0:
+        return False, source_status + "; order summary quantity/average price missing or invalid", fills
+
+    total_qty = Decimal("0")
+    total_notional = Decimal("0")
+    for fill in fills:
+        qty = as_decimal(fill.get("qty"))
+        price = as_decimal(fill.get("price"))
+        if qty is None or qty <= 0 or price is None or price <= 0:
+            return False, source_status + "; FILL qty/price missing or invalid", fills
+        total_qty += qty
+        total_notional += qty * price
+
+    weighted_avg = total_notional / total_qty
+    qty_match = abs(total_qty - expected_qty) <= QTY_TOLERANCE
+    price_match = abs(weighted_avg - expected_price) <= Decimal("0.01")
+    detail = (
+        f"; fill_count={len(fills)}; summed_fill_qty={total_qty}; "
+        f"order_filled_qty={expected_qty}; weighted_avg_fill_price={weighted_avg}; "
+        f"order_filled_avg_price={expected_price}; qty_match={str(qty_match).lower()}; "
+        f"avg_price_match_0.01={str(price_match).lower()}"
+    )
+    return qty_match and price_match, source_status + detail, fills
+
+
 def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[list[dict], str]:
     """Read documented Alpaca Paper CFEE activities in a bounded fill-time window."""
     import requests
@@ -197,6 +280,16 @@ def main() -> int:
     else:
         print("RECON: gross_vs_submitted_notional_delta=n/a")
 
+    fills_match, fills_source, fill_activities = reconcile_order_fill_activities(order, key, secret)
+    print("FILL_RECON: source=Alpaca Paper GET /v2/account/activities activity_types=FILL order_id=<broker_order_id>")
+    print(f"FILL_RECON: lookup={fills_source}")
+    for i, fill in enumerate(fill_activities, start=1):
+        print(f"FILL_ACTIVITY[{i}]: id={fill.get('id', 'n/a')}")
+        print(f"FILL_ACTIVITY[{i}]: order_id={fill.get('order_id', 'n/a')}")
+        print(f"FILL_ACTIVITY[{i}]: symbol={fill.get('symbol', 'n/a')}")
+        print(f"FILL_ACTIVITY[{i}]: side={fill.get('side', 'n/a')}")
+        print(f"FILL_ACTIVITY[{i}]: qty={safe_decimal(fill.get('qty'))}")
+        print(f"FILL_ACTIVITY[{i}]: price={safe_decimal(fill.get('price'))}")
     commission, commission_source, fee_activities = reconcile_crypto_commission(order, key, secret)
     print("COMMISSION: source=Alpaca Paper GET /v2/account/activities activity_types=CFEE")
     print(f"COMMISSION: lookup={commission_source}")
@@ -246,13 +339,15 @@ def main() -> int:
         print(f"OPEN_ORDER[{i}]: qty={safe_decimal(getattr(open_order, 'qty', None))}")
         print(f"OPEN_ORDER[{i}]: notional={safe_decimal(getattr(open_order, 'notional', None))}")
 
-    if order_status == "filled" and filled_qty > 0 and avg_price is not None and position_qty is not None and quantity_match and commission is not None:
+    if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and position_qty is not None and quantity_match and commission is not None:
         print("RESULT: RECONCILED — order, position quantity, and commission field verified")
         return 0
 
     reasons = []
     if order_status != "filled" or filled_qty <= 0 or avg_price is None:
         reasons.append("order fill details incomplete")
+    if not fills_match:
+        reasons.append("broker FILL activities do not reconcile to order summary")
     if not quantity_match:
         reasons.append("position quantity does not match order fill within tolerance")
     if commission is None:

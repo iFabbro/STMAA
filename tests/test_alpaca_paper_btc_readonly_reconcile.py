@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from scripts.alpaca_paper_btc_readonly_reconcile import (
     QTY_TOLERANCE,
     as_decimal,
+    compare_position_quantity,
     first_available_decimal,
     norm_status,
     norm_symbol,
@@ -42,7 +43,6 @@ def test_commission_is_only_reported_if_payload_exposes_it():
     assert first_available_decimal(
         order_with_fee, ("commission", "commissions", "fee", "fees")
     ) == ("fee", Decimal("0.01"))
-
 
 
 def test_reconcile_crypto_commission_converts_unique_cfee_to_usd(monkeypatch):
@@ -101,3 +101,40 @@ def test_reconcile_crypto_commission_fails_closed_when_fee_fields_missing(monkey
     )
     assert amount is None
     assert "qty/price missing or invalid" in source
+
+
+def test_commission_absent_fails_closed(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile, "fetch_crypto_fee_activities",
+        lambda order, key, secret: ([], "mocked empty supported source"),
+    )
+    amount, source, records = reconcile.reconcile_crypto_commission(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+    )
+    assert amount is None
+    assert "matching BTCUSD CFEE records=0" in source
+    assert records == []
+
+
+def test_quantity_difference_is_not_hidden_by_commission_hypothesis():
+    delta, matches = compare_position_quantity(
+        Decimal("0.000121423"), Decimal("0.000121728")
+    )
+    assert delta == Decimal("-0.000000305")
+    assert matches is False
+
+
+def test_quantity_match_within_explicit_tolerance():
+    delta, matches = compare_position_quantity(
+        Decimal("0.0001217285"), Decimal("0.000121728")
+    )
+    assert delta == Decimal("5E-10")
+    assert matches is True
+
+
+def test_missing_position_quantity_fails_closed():
+    delta, matches = compare_position_quantity(None, Decimal("0.000121728"))
+    assert delta is None
+    assert matches is False

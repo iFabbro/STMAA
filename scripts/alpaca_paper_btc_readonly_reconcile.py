@@ -51,6 +51,14 @@ def first_available_decimal(obj: object, names: tuple[str, ...]) -> tuple[str | 
     return None, None
 
 
+def compare_position_quantity(position_qty: Decimal | None, filled_qty: Decimal) -> tuple[Decimal | None, bool]:
+    """Compare broker position against this order fill without masking differences."""
+    if position_qty is None:
+        return None, False
+    delta = position_qty - filled_qty
+    return delta, abs(delta) <= QTY_TOLERANCE
+
+
 def parse_iso_datetime(value: object):
     """Parse broker ISO timestamps; return None when absent or malformed."""
     from datetime import datetime
@@ -68,12 +76,7 @@ def parse_iso_datetime(value: object):
 
 
 def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[list[dict], str]:
-    """Read Alpaca Paper account activities; never mutate account state.
-
-    Alpaca documents CFEE activities as the source for crypto trading fees.
-    Legacy CFEE records may not carry order_id, so only a unique BTCUSD fee
-    record in the bounded fill-time window can be associated automatically.
-    """
+    """Read documented Alpaca Paper CFEE activities in a bounded fill-time window."""
     import requests
     from datetime import timedelta
 
@@ -122,7 +125,7 @@ def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[l
         if str(item.get("activity_type", "")).upper() == "CFEE"
         and norm_symbol(item.get("symbol", "")) == "BTCUSD"
     ]
-    return btc_fees, f"queried CFEE activities from {after} through {until}"
+    return btc_fees, f"queried CFEE activities from {after} through {until}; raw CFEE records={len(activities)}"
 
 
 def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[Decimal | None, str, list[dict]]:
@@ -134,9 +137,6 @@ def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[D
     fee = fees[0]
     fee_qty = as_decimal(fee.get("qty"))
     fee_price = as_decimal(fee.get("price"))
-    # For BTC/USD buys, Alpaca documents the crypto fee quantity in BTC;
-    # multiplying its absolute quantity by the broker-reported fee price
-    # expresses it in USD. Do not substitute net_amount when it is zero.
     if fee_qty is None or fee_price is None or fee_qty == 0 or fee_price <= 0:
         return None, source_status + "; CFEE qty/price missing or invalid", fees
     fee_usd = abs(fee_qty) * fee_price
@@ -197,9 +197,6 @@ def main() -> int:
     else:
         print("RECON: gross_vs_submitted_notional_delta=n/a")
 
-    # Preferred source: Alpaca Paper Account Activities CFEE records.
-    # Crypto fees can be posted after execution; missing/ambiguous records stay
-    # REVIEW REQUIRED. Never infer zero from an empty result.
     commission, commission_source, fee_activities = reconcile_crypto_commission(order, key, secret)
     print("COMMISSION: source=Alpaca Paper GET /v2/account/activities activity_types=CFEE")
     print(f"COMMISSION: lookup={commission_source}")
@@ -232,17 +229,11 @@ def main() -> int:
         print(f"POSITION[{i}]: cost_basis={safe_decimal(getattr(position, 'cost_basis', None))}")
         print(f"POSITION[{i}]: unrealized_pl={safe_decimal(getattr(position, 'unrealized_pl', None))}")
 
-    quantity_match = False
-    if position_qty is not None:
-        quantity_delta = position_qty - filled_qty
-        quantity_match = abs(quantity_delta) <= QTY_TOLERANCE
-        print(f"RECON: position_minus_order_filled_qty={quantity_delta}")
-        print(f"RECON: position_qty_matches_order_fill={str(quantity_match).lower()}")
-        if not quantity_match:
-            print("RECON: quantity_difference_requires_review=true (possible prior holdings, later activity, or broker accounting)")
-    else:
-        print("RECON: position_minus_order_filled_qty=n/a")
-        print("RECON: position_qty_matches_order_fill=false")
+    quantity_delta, quantity_match = compare_position_quantity(position_qty, filled_qty)
+    print(f"RECON: position_minus_order_filled_qty={safe_decimal(quantity_delta)}")
+    print(f"RECON: position_qty_matches_order_fill={str(quantity_match).lower()}")
+    if not quantity_match:
+        print("RECON: quantity_difference_requires_review=true (position may include prior holdings, later activity, or broker accounting)")
 
     open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
     btc_open = [o for o in open_orders if norm_symbol(getattr(o, "symbol", "")) in SYMBOLS]
@@ -255,16 +246,7 @@ def main() -> int:
         print(f"OPEN_ORDER[{i}]: qty={safe_decimal(getattr(open_order, 'qty', None))}")
         print(f"OPEN_ORDER[{i}]: notional={safe_decimal(getattr(open_order, 'notional', None))}")
 
-    # A green result requires quantitative quantity agreement and an actual
-    # broker-reported commission value. Missing commission data stays REVIEW.
-    if (
-        order_status == "filled"
-        and filled_qty > 0
-        and avg_price is not None
-        and position_qty is not None
-        and quantity_match
-        and commission is not None
-    ):
+    if order_status == "filled" and filled_qty > 0 and avg_price is not None and position_qty is not None and quantity_match and commission is not None:
         print("RESULT: RECONCILED — order, position quantity, and commission field verified")
         return 0
 

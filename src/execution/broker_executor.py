@@ -960,7 +960,7 @@ class BrokerExecutor:
         active_confirmed = {
             ticker: order
             for ticker, order in confirmed_submissions.items()
-            if self._order_status_value(order.get("status", "unknown")) not in {
+            if str(order.get("status", "unknown")).strip().lower() not in {
                 "filled", "canceled", "cancelled", "expired", "rejected"
             }
         }

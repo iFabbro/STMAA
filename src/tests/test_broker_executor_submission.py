@@ -137,3 +137,54 @@ def test_failed_confirmation_persistence_restores_durable_unresolved_intent():
 
     assert executor.state["order_submission_unresolved"]["AAPL"] == original_intent
     assert "order_submission_confirmed" not in executor.state
+
+
+def test_confirmed_order_status_is_refreshed_from_broker_and_persisted():
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {
+        "order_submission_unresolved": {},
+        "order_submission_confirmed": {
+            "client-order-123": {
+                "ticker": "AAPL",
+                "client_order_id": "client-order-123",
+                "order_id": "broker-order-456",
+                "status": "accepted",
+            }
+        },
+    }
+    executor.trading_client = SimpleNamespace(
+        get_order_by_id=Mock(return_value=SimpleNamespace(status="filled"))
+    )
+    persisted = []
+    executor._save_state = lambda: persisted.append(deepcopy(executor.state))
+
+    executor._refresh_confirmed_submission_statuses()
+
+    executor.trading_client.get_order_by_id.assert_called_once_with("broker-order-456")
+    assert executor.state["order_submission_confirmed"]["client-order-123"]["status"] == "filled"
+    assert persisted[-1]["order_submission_confirmed"]["client-order-123"]["status"] == "filled"
+
+
+def test_confirmed_order_status_read_failure_keeps_fail_closed_state():
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {
+        "order_submission_confirmed": {
+            "client-order-123": {
+                "ticker": "AAPL",
+                "client_order_id": "client-order-123",
+                "order_id": "broker-order-456",
+                "status": "accepted",
+            }
+        }
+    }
+    executor.trading_client = SimpleNamespace(
+        get_order_by_id=Mock(side_effect=RuntimeError("broker unavailable"))
+    )
+    executor.logger = Mock()
+    executor._save_state = Mock()
+
+    executor._refresh_confirmed_submission_statuses()
+
+    assert executor.state["order_submission_confirmed"]["client-order-123"]["status"] == "accepted"
+    executor._save_state.assert_not_called()
+    executor.logger.warning.assert_called_once()

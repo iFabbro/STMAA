@@ -2942,3 +2942,44 @@ def test_execute_weights_does_not_append_metrics_when_post_snapshot_is_stale(
     assert result["equity"] is None
     assert "metrics_refresh_error" in result
     assert executor.state["equity_history"] == pytest.approx([10000.0])
+
+
+def test_broker_state_round_trip_preserves_order_record(alpaca_env):
+    executor = BrokerExecutor(paper_trading=True)
+    expected = {
+        "client_order_id": "stmaa-btc-e2e-singleton",
+        "broker_order_id": "paper-order-123",
+        "symbol": "BTC/USD",
+        "side": "buy",
+        "notional_usd": "10.00",
+        "status": "filled",
+        "filled_qty": "0.0001",
+        "filled_avg_price": "100000.00",
+    }
+    executor.state["btc_paper_e2e_order"] = expected.copy()
+    executor._save_state()
+
+    restored = BrokerExecutor(paper_trading=True)
+
+    assert restored.state["btc_paper_e2e_order"] == expected
+    assert restored.state["account_mode"] == "paper"
+
+
+def test_broker_state_round_trip_fails_closed_for_corrupt_json(alpaca_env):
+    executor = BrokerExecutor(paper_trading=True)
+    executor.state_file.write_text("{not-valid-json", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Unable to load persisted broker state"):
+        BrokerExecutor(paper_trading=True)
+
+
+def test_broker_state_round_trip_fails_closed_when_state_missing_after_initialization(
+    alpaca_env,
+):
+    executor = BrokerExecutor(paper_trading=True)
+    executor.state_file.unlink()
+
+    # A fresh executor initializes a missing state file; it must not falsely
+    # claim an order record was restored from the missing file.
+    restored = BrokerExecutor(paper_trading=True)
+    assert "btc_paper_e2e_order" not in restored.state

@@ -16,7 +16,6 @@ CLIENT_ORDER_ID = "stmaa-btc-e2e-singleton"
 SYMBOLS = {"BTCUSD", "BTC/USD", "BTC-USD"}
 # Tiny rounding tolerance for comparing broker-reported crypto quantities.
 QTY_TOLERANCE = Decimal("0.000000001")
-MONEY_TOLERANCE = Decimal("0.01")
 
 
 def norm_symbol(value: object) -> str:

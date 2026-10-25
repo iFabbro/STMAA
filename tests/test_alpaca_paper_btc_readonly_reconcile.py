@@ -138,3 +138,108 @@ def test_missing_position_quantity_fails_closed():
     delta, matches = compare_position_quantity(None, Decimal("0.000121728"))
     assert delta is None
     assert matches is False
+
+
+
+def test_order_fill_activity_lookup_uses_documented_order_id_filter(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{
+                "id": "fill-1",
+                "activity_type": "FILL",
+                "order_id": "order-123",
+                "symbol": "BTC/USD",
+                "qty": "0.00005",
+                "price": "80000",
+            }]
+
+    def fake_get(url, headers, params, timeout):
+        calls.append((url, params))
+        return Response()
+
+    monkeypatch.setattr("requests.get", fake_get)
+    fills, source = reconcile.fetch_order_fill_activities(
+        SimpleNamespace(id="order-123", symbol="BTC/USD"), "key", "secret"
+    )
+
+    assert len(fills) == 1
+    assert calls[0][1]["activity_types"] == "FILL"
+    assert calls[0][1]["order_id"] == "order-123"
+    assert "filtered by order_id=order-123" in source
+
+
+def test_order_fill_reconciliation_matches_summed_qty_and_weighted_average(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_order_fill_activities",
+        lambda order, key, secret: (
+            [
+                {"id": "fill-1", "activity_type": "FILL", "symbol": "BTC/USD",
+                 "qty": "0.00005", "price": "80000"},
+                {"id": "fill-2", "activity_type": "FILL", "symbol": "BTC/USD",
+                 "qty": "0.00005", "price": "80200"},
+            ],
+            "mocked order-scoped fill source",
+        ),
+    )
+    order = SimpleNamespace(
+        id="order-123", symbol="BTC/USD", filled_qty="0.0001",
+        filled_avg_price="80100",
+    )
+
+    matches, source, fills = reconcile.reconcile_order_fill_activities(order, "key", "secret")
+
+    assert matches is True
+    assert len(fills) == 2
+    assert "summed_fill_qty=0.00010" in source
+    assert "avg_price_match_0.01=true" in source
+
+
+def test_order_fill_reconciliation_fails_closed_on_quantity_mismatch(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_order_fill_activities",
+        lambda order, key, secret: (
+            [{"id": "fill-1", "activity_type": "FILL", "symbol": "BTC/USD",
+              "qty": "0.00009", "price": "80100"}],
+            "mocked order-scoped fill source",
+        ),
+    )
+    order = SimpleNamespace(
+        id="order-123", symbol="BTC/USD", filled_qty="0.0001",
+        filled_avg_price="80100",
+    )
+
+    matches, source, _ = reconcile.reconcile_order_fill_activities(order, "key", "secret")
+
+    assert matches is False
+    assert "qty_match=false" in source
+
+
+def test_order_fill_reconciliation_fails_closed_when_no_fills(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile, "fetch_order_fill_activities",
+        lambda order, key, secret: ([], "mocked empty fill source"),
+    )
+    matches, source, fills = reconcile.reconcile_order_fill_activities(
+        SimpleNamespace(id="order-123", symbol="BTC/USD",
+                        filled_qty="0.0001", filled_avg_price="80100"),
+        "key", "secret",
+    )
+
+    assert matches is False
+    assert fills == []
+    assert "no matching FILL records" in source

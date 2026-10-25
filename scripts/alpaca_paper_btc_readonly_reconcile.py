@@ -214,16 +214,26 @@ def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[l
 def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[Decimal | None, str, list[dict]]:
     """Return USD-equivalent crypto fee only when one supported CFEE record matches."""
     fees, source_status = fetch_crypto_fee_activities(order, key, secret)
-    if len(fees) != 1:
-        return None, source_status + f"; matching BTCUSD CFEE records={len(fees)} (requires unique record)", fees
+    order_id = str(getattr(order, "id", "") or "")
+    # A nearby CFEE record is only temporal/accounting context. Do not attribute
+    # it to this order unless the broker record explicitly carries the same order ID.
+    linked_fees = [
+        fee for fee in fees
+        if order_id and str(fee.get("order_id", "") or "") == order_id
+    ]
+    if len(linked_fees) != 1:
+        return None, source_status + (
+            f"; explicitly order-linked BTCUSD CFEE records={len(linked_fees)} "
+            "(requires exactly one matching order_id; otherwise commission remains unknown)"
+        ), fees
 
-    fee = fees[0]
+    fee = linked_fees[0]
     fee_qty = as_decimal(fee.get("qty"))
     fee_price = as_decimal(fee.get("price"))
     if fee_qty is None or fee_price is None or fee_qty == 0 or fee_price <= 0:
-        return None, source_status + "; CFEE qty/price missing or invalid", fees
+        return None, source_status + "; order-linked CFEE qty/price missing or invalid", fees
     fee_usd = abs(fee_qty) * fee_price
-    return fee_usd, source_status + "; unique CFEE qty × price converted to USD", fees
+    return fee_usd, source_status + "; explicitly order-linked CFEE qty × price converted to USD", fees
 
 
 def main() -> int:

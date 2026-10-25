@@ -1,0 +1,101 @@
+name: Alpaca Paper raw account diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpaca-paper-raw-account-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  read-only-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install Alpaca SDK
+        run: pip install alpaca-py
+      - name: Compare raw Paper API response with SDK parsing
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          key = os.environ.get("ALPACA_API_KEY", "")
+          secret = os.environ.get("ALPACA_API_SECRET", "")
+          if not key or not secret:
+              print("DIAGNOSTIC: required GitHub Actions secrets are missing or empty.")
+              sys.exit(1)
+
+          request = urllib.request.Request(
+              "https://paper-api.alpaca.markets/v2/account",
+              headers={
+                  "APCA-API-KEY-ID": key,
+                  "APCA-API-SECRET-KEY": secret,
+                  "Accept": "application/json",
+              },
+              method="GET",
+          )
+
+          account = None
+          try:
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  http_status = response.status
+                  body = response.read()
+          except urllib.error.HTTPError as exc:
+              print(f"RAW_API_HTTP_STATUS: {exc.code}")
+              print("RAW_API: request rejected; response body suppressed.")
+              sys.exit(1)
+          except Exception as exc:
+              print(f"RAW_API: request failed ({type(exc).__name__}); details suppressed.")
+              sys.exit(1)
+
+          print(f"RAW_API_HTTP_STATUS: {http_status}")
+          if http_status != 200:
+              print("RAW_API: unexpected HTTP status; response body suppressed.")
+              sys.exit(1)
+
+          try:
+              account = json.loads(body)
+          except Exception:
+              print("RAW_API: response was not valid JSON.")
+              sys.exit(1)
+
+          # Emit only diagnostic fields; never print account ID or credentials.
+          print(f"RAW_API_ACCOUNT_STATUS: {account.get('status', 'unknown')}")
+          print(f"RAW_API_BUYING_POWER: {account.get('buying_power', 'unavailable')}")
+          print(f"RAW_API_EQUITY: {account.get('equity', 'unavailable')}")
+          print(f"RAW_API_TRADING_BLOCKED: {account.get('trading_blocked', 'unknown')}")
+          print(f"RAW_API_ACCOUNT_BLOCKED: {account.get('account_blocked', 'unknown')}")
+          print(f"RAW_API_ACCOUNT_ID_PRESENT: {bool(account.get('id'))}")
+
+          # Compare how the currently installed alpaca-py SDK deserializes the same account.
+          try:
+              from alpaca.trading.client import TradingClient
+              client = TradingClient(api_key=key, secret_key=secret, paper=True)
+              sdk_account = client.get_account()
+              print(f"SDK_PARSE: OK")
+              print(f"SDK_ACCOUNT_STATUS: {getattr(sdk_account, 'status', 'unknown')}")
+              print(f"SDK_BUYING_POWER: {getattr(sdk_account, 'buying_power', 'unavailable')}")
+          except Exception as exc:
+              print(f"SDK_PARSE: FAILED ({type(exc).__name__})")
+              # Include only the exception's concise text to expose enum/schema mismatches;
+              # do not print request headers, credentials, or the raw response body.
+              message = str(exc).replace(key, "[REDACTED]").replace(secret, "[REDACTED]")
+              print(f"SDK_ERROR: {message[:1200]}")
+
+          print("DIAGNOSTIC_COMPLETE: read-only; no orders were submitted.")
+          PY

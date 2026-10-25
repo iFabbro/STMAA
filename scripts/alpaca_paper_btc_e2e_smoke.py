@@ -74,9 +74,15 @@ def main() -> int:
     try:
         prior_order = client.get_order_by_client_id(client_order_id)
     except Exception as exc:
-        raise SystemExit(
-            f"FAIL: cannot verify prior BTC E2E order ({type(exc).__name__}); refusing submission"
-        ) from None
+        # Alpaca reports an absent client_order_id as HTTP 404. Only that
+        # definitive response permits the first submission; all other errors
+        # leave the previous outcome uncertain and must block execution.
+        if getattr(exc, "status_code", None) == 404:
+            prior_order = None
+        else:
+            raise SystemExit(
+                f"FAIL: cannot verify prior BTC E2E order ({type(exc).__name__}); refusing submission"
+            ) from None
     if prior_order is not None:
         prior_status = str(getattr(prior_order, "status", "unknown")).lower()
         raise SystemExit(

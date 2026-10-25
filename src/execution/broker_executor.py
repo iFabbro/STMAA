@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import tempfile
+import uuid
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -895,7 +896,121 @@ class BrokerExecutor:
                 "Unable to retrieve broker positions; refusing to execute trades"
             ) from e
 
+    @staticmethod
+    def _count_submitted_orders(orders) -> int:
+        """Count broker-acknowledged orders, not local failure records."""
+        return sum(
+            1 for order in orders
+            if order.get("order_id")
+            and str(order.get("status", "")).strip().lower() != "failed"
+        )
+    def _record_confirmed_submission(self, ticker: str, order_info: Dict) -> None:
+        """Atomically archive broker acknowledgement and clear its unresolved intent."""
+        client_order_id = str(order_info["client_order_id"])
+        previous_state = dict(self.state)
+        confirmed = dict(self.state.get("order_submission_confirmed", {}))
+        confirmed[client_order_id] = dict(order_info)
+        unresolved = dict(self.state.get("order_submission_unresolved", {}))
+        unresolved.pop(ticker, None)
+        self.state["order_submission_confirmed"] = confirmed
+        self.state["order_submission_unresolved"] = unresolved
+        try:
+            self._save_state()
+        except Exception:
+            # Keep the in-memory state aligned with the last durable unresolved intent.
+            self.state.clear()
+            self.state.update(previous_state)
+            raise
+
+    def _reconcile_unresolved_submissions(self) -> None:
+        """Resolve persisted intents by client ID; never retry an absent/unknown order."""
+        unresolved = dict(self.state.get("order_submission_unresolved", {}))
+        if not unresolved:
+            return
+        for ticker, intent in unresolved.items():
+            client_order_id = intent.get("client_order_id")
+            if not client_order_id:
+                continue
+            try:
+                order = self.trading_client.get_order_by_client_id(client_order_id)
+            except Exception:
+                # Broker reads can be eventually consistent or temporarily unavailable.
+                # The unresolved intent remains durable and continues to block execution.
+                continue
+            order_id = getattr(order, "id", None)
+            if not order_id:
+                continue
+            order_info = {
+                "ticker": ticker,
+                "side": intent.get("side"),
+                "quantity": intent.get("quantity"),
+                "order_id": str(order_id),
+                "client_order_id": str(client_order_id),
+                "status": str(getattr(order, "status", "unknown")),
+                "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "price": intent.get("price"),
+                "reconciled": True,
+            }
+            self._record_confirmed_submission(ticker, order_info)
+
+    def _refresh_confirmed_submission_statuses(self) -> None:
+        """Refresh persisted acknowledged orders from the broker before deciding to block."""
+        confirmed = dict(self.state.get("order_submission_confirmed", {}))
+        changed = False
+        for client_order_id, stored_order in confirmed.items():
+            status = str(stored_order.get("status", "unknown")).strip().lower()
+            if status in {"filled", "canceled", "cancelled", "expired", "rejected"}:
+                continue
+            order_id = stored_order.get("order_id")
+            if not order_id:
+                continue
+            try:
+                order = self.trading_client.get_order_by_id(order_id)
+            except Exception as exc:
+                # Unknown broker state is not evidence that the order is terminal.
+                self.logger.warning(
+                    "Unable to refresh acknowledged order %s (%s); retaining fail-closed guard: %s",
+                    client_order_id, order_id, exc,
+                )
+                continue
+            broker_status = str(getattr(order, "status", "unknown"))
+            if broker_status != stored_order.get("status"):
+                updated = dict(stored_order)
+                updated["status"] = broker_status
+                confirmed[client_order_id] = updated
+                changed = True
+        if changed:
+            previous_state = dict(self.state)
+            self.state["order_submission_confirmed"] = confirmed
+            try:
+                self._save_state()
+            except Exception:
+                self.state.clear()
+                self.state.update(previous_state)
+                raise
+
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        self._reconcile_unresolved_submissions()
+        self._refresh_confirmed_submission_statuses()
+        unresolved_submissions = self.state.get("order_submission_unresolved", {})
+        confirmed_submissions = self.state.get("order_submission_confirmed", {})
+        active_confirmed = {
+            ticker: order
+            for ticker, order in confirmed_submissions.items()
+            if str(order.get("status", "unknown")).strip().lower() not in {
+                "filled", "canceled", "cancelled", "expired", "rejected"
+            }
+        }
+        if unresolved_submissions or active_confirmed:
+            symbols = sorted(set(unresolved_submissions) | {
+                str(order.get("ticker", client_id))
+                for client_id, order in active_confirmed.items()
+            })
+            raise RuntimeError(
+                "Broker order submission requires reconciliation or terminal status; refusing "
+                f"further orders for: {', '.join(symbols)}"
+            )
+
         target_weights = np.asarray(weights.weights, dtype=float)
         if target_weights.shape != (len(weights.tickers),) or not np.isfinite(target_weights).all():
             raise ValueError("Target weights must be a finite vector matching tickers")
@@ -935,7 +1050,7 @@ class BrokerExecutor:
             self._save_state()
             orders_executed = self._liquidate_all_positions(open_orders)
             self.state["last_execution_time"] = datetime.now().isoformat()
-            self.state["total_orders"] += len(orders_executed)
+            self.state["total_orders"] += self._count_submitted_orders(orders_executed)
             self._save_state()
             metrics_refresh_error = None
             metrics_refreshed = False
@@ -1165,29 +1280,47 @@ class BrokerExecutor:
                 if qty < 0.000001:
                     continue
 
+                client_order_id = str(uuid.uuid4())
+                # Persist intent before calling the broker: a lost response must not
+                # cause an automatic duplicate order on this or a later process run.
+                unresolved = dict(self.state.get("order_submission_unresolved", {}))
+                unresolved[ticker] = {
+                    "client_order_id": client_order_id,
+                    "side": side.value,
+                    "quantity": qty,
+                    "price": price,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "submission_outcome_unconfirmed",
+                }
+                self.state["order_submission_unresolved"] = unresolved
+                self._save_state()
                 try:
                     order_req = MarketOrderRequest(
                         symbol=ticker,
                         qty=qty,
                         side=side,
                         time_in_force=TimeInForce.DAY,
+                        client_order_id=client_order_id,
                     )
                     order = self.trading_client.submit_order(order_req)
+                    order_id = getattr(order, "id", None)
+                    if not order_id:
+                        raise RuntimeError("Broker response did not include an order ID")
                     order_info = {
                         "ticker": ticker,
                         "side": side.value,
                         "quantity": qty,
-                        "order_id": str(order.id),
+                        "order_id": str(order_id),
+                        "client_order_id": client_order_id,
                         "status": str(order.status),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
                     }
                     orders_executed.append(order_info)
+                    self._record_confirmed_submission(ticker, order_info)
                     if self._order_status_value(order) not in {
                         "canceled", "cancelled", "expired", "rejected",
                     }:
-                        # Project accepted/filled deltas because the original broker
-                        # position snapshot is stale for the rest of this loop.
                         positions[ticker] = {
                             **positions.get(ticker, {}),
                             "market_value": current_notional + order_notional,
@@ -1198,25 +1331,46 @@ class BrokerExecutor:
                             available_buying_power = max(
                                 0.0, available_buying_power - abs(order_notional)
                             )
-                    self.logger.info(f"  ✅ {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
+                    self.logger.info(f"  {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                 except Exception as e:
-                    self.logger.error(f"  ❌ Ordine {ticker} fallito: {e}")
+                    # An exception does not prove that the broker rejected the order.
+                    # Restore the durable intent even if a post-submit state write failed.
+                    unresolved[ticker] = {
+                        "client_order_id": client_order_id,
+                        "side": side.value,
+                        "quantity": qty,
+                        "price": price,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "reason": "submission_outcome_unconfirmed",
+                    }
+                    self.state["order_submission_unresolved"] = unresolved
+                    try:
+                        self._save_state()
+                    except Exception as persist_exc:
+                        self.logger.critical(
+                            "Unable to persist ambiguous order intent for %s: %s",
+                            ticker, persist_exc,
+                        )
+                    self.logger.error("Ambiguous submission outcome for %s; halting rebalance: %s", ticker, e)
                     orders_executed.append({
                         "ticker": ticker,
                         "side": side.value,
                         "quantity": qty,
                         "order_id": None,
-                        "status": "failed",
+                        "client_order_id": client_order_id,
+                        "status": "unresolved",
                         "error": str(e),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
                     })
+                    # Do not attempt any further symbol after an ambiguous submit.
+                    break
 
         # Orders may have changed broker holdings after the captured account
         # snapshot. Keep its values as historical evidence, not as current state.
         self.state["account_data_fresh"] = False
         self.state["last_execution_time"] = datetime.now().isoformat()
-        self.state["total_orders"] += len(orders_executed)
+        self.state["total_orders"] += self._count_submitted_orders(orders_executed)
         self._save_state()
 
         # Refresh broker equity after order submission. Never combine pre-order

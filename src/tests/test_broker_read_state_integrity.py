@@ -54,7 +54,9 @@ def test_get_open_orders_fails_closed_on_malformed_snapshot(alpaca_env, response
 
     executor.trading_client = FakeClient()
 
-    with pytest.raises(RuntimeError, match="Unable to retrieve or validate broker open orders"):
+    with pytest.raises(
+        RuntimeError, match="Unable to retrieve or validate broker open orders"
+    ):
         executor._get_open_orders()
 
 

@@ -52,16 +52,16 @@ def test_reconcile_crypto_commission_converts_unique_cfee_to_usd(monkeypatch):
         reconcile,
         "fetch_crypto_fee_activities",
         lambda order, key, secret: (
-            [{"id": "fee-1", "activity_type": "CFEE", "symbol": "BTC/USD",
+            [{"id": "fee-1", "order_id": "order-1", "activity_type": "CFEE", "symbol": "BTC/USD",
               "qty": "-0.0000001", "price": "80500"}],
             "mocked supported read-only source",
         ),
     )
     amount, source, records = reconcile.reconcile_crypto_commission(
-        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+        SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount == Decimal("0.0080500")
-    assert "unique CFEE" in source
+    assert "explicitly order-linked CFEE" in source
     assert len(records) == 1
 
 
@@ -80,7 +80,7 @@ def test_reconcile_crypto_commission_fails_closed_on_ambiguous_records(monkeypat
         SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "matching BTCUSD CFEE records=2" in source
+    assert "explicitly order-linked BTCUSD CFEE records=0" in source
     assert len(records) == 2
 
 
@@ -103,6 +103,26 @@ def test_reconcile_crypto_commission_fails_closed_when_fee_fields_missing(monkey
     assert "qty/price missing or invalid" in source
 
 
+def test_nearby_fee_without_order_link_remains_unknown(monkeypatch):
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    monkeypatch.setattr(
+        reconcile, "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-nearby", "activity_type": "CFEE", "symbol": "BTCUSD",
+              "qty": "-0.0000001", "price": "80500"}],
+            "mocked nearby accounting activity",
+        ),
+    )
+    amount, source, records = reconcile.reconcile_crypto_commission(
+        SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+    )
+    assert amount is None
+    assert "explicitly order-linked BTCUSD CFEE records=0" in source
+    assert "commission remains unknown" in source
+    assert len(records) == 1
+
+
 def test_commission_absent_fails_closed(monkeypatch):
     from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
 
@@ -111,12 +131,11 @@ def test_commission_absent_fails_closed(monkeypatch):
         lambda order, key, secret: ([], "mocked empty supported source"),
     )
     amount, source, records = reconcile.reconcile_crypto_commission(
-        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+        SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "matching BTCUSD CFEE records=0" in source
+    assert "explicitly order-linked BTCUSD CFEE records=0" in source
     assert records == []
-
 
 def test_quantity_difference_is_not_hidden_by_commission_hypothesis():
     delta, matches = compare_position_quantity(

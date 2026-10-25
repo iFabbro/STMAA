@@ -59,36 +59,29 @@ def main():
     # Stable per-workflow-run client order ID. If submission is ambiguous, look
     # up this ID; never resubmit the order automatically.
     run_id = os.environ.get("GITHUB_RUN_ID", str(uuid.uuid4()))
-    client_order_id = f"stmaa-e2e-{run_id}"[:48]
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    client_order_id = f"stmaa-e2e-{run_id}-{attempt}"[:48]
+    request = MarketOrderRequest(
+        symbol="SPY",
+        notional=float(MAX_NOTIONAL_USD),
+        side=OrderSide.BUY,
+        time_in_force=TimeInForce.DAY,
+        client_order_id=client_order_id,
+    )
     try:
-        existing = executor.trading_client.get_order_by_client_id(client_order_id)
-    except Exception:
-        existing = None
-    if existing is not None:
-        order = existing
-        print("IDEMPOTENCY: existing order found; did not submit another order.")
-    else:
-        request = MarketOrderRequest(
-            symbol="SPY",
-            notional=float(MAX_NOTIONAL_USD),
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-            client_order_id=client_order_id,
-        )
+        order = executor.trading_client.submit_order(order_data=request)
+    except Exception as exc:
+        # Submission errors can be ambiguous: reconcile once by client ID.
+        # Never retry submission automatically, even if reconciliation fails.
+        print(f"SUBMISSION: response ambiguous ({type(exc).__name__}); reconciling by client_order_id.")
         try:
-            order = executor.trading_client.submit_order(order_data=request)
-        except Exception as exc:
-            # Submission errors can be ambiguous: reconcile once by client ID.
-            print(f"SUBMISSION: response ambiguous ({type(exc).__name__}); reconciling by client_order_id.")
-            try:
-                order = executor.trading_client.get_order_by_client_id(client_order_id)
-            except Exception:
-                print("RECONCILIATION: FAIL; order status remains unknown. No retry performed.")
-                raise SystemExit(2)
-            if order is None:
-                print("RECONCILIATION: order not found. No retry performed.")
-                raise SystemExit(2)
-
+            order = executor.trading_client.get_order_by_client_id(client_order_id)
+        except Exception:
+            print("RECONCILIATION: FAIL; order status remains unknown. No retry performed.")
+            raise SystemExit(2)
+        if order is None:
+            print("RECONCILIATION: order not found. No retry performed.")
+            raise SystemExit(2)
     order_id = str(getattr(order, "id", ""))
     status = str(getattr(order, "status", "unknown")).lower()
     print(f"ORDER: client_order_id={client_order_id}")

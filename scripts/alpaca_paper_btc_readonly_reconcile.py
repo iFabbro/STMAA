@@ -251,6 +251,25 @@ def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[D
     return fee_usd, source_status + "; explicitly order-linked CFEE qty × price converted to USD", fees
 
 
+
+def activity_read_incomplete(source_status: str) -> bool:
+    """Return True when required activity data could not be read safely.
+
+    A successful query with no matching records is not a transport/read failure:
+    that remains REVIEW REQUIRED because the data was fetched but did not reconcile.
+    """
+    incomplete_markers = (
+        "read failed (",
+        "unexpected FILL account activities response shape",
+        "unexpected account activities response shape",
+        "pagination did not advance safely",
+        "response contained a different order_id",
+        "broker order ID unavailable",
+        "filled_at timestamp unavailable",
+    )
+    return any(marker in source_status for marker in incomplete_markers)
+
+
 def main() -> int:
     key = os.environ.get("ALPACA_API_KEY", "")
     secret = os.environ.get("ALPACA_API_SECRET", "")
@@ -394,6 +413,15 @@ def main() -> int:
         print(f"OPEN_ORDER[{i}]: side={getattr(open_order, 'side', 'n/a')}")
         print(f"OPEN_ORDER[{i}]: qty={safe_decimal(getattr(open_order, 'qty', None))}")
         print(f"OPEN_ORDER[{i}]: notional={safe_decimal(getattr(open_order, 'notional', None))}")
+
+    incomplete_sources = []
+    if activity_read_incomplete(fills_source):
+        incomplete_sources.append("FILL activity data could not be read or validated safely")
+    if activity_read_incomplete(commission_source):
+        incomplete_sources.append("CFEE activity data could not be read or validated safely")
+    if incomplete_sources:
+        print("RESULT: INCOMPLETE — " + "; ".join(incomplete_sources) + "; reconciliation cannot be considered complete")
+        return 1
 
     if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and commission is not None:
         print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked to this order")

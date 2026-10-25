@@ -953,8 +953,45 @@ class BrokerExecutor:
             }
             self._record_confirmed_submission(ticker, order_info)
 
+    def _refresh_confirmed_submission_statuses(self) -> None:
+        """Refresh persisted acknowledged orders from the broker before deciding to block."""
+        confirmed = dict(self.state.get("order_submission_confirmed", {}))
+        changed = False
+        for client_order_id, stored_order in confirmed.items():
+            status = str(stored_order.get("status", "unknown")).strip().lower()
+            if status in {"filled", "canceled", "cancelled", "expired", "rejected"}:
+                continue
+            order_id = stored_order.get("order_id")
+            if not order_id:
+                continue
+            try:
+                order = self.trading_client.get_order_by_id(order_id)
+            except Exception as exc:
+                # Unknown broker state is not evidence that the order is terminal.
+                self.logger.warning(
+                    "Unable to refresh acknowledged order %s (%s); retaining fail-closed guard: %s",
+                    client_order_id, order_id, exc,
+                )
+                continue
+            broker_status = str(getattr(order, "status", "unknown"))
+            if broker_status != stored_order.get("status"):
+                updated = dict(stored_order)
+                updated["status"] = broker_status
+                confirmed[client_order_id] = updated
+                changed = True
+        if changed:
+            previous_state = dict(self.state)
+            self.state["order_submission_confirmed"] = confirmed
+            try:
+                self._save_state()
+            except Exception:
+                self.state.clear()
+                self.state.update(previous_state)
+                raise
+
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         self._reconcile_unresolved_submissions()
+        self._refresh_confirmed_submission_statuses()
         unresolved_submissions = self.state.get("order_submission_unresolved", {})
         confirmed_submissions = self.state.get("order_submission_confirmed", {})
         active_confirmed = {

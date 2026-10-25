@@ -73,3 +73,38 @@ def test_fee_activity_non_list_response_fails_closed(monkeypatch):
 
     assert records == []
     assert status == "unexpected account activities response shape"
+
+
+
+def test_fill_read_failure_is_classified_as_incomplete():
+    assert reconcile.activity_read_incomplete(
+        "order FILL activity read failed (RequestException)"
+    )
+
+
+def test_malformed_or_unsafe_activity_response_is_incomplete():
+    assert reconcile.activity_read_incomplete(
+        "unexpected FILL account activities response shape"
+    )
+    assert reconcile.activity_read_incomplete(
+        "activity pagination did not advance safely"
+    )
+    assert reconcile.activity_read_incomplete(
+        "FILL activity response contained a different order_id"
+    )
+
+
+def test_fee_timestamp_or_read_failure_is_incomplete():
+    assert reconcile.activity_read_incomplete("order filled_at timestamp unavailable")
+    assert reconcile.activity_read_incomplete(
+        "account activities read failed (RequestException)"
+    )
+
+
+def test_successful_activity_query_without_matching_records_is_review_not_incomplete():
+    assert not reconcile.activity_read_incomplete(
+        "queried FILL activities filtered by order_id=order-123; raw records=0; no matching FILL records"
+    )
+    assert not reconcile.activity_read_incomplete(
+        "queried CFEE activities from start through end; raw CFEE records=0; explicitly order-linked BTCUSD CFEE records=0"
+    )

@@ -4,12 +4,21 @@ Read-only preflight, then one explicitly bounded $10 notional Paper buy order.
 Never targets a Live endpoint and never retries an ambiguous submission.
 """
 import os
+import sys
 import time
 import uuid
+from pathlib import Path
 from decimal import Decimal
 
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
+
+# Running a file under scripts/ puts that directory, not the repository root,
+# at sys.path[0]. Add the root so the src package imports consistently in CI.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 from src.execution.broker_executor import BrokerExecutor
 
 MAX_NOTIONAL_USD = Decimal("10.00")

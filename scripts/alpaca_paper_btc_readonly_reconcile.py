@@ -323,10 +323,11 @@ def main() -> int:
         print(f"POSITION[{i}]: unrealized_pl={safe_decimal(getattr(position, 'unrealized_pl', None))}")
 
     quantity_delta, quantity_match = compare_position_quantity(position_qty, filled_qty)
-    print(f"RECON: position_minus_order_filled_qty={safe_decimal(quantity_delta)}")
-    print(f"RECON: position_qty_matches_order_fill={str(quantity_match).lower()}")
-    if not quantity_match:
-        print("RECON: quantity_difference_requires_review=true (position may include prior holdings, later activity, or broker accounting)")
+    print("POSITION_RECON: scope=aggregate_current_account_position_vs_single_order_fill")
+    print(f"POSITION_RECON: diagnostic_delta_position_minus_order_fill={safe_decimal(quantity_delta)}")
+    print(f"POSITION_RECON: diagnostic_equal_within_tolerance={str(quantity_match).lower()}")
+    print("POSITION_RECON: result=INFORMATIONAL_ONLY (aggregate position is not order-scoped; prior holdings, later fills/transfers, and broker accounting may contribute)")
+    print("POSITION_RECON: not used as a pass/fail condition for single-order fill reconciliation")
 
     open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
     btc_open = [o for o in open_orders if norm_symbol(getattr(o, "symbol", "")) in SYMBOLS]
@@ -339,19 +340,17 @@ def main() -> int:
         print(f"OPEN_ORDER[{i}]: qty={safe_decimal(getattr(open_order, 'qty', None))}")
         print(f"OPEN_ORDER[{i}]: notional={safe_decimal(getattr(open_order, 'notional', None))}")
 
-    if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and position_qty is not None and quantity_match and commission is not None:
-        print("RESULT: RECONCILED — order, position quantity, and commission field verified")
+    if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and commission is not None:
+        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission evidence is present but not necessarily order-attributable")
         return 0
 
     reasons = []
     if order_status != "filled" or filled_qty <= 0 or avg_price is None:
         reasons.append("order fill details incomplete")
     if not fills_match:
-        reasons.append("broker FILL activities do not reconcile to order summary")
-    if not quantity_match:
-        reasons.append("position quantity does not match order fill within tolerance")
+        reasons.append("broker order-scoped FILL activities do not reconcile to order summary")
     if commission is None:
-        reasons.append("unique supported Alpaca CFEE activity could not be reconciled to the order")
+        reasons.append("commission unknown: no unique supported CFEE record could be established; not assumed to be zero")
     print("RESULT: REVIEW REQUIRED — " + "; ".join(reasons))
     return 1
 

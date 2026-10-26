@@ -1139,7 +1139,13 @@ class BrokerExecutor:
                 metrics_refresh_error = str(exc)
                 self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
             metrics = self.metrics.get_all_metrics()
-            self.metrics.write_metrics_json(metrics, "logs/metrics.json")
+            metrics_export_error = None
+            try:
+                self.metrics.write_metrics_json(metrics, "logs/metrics.json")
+            except Exception as exc:
+                # Reporting failure must not hide the outcome of broker operations.
+                metrics_export_error = str(exc)
+                self.logger.error("Emergency liquidation completed but metrics export failed: %s", exc)
             post_snapshot_fresh = bool(post_account and post_account.get("account_data_fresh") is True)
             result = {
                 "orders": orders_executed,
@@ -1157,6 +1163,8 @@ class BrokerExecutor:
             }
             if metrics_refresh_error is not None:
                 result["metrics_refresh_error"] = metrics_refresh_error
+            if metrics_export_error is not None:
+                result["metrics_export_error"] = metrics_export_error
             return result
 
         # A drawdown breaker blocks new target execution by default. Zero weights

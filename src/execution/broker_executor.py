@@ -799,16 +799,44 @@ class BrokerExecutor:
             return list(snapshot)
 
         pending = dict(self.state.get("emergency_liquidation_pending", {}))
-        pending_ids = {str(order_id) for order_id in pending.values() if order_id}
+        pending_order_symbols = {}
+        for symbol, order_id in pending.items():
+            normalized_symbol = str(symbol or "").strip()
+            normalized_order_id = str(order_id or "").strip()
+            if not normalized_symbol or not normalized_order_id:
+                raise RuntimeError(
+                    "Cannot safely liquidate with an invalid persisted pending order mapping"
+                )
+            if normalized_order_id in pending_order_symbols:
+                raise RuntimeError(
+                    "Cannot safely liquidate when one pending order ID maps to multiple symbols"
+                )
+            pending_order_symbols[normalized_order_id] = normalized_symbol
+
         for order in open_orders:
             order_id = getattr(order, "id", None)
             if order_id is None:
                 raise RuntimeError("Cannot safely liquidate while an open order has no ID")
-            if str(order_id) in pending_ids:
+            normalized_order_id = str(order_id)
+            if normalized_order_id in pending_order_symbols:
+                order_symbol = str(getattr(order, "symbol", "") or "").strip()
+                expected_symbol = pending_order_symbols[normalized_order_id]
+                if order_symbol != expected_symbol:
+                    raise RuntimeError(
+                        "Persisted pending liquidation order ID does not match broker order symbol"
+                    )
                 continue
             self.trading_client.cancel_order_by_id(order_id)
 
         remaining_orders = self._get_open_orders()
+        for order in remaining_orders:
+            order_id = str(getattr(order, "id", "") or "").strip()
+            if order_id in pending_order_symbols:
+                order_symbol = str(getattr(order, "symbol", "") or "").strip()
+                if order_symbol != pending_order_symbols[order_id]:
+                    raise RuntimeError(
+                        "Persisted pending liquidation order ID does not match broker order symbol"
+                    )
         remaining_ids = {str(getattr(order, "id", "")) for order in remaining_orders}
         unexpected_orders = [
             order for order in remaining_orders

@@ -3,6 +3,8 @@
 All broker interactions are mocked. These tests never submit, cancel, or close
 orders against Alpaca.
 """
+import json
+from pathlib import Path
 import numpy as np
 import pytest
 
@@ -155,3 +157,42 @@ def test_circuit_breaker_liquidation_returns_order_outcome_when_metrics_export_f
     assert result["metrics_export_error"] == "metrics disk unavailable"
     assert result["equity"] == pytest.approx(9800.0)
 
+
+def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metrics(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    snapshots = iter([account_snapshot(10000.0), account_snapshot(9800.0)])
+    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "_liquidate_all_positions",
+        lambda open_orders: [{
+            "ticker": "AAPL",
+            "order_id": "mock-close-1",
+            "status": "accepted",
+        }],
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    original_save_state = executor._save_state
+
+    def fail_only_post_metrics_persist():
+        if executor.state.get("equity_history") == [10000.0, 9800.0]:
+            raise OSError("simulated state disk failure")
+        original_save_state()
+
+    monkeypatch.setattr(executor, "_save_state", fail_only_post_metrics_persist)
+
+    result = executor.execute_weights(liquidation_weights())
+
+    assert result["orders"][0]["order_id"] == "mock-close-1"
+    assert result["metrics_equity"] is None
+    assert "metrics_refresh_error" in result
+    assert result["metrics_refresh_error"] == "simulated state disk failure"
+    assert executor.state["equity_history"] == pytest.approx([10000.0])
+    persisted_state = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted_state["equity_history"] == pytest.approx([10000.0])
+    exported_metrics = json.loads(Path("logs/metrics.json").read_text(encoding="utf-8"))
+    assert exported_metrics["total_return"] == pytest.approx(0.0)
+    assert exported_metrics["max_drawdown"] == pytest.approx(0.0)

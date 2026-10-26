@@ -219,6 +219,13 @@ class BrokerExecutor:
                         raise ValueError(
                             f"persisted broker state entries in {key} must be objects"
                         )
+            pending_liquidations = loaded_state.get("emergency_liquidation_pending", {})
+            unresolved_liquidations = loaded_state.get("emergency_liquidation_unresolved", {})
+            overlapping_symbols = set(pending_liquidations).intersection(unresolved_liquidations)
+            if overlapping_symbols:
+                raise ValueError(
+                    "persisted liquidation state has symbols recorded as both pending and unresolved"
+                )
         except Exception as exc:
             # A corrupt/unreadable state may contain the only record of an accepted
             # close request. Never continue with an empty in-memory state: that could

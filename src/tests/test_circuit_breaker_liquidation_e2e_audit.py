@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from src.execution.broker_executor import BrokerExecutor
+from src.utils.metrics import PortfolioMetrics
 from src.strategy.weight_interface import PortfolioWeights
 
 
@@ -140,9 +141,9 @@ def test_circuit_breaker_liquidation_returns_order_outcome_when_metrics_export_f
     )
     monkeypatch.setattr(executor, "get_positions", lambda: {})
     monkeypatch.setattr(
-        executor.metrics,
+        PortfolioMetrics,
         "write_metrics_json",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("metrics disk unavailable")),
+        lambda self, *args, **kwargs: (_ for _ in ()).throw(OSError("metrics disk unavailable")),
     )
 
     result = executor.execute_weights(liquidation_weights())

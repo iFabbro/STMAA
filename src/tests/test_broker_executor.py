@@ -2983,3 +2983,37 @@ def test_broker_state_round_trip_fails_closed_when_state_missing_after_initializ
     # claim an order record was restored from the missing file.
     restored = BrokerExecutor(paper_trading=True)
     assert "btc_paper_e2e_order" not in restored.state
+
+
+
+def test_persisted_liquidation_state_rejects_pending_and_unresolved_overlap(
+    alpaca_env,
+):
+    """A symbol cannot have both a broker order ID and an ambiguous intent."""
+    import json
+
+    executor = BrokerExecutor()
+    executor.state["emergency_liquidation_pending"] = {
+        "AAPL": "close-order-123",
+    }
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": "2026-10-26T12:00:00+00:00",
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        },
+    }
+    executor._save_state()
+    persisted_before = executor.state_file.read_text(encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match="Unable to load persisted broker state; refusing execution",
+    ):
+        BrokerExecutor()
+
+    assert executor.state_file.read_text(encoding="utf-8") == persisted_before
+    saved = json.loads(persisted_before)
+    assert "AAPL" in saved["emergency_liquidation_pending"]
+    assert "AAPL" in saved["emergency_liquidation_unresolved"]

@@ -209,3 +209,84 @@ def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metr
     assert restarted_executor.state["account_id"] == "mock-account"
     assert restarted_executor.state["equity_history"] == pytest.approx([10000.0])
     assert restarted_executor.metrics.equity_curve == pytest.approx([10000.0])
+
+
+from types import SimpleNamespace
+
+
+def test_partial_fill_after_canceled_pending_close_retries_only_residual_quantity(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-1"}
+
+    class MockBroker:
+        def __init__(self):
+            self.position_reads = 0
+            self.close_calls = []
+
+        def get_all_positions(self):
+            self.position_reads += 1
+            # The first read can be stale; after terminal-order reconciliation,
+            # the second read is authoritative and shows a partial fill.
+            qty = 10 if self.position_reads == 1 else 4
+            return [SimpleNamespace(symbol="AAPL", qty=str(qty))]
+
+        def get_order_by_id(self, order_id):
+            assert order_id == "close-1"
+            return SimpleNamespace(status="canceled")
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id="close-2", status="accepted")
+
+    broker = MockBroker()
+    executor.trading_client = broker
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    result = executor._liquidate_all_positions([])
+
+    assert broker.position_reads == 2
+    assert broker.close_calls == ["AAPL"]
+    assert result[0]["order_id"] == "close-2"
+    assert result[0]["quantity"] == pytest.approx(4.0)
+    assert executor.state["emergency_liquidation_pending"] == {"AAPL": "close-2"}
+    assert executor.state["emergency_liquidation_unresolved"] == {}
+
+
+def test_restart_with_unmatched_ambiguous_close_intent_fails_closed(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": "2026-10-26T12:00:00+00:00",
+            "requested_qty": 5.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+
+    class MockBroker:
+        def __init__(self):
+            self.close_calls = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="5")]
+
+        def get_orders(self, **kwargs):
+            return []
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id="unexpected-close", status="accepted")
+
+    broker = MockBroker()
+    executor.trading_client = broker
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    executor._liquidate_all_positions([])
+
+    assert broker.close_calls == []
+    assert "AAPL" in executor.state["emergency_liquidation_unresolved"]
+    assert executor.state["emergency_liquidation_pending"] == {}

@@ -108,3 +108,101 @@ def test_successful_activity_query_without_matching_records_is_review_not_incomp
     assert not reconcile.activity_read_incomplete(
         "queried CFEE activities from start through end; raw CFEE records=0; explicitly order-linked BTCUSD CFEE records=0"
     )
+
+
+def test_fill_activity_mixed_valid_and_invalid_items_fails_closed(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {"id": "fill-1", "order_id": "order-123", "activity_type": "FILL",
+                 "symbol": "BTC/USD", "qty": "0.1", "price": "80000"},
+                "malformed-record",
+            ]
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: Response())
+
+    records, status = reconcile.fetch_order_fill_activities(
+        SimpleNamespace(id="order-123", symbol="BTC/USD"), "test-key", "test-secret"
+    )
+
+    assert records == []
+    assert status == "unexpected FILL account activities item shape"
+    assert reconcile.activity_read_incomplete(status)
+
+
+def test_fee_activity_mixed_valid_and_invalid_items_fails_closed(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {"id": "fee-1", "activity_type": "CFEE", "symbol": "BTC/USD",
+                 "qty": "-0.0000001", "price": "80000"},
+                None,
+            ]
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: Response())
+
+    records, status = reconcile.fetch_crypto_fee_activities(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "test-key", "test-secret"
+    )
+
+    assert records == []
+    assert status == "unexpected CFEE account activities item shape"
+    assert reconcile.activity_read_incomplete(status)
+
+
+def test_fill_activity_stalled_pagination_fails_closed(monkeypatch):
+    page = [
+        {"id": f"fill-{i}", "order_id": "order-123", "activity_type": "FILL",
+         "symbol": "BTC/USD", "qty": "0.001", "price": "80000"}
+        for i in range(100)
+    ]
+    page[-1]["id"] = "stalled-token"
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return page
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: Response())
+
+    records, status = reconcile.fetch_order_fill_activities(
+        SimpleNamespace(id="order-123", symbol="BTC/USD"), "test-key", "test-secret"
+    )
+
+    assert records == []
+    assert status == "FILL activity pagination did not advance safely"
+    assert reconcile.activity_read_incomplete(status)
+
+
+def test_fee_activity_stalled_pagination_fails_closed(monkeypatch):
+    page = [
+        {"id": f"fee-{i}", "activity_type": "CFEE", "symbol": "BTC/USD",
+         "qty": "-0.0000001", "price": "80000"}
+        for i in range(100)
+    ]
+    page[-1]["id"] = "stalled-token"
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return page
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: Response())
+
+    records, status = reconcile.fetch_crypto_fee_activities(
+        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "test-key", "test-secret"
+    )
+
+    assert records == []
+    assert status == "activity pagination did not advance safely"
+    assert reconcile.activity_read_incomplete(status)

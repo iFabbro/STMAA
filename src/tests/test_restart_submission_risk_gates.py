@@ -1,0 +1,93 @@
+"""End-to-end regression checks for restart recovery and fail-closed risk gates."""
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from src.execution.broker_executor import BrokerExecutor
+from src.strategy.weight_interface import PortfolioWeights
+
+
+@pytest.fixture
+def audit_env(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv(
+        "STMAA_BROKER_STATE_FILE",
+        str(tmp_path / "state" / "broker_state.json"),
+    )
+
+
+def test_restart_reconciles_ambiguous_submission_and_blocks_new_orders(audit_env):
+    first = BrokerExecutor()
+    first.state["order_submission_unresolved"] = {
+        "AAPL": {
+            "client_order_id": "durable-client-id",
+            "side": "buy",
+            "quantity": 2.0,
+            "price": 100.0,
+            "created_at": "2026-10-26T12:00:00+00:00",
+            "reason": "submission_outcome_unconfirmed",
+        }
+    }
+    first._save_state()
+
+    restarted = BrokerExecutor()
+    submitted = []
+
+    class ReconciliationClient:
+        def get_order_by_client_id(self, client_order_id):
+            assert client_order_id == "durable-client-id"
+            return SimpleNamespace(
+                id="broker-order-1",
+                status="accepted",
+                symbol="AAPL",
+            )
+
+        def get_order_by_id(self, order_id):
+            assert order_id == "broker-order-1"
+            return SimpleNamespace(status="accepted")
+
+        def submit_order(self, request):
+            submitted.append(request)
+            raise AssertionError("A new order must not be submitted while prior order is active")
+
+    restarted.trading_client = ReconciliationClient()
+
+    with pytest.raises(RuntimeError, match="requires reconciliation or terminal status"):
+        restarted.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []
+    assert restarted.state["order_submission_unresolved"] == {}
+    assert restarted.state["order_submission_confirmed"]["durable-client-id"]["order_id"] == "broker-order-1"
+
+
+def test_incomplete_account_snapshot_blocks_execution_before_submission(audit_env, monkeypatch):
+    executor = BrokerExecutor()
+    submitted = []
+
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "account_data_fresh": False,
+            "equity": None,
+            "portfolio_value": None,
+            "buying_power": None,
+        },
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot verify current broker account equity"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []

@@ -46,7 +46,7 @@ class RecoveryClient:
         status = self.order_statuses.get(str(order_id))
         if status is None:
             raise LookupError(f"unknown order {order_id}")
-        return SimpleNamespace(id=str(order_id), status=status)
+        return SimpleNamespace(id=str(order_id), symbol="AAPL", status=status)
 
     def close_position(self, symbol):
         self.close_calls.append(symbol)

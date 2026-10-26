@@ -876,6 +876,11 @@ class BrokerExecutor:
                 )
                 active_pending[symbol] = order_id
             else:
+                recorded_symbol = str(getattr(recorded_order, "symbol", "") or "").strip()
+                if recorded_symbol != str(symbol).strip():
+                    raise RuntimeError(
+                        "Pending liquidation order ID does not match broker order symbol"
+                    )
                 if recorded_status == "filled":
                     # Defer the flat-position decision until a fresh positions
                     # snapshot is fetched below. The first snapshot may predate

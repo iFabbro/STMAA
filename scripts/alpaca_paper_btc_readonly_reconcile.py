@@ -227,28 +227,66 @@ def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[l
 
 
 def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[Decimal | None, str, list[dict]]:
-    """Return USD-equivalent crypto fee only when one supported CFEE record matches."""
+    """Return a fee only when one valid CFEE activity explicitly identifies this order.
+
+    Alpaca CFEE records may not expose order_id. Temporal proximity and symbol
+    alone are never sufficient to attribute a fee to an individual order.
+    """
     fees, source_status = fetch_crypto_fee_activities(order, key, secret)
     order_id = str(getattr(order, "id", "") or "")
-    # A nearby CFEE record is only temporal/accounting context. Do not attribute
-    # it to this order unless the broker record explicitly carries the same order ID.
     linked_fees = [
         fee for fee in fees
         if order_id and str(fee.get("order_id", "") or "") == order_id
     ]
+    if not fees:
+        return None, source_status + "; COMMISSION_STATUS=NO_CANDIDATE_ACTIVITY; amount remains unknown", fees
     if len(linked_fees) != 1:
         return None, source_status + (
-            f"; explicitly order-linked BTCUSD CFEE records={len(linked_fees)} "
-            "(requires exactly one matching order_id; otherwise commission remains unknown)"
+            f"; explicitly order-linked BTCUSD CFEE records={len(linked_fees)}; "
+            "COMMISSION_STATUS=UNATTRIBUTABLE; symbol/time proximity is insufficient"
         ), fees
 
     fee = linked_fees[0]
     fee_qty = as_decimal(fee.get("qty"))
     fee_price = as_decimal(fee.get("price"))
     if fee_qty is None or fee_price is None or fee_qty == 0 or fee_price <= 0:
-        return None, source_status + "; order-linked CFEE qty/price missing or invalid", fees
+        return None, source_status + "; COMMISSION_STATUS=INVALID_LINKED_ACTIVITY; qty/price missing or invalid", fees
     fee_usd = abs(fee_qty) * fee_price
-    return fee_usd, source_status + "; explicitly order-linked CFEE qty × price converted to USD", fees
+    return fee_usd, source_status + "; COMMISSION_STATUS=RECONCILED; explicitly linked CFEE qty × price converted to USD", fees
+
+
+def commission_reconciliation_status(
+    order: object,
+    commission: Decimal | None,
+    fees: list[dict],
+    source_status: str,
+    now=None,
+) -> str:
+    """Classify fee state without assuming a missing commission is zero.
+
+    A missing CFEE is pending only within the 48-hour posting grace period;
+    beyond it, the missing record is an unresolved reconciliation error.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if activity_read_incomplete(source_status):
+        return "READ_ERROR"
+    if commission is not None:
+        return "RECONCILED"
+    if "INVALID_LINKED_ACTIVITY" in source_status:
+        return "INVALID_ACTIVITY"
+    if fees:
+        return "UNATTRIBUTABLE"
+    filled_at = parse_iso_datetime(getattr(order, "filled_at", None))
+    if filled_at is None:
+        return "READ_ERROR"
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    age = current - filled_at
+    if age < timedelta(hours=48):
+        return "PENDING_POSTING"
+    return "MISSING_AFTER_GRACE"
 
 
 
@@ -365,6 +403,10 @@ def main() -> int:
         print(f"COMMISSION_ACTIVITY[{i}]: qty={safe_decimal(fee_activity.get('qty'))}")
         print(f"COMMISSION_ACTIVITY[{i}]: price={safe_decimal(fee_activity.get('price'))}")
         print(f"COMMISSION_ACTIVITY[{i}]: net_amount={safe_decimal(fee_activity.get('net_amount'))}")
+    commission_status = commission_reconciliation_status(
+        order, commission, fee_activities, commission_source
+    )
+    print(f"COMMISSION: status={commission_status}")
     if commission is None:
         print("COMMISSION: amount=unknown (not assumed to be zero)")
     else:
@@ -433,7 +475,16 @@ def main() -> int:
     if not fills_match:
         reasons.append("broker order-scoped FILL activities do not reconcile to order summary")
     if commission is None:
-        reasons.append("commission unknown: no unique supported CFEE record could be established; not assumed to be zero")
+        if commission_status == "PENDING_POSTING":
+            reasons.append("commission pending: no CFEE candidate is visible within the 48-hour posting grace period; amount remains unknown")
+        elif commission_status == "MISSING_AFTER_GRACE":
+            reasons.append("commission missing after the 48-hour posting grace period; reconciliation error, amount remains unknown")
+        elif commission_status == "UNATTRIBUTABLE":
+            reasons.append("CFEE activity exists but cannot be uniquely attributed to this order; amount remains unknown")
+        elif commission_status == "INVALID_ACTIVITY":
+            reasons.append("explicitly linked CFEE activity has invalid quantity/price; amount remains unknown")
+        else:
+            reasons.append("commission unknown because fee activity could not be reconciled safely; amount is not assumed to be zero")
     print("RESULT: REVIEW REQUIRED — " + "; ".join(reasons))
     return 1
 

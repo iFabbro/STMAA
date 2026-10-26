@@ -121,3 +121,36 @@ def test_circuit_breaker_liquidation_keeps_metrics_unconfirmed_when_post_account
     assert result["metrics_equity"] is None
     assert "metrics_refresh_error" in result
     assert executor.state["equity_history"] == pytest.approx([10000.0])
+
+def test_circuit_breaker_liquidation_returns_order_outcome_when_metrics_export_fails(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    snapshots = iter([account_snapshot(10000.0), account_snapshot(9800.0)])
+    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "_liquidate_all_positions",
+        lambda open_orders: [{
+            "ticker": "AAPL",
+            "order_id": "mock-close-1",
+            "status": "accepted",
+        }],
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(
+        executor.metrics,
+        "write_metrics_json",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("metrics disk unavailable")),
+    )
+
+    result = executor.execute_weights(liquidation_weights())
+
+    assert result["orders"][0]["order_id"] == "mock-close-1"
+    assert result["circuit_breaker_triggered"] is True
+    assert result["liquidation_requested"] is True
+    assert result["metrics_equity"] == pytest.approx(9800.0)
+    assert result["metrics_export_error"] == "metrics disk unavailable"
+    assert result["equity"] == pytest.approx(9800.0)
+

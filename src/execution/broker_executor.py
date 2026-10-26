@@ -161,9 +161,18 @@ class BrokerExecutor:
         # Only a successful current broker response can verify account identity.
         # This is intentionally transient and resets on every process start.
         self._current_account_identity_verified = False
-        default_state_file = Path(__file__).resolve().parents[2] / "logs" / "execution" / "broker_state.json"
+        repository_root = Path(__file__).resolve().parents[2]
+        default_state_file = repository_root / "logs" / "execution" / "broker_state.json"
         configured_state_file = os.getenv("STMAA_BROKER_STATE_FILE")
-        self.state_file = Path(configured_state_file).expanduser() if configured_state_file else default_state_file
+        if configured_state_file:
+            configured_path = Path(configured_state_file).expanduser()
+            self.state_file = (
+                configured_path
+                if configured_path.is_absolute()
+                else repository_root / configured_path
+            )
+        else:
+            self.state_file = default_state_file
         self.state = {
             "last_execution_time": None,
             "total_orders": 0,

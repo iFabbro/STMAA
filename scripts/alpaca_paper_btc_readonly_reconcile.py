@@ -288,6 +288,10 @@ def commission_reconciliation_status(
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     age = current - filled_at
+    # Allow a small clock-skew window, but never treat a materially future fill
+    # timestamp as a normal pending commission.
+    if age < -timedelta(minutes=5):
+        return "READ_ERROR"
     if age < timedelta(hours=48):
         return "PENDING_POSTING"
     return "MISSING_AFTER_GRACE"

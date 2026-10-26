@@ -490,3 +490,25 @@ def test_main_reports_pending_commission_without_marking_check_execution_failed(
     assert "RESULT: PENDING" in output
     assert "reconciliation remains incomplete" in output
     assert "amount remains unknown" in output
+
+
+def test_commission_status_rejects_materially_future_fill_timestamp(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(filled_at="2026-10-27T12:00:00Z")
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_crypto_fee_activities",
+        lambda order, key, secret: ([], "mocked successful empty CFEE query"),
+    )
+    amount, source, fees = reconcile.reconcile_crypto_commission(order, "key", "secret")
+    status = reconcile.commission_reconciliation_status(
+        order,
+        amount,
+        fees,
+        source,
+        now=datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc),
+    )
+    assert amount is None
+    assert status == "READ_ERROR"

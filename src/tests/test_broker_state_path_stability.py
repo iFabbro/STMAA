@@ -55,3 +55,23 @@ def test_configured_broker_state_survives_restart_from_different_cwd(
 
     assert restarted.state_file == state_file
     assert "AAPL" in restarted.state["emergency_liquidation_unresolved"]
+
+
+def test_relative_state_file_override_is_anchored_to_repository_root(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv("STMAA_BROKER_STATE_FILE", "custom-state/broker_state.json")
+    monkeypatch.chdir(tmp_path)
+    # Path-only test: do not create files in the repository-root default location.
+    monkeypatch.setattr(BrokerExecutor, "_save_state", lambda self: None)
+
+    executor = BrokerExecutor()
+
+    expected = (
+        Path(__file__).resolve().parents[2]
+        / "custom-state"
+        / "broker_state.json"
+    )
+    assert executor.state_file == expected

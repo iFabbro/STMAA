@@ -1139,7 +1139,7 @@ class BrokerExecutor:
             metrics_refresh_error = None
             metrics_refreshed = False
             post_account = None
-            metrics_before_refresh = copy.deepcopy(self.metrics)
+            metrics_before_refresh = None
             try:
                 # Metrics must use a broker snapshot acquired after liquidation,
                 # paired with positions from the post-execution phase.
@@ -1150,13 +1150,17 @@ class BrokerExecutor:
                 if not np.isfinite(post_equity) or post_equity <= 0:
                     raise RuntimeError("Post-liquidation broker equity is invalid")
                 post_liquidation_positions = self.get_positions()
+                # Snapshot after the broker read, which may re-anchor metrics if
+                # the current account response lacks a verifiable account ID.
+                metrics_before_refresh = copy.deepcopy(self.metrics)
                 self.metrics.update(post_equity, post_liquidation_positions)
                 self._persist_metrics_history()
                 metrics_refreshed = True
             except Exception as exc:
                 # Do not export an in-memory equity observation that was not durably
                 # committed to broker_state.json.
-                self.metrics = metrics_before_refresh
+                if metrics_before_refresh is not None:
+                    self.metrics = metrics_before_refresh
                 metrics_refresh_error = str(exc)
                 self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
             metrics = self.metrics.get_all_metrics()

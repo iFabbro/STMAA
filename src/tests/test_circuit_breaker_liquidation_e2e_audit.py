@@ -376,3 +376,39 @@ def test_liquidation_bookkeeping_save_failure_rolls_back_memory_counters(
     assert persisted_state["emergency_liquidation_pending"]["AAPL"] == "mock-close-1"
     assert executor.state["total_orders"] == 0
     assert executor.state["last_execution_time"] is None
+
+def test_pending_liquidation_order_id_must_match_broker_order_symbol(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "close-msft"}
+    mismatched_order = SimpleNamespace(id="close-msft", symbol="MSFT")
+    cancel_calls = []
+    close_calls = []
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [mismatched_order])
+    monkeypatch.setattr(
+        executor.trading_client,
+        "cancel_order_by_id",
+        lambda order_id: cancel_calls.append(order_id),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: [SimpleNamespace(symbol="AAPL", qty="10")],
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "close_position",
+        lambda symbol: close_calls.append(symbol),
+    )
+
+    with pytest.raises(
+        RuntimeError, match="pending liquidation order ID does not match broker order symbol"
+    ):
+        executor._liquidate_all_positions([mismatched_order])
+
+    # A mismatched persisted ID must neither suppress the AAPL close nor cause
+    # cancellation of an order that may belong to a different position.
+    assert cancel_calls == []
+    assert close_calls == []
+

@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import tempfile
+import copy
 import uuid
 import numpy as np
 from pathlib import Path
@@ -298,6 +299,14 @@ class BrokerExecutor:
         self._save_state()
 
     def _persist_metrics_history(self):
+        """Persist metrics provenance/history without leaving memory ahead of disk."""
+        keys = (
+            "equity_history",
+            "metrics_baseline_source",
+            "metrics_account_mode",
+            "metrics_account_id",
+        )
+        previous = {key: (key in self.state, self.state.get(key)) for key in keys}
         self.state["equity_history"] = list(self.metrics.equity_curve)
         self.state["metrics_baseline_source"] = "verified_account"
         self.state["metrics_account_mode"] = self.state.get("account_mode")
@@ -306,7 +315,15 @@ class BrokerExecutor:
             if self._current_account_identity_verified is True
             else None
         )
-        self._save_state()
+        try:
+            self._save_state()
+        except Exception:
+            for key, (existed, value) in previous.items():
+                if existed:
+                    self.state[key] = value
+                else:
+                    self.state.pop(key, None)
+            raise
 
     def _save_state(self):
         """Persist state atomically so an interrupted write cannot truncate it."""
@@ -1122,6 +1139,7 @@ class BrokerExecutor:
             metrics_refresh_error = None
             metrics_refreshed = False
             post_account = None
+            metrics_before_refresh = copy.deepcopy(self.metrics)
             try:
                 # Metrics must use a broker snapshot acquired after liquidation,
                 # paired with positions from the post-execution phase.
@@ -1136,6 +1154,9 @@ class BrokerExecutor:
                 self._persist_metrics_history()
                 metrics_refreshed = True
             except Exception as exc:
+                # Do not export an in-memory equity observation that was not durably
+                # committed to broker_state.json.
+                self.metrics = metrics_before_refresh
                 metrics_refresh_error = str(exc)
                 self.logger.error("Emergency liquidation submitted but metrics refresh failed: %s", exc)
             metrics = self.metrics.get_all_metrics()

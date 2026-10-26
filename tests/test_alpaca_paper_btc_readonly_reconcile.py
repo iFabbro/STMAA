@@ -425,3 +425,68 @@ def test_commission_status_reconciled_only_for_unique_explicit_order_link(monkey
     )
     assert amount == Decimal("0.0080500")
     assert status == "RECONCILED"
+
+
+
+def test_main_reports_pending_commission_without_marking_check_execution_failed(
+    monkeypatch, capsys
+):
+    from types import SimpleNamespace
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    now = "2026-10-26T08:00:00+00:00"
+    order = SimpleNamespace(
+        id="order-1",
+        client_order_id=reconcile.CLIENT_ORDER_ID,
+        symbol="BTC/USD",
+        side="buy",
+        status="filled",
+        filled_qty="0.0001",
+        filled_avg_price="80000",
+        notional="10",
+        submitted_at=now,
+        filled_at=now,
+    )
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_account(self):
+            return SimpleNamespace(status="active", equity="10000", buying_power="40000")
+
+        def get_order_by_client_id(self, client_order_id):
+            assert client_order_id == reconcile.CLIENT_ORDER_ID
+            return order
+
+        def get_all_positions(self):
+            return []
+
+        def get_orders(self, filter):
+            return []
+
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setattr(reconcile, "TradingClient", FakeClient)
+    monkeypatch.setattr(
+        reconcile,
+        "reconcile_order_fill_activities",
+        lambda order, key, secret: (True, "mocked matching FILL activities", [
+            {"id": "fill-1", "order_id": "order-1", "symbol": "BTC/USD",
+             "side": "buy", "qty": "0.0001", "price": "80000"}
+        ]),
+    )
+    monkeypatch.setattr(
+        reconcile,
+        "reconcile_crypto_commission",
+        lambda order, key, secret: (
+            None, "mocked successful empty CFEE query; NO_CANDIDATE_ACTIVITY", []
+        ),
+    )
+
+    assert reconcile.main() == 0
+    output = capsys.readouterr().out
+    assert "COMMISSION: status=PENDING_POSTING" in output
+    assert "RESULT: PENDING" in output
+    assert "reconciliation remains incomplete" in output
+    assert "amount remains unknown" in output

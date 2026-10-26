@@ -512,3 +512,24 @@ def test_commission_status_rejects_materially_future_fill_timestamp(monkeypatch)
     )
     assert amount is None
     assert status == "READ_ERROR"
+
+
+def test_commission_status_rejects_future_fill_even_with_linked_commission(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(id="order-1", filled_at="2026-10-27T12:00:00Z")
+    commission = Decimal("0.0080500")
+    fees = [{
+        "id": "fee-1", "order_id": "order-1", "activity_type": "CFEE",
+        "symbol": "BTCUSD", "qty": "-0.0000001", "price": "80500",
+    }]
+    status = reconcile.commission_reconciliation_status(
+        order,
+        commission,
+        fees,
+        "mocked explicitly linked CFEE activity; COMMISSION_STATUS=RECONCILED",
+        now=datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert status == "READ_ERROR"

@@ -63,7 +63,7 @@ def test_cancel_ack_does_not_allow_close_while_order_remains_open(audit_env):
     executor.trading_client = client
     executor._get_open_orders = lambda: [unrelated]
 
-    with pytest.raises(RuntimeError, match="confirm unrelated open orders are cancelled"):
+    with pytest.raises(RuntimeError, match="broker confirms unrelated open orders are cancelled"):
         executor._liquidate_all_positions([unrelated])
 
     assert client.cancel_calls == ["open-1"]

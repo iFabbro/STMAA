@@ -5,6 +5,7 @@ from scripts.alpaca_paper_btc_readonly_reconcile import (
     QTY_TOLERANCE,
     as_decimal,
     compare_position_quantity,
+    commission_reconciliation_status,
     first_available_decimal,
     norm_status,
     norm_symbol,
@@ -345,3 +346,83 @@ def test_main_fails_closed_when_client_initialization_raises(monkeypatch, capsys
     assert "CLIENT: initialization_error=RuntimeError; details withheld" in output
     assert "RESULT: INCOMPLETE — read-only broker client could not be initialized" in output
     assert "sensitive initialization detail" not in output
+
+
+def test_commission_status_pending_when_cfee_not_yet_posted(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(filled_at="2026-10-25T12:00:00Z")
+    monkeypatch.setattr(
+        reconcile, "fetch_crypto_fee_activities",
+        lambda order, key, secret: ([], "mocked successful empty CFEE query"),
+    )
+    amount, source, fees = reconcile.reconcile_crypto_commission(order, "key", "secret")
+    status = reconcile.commission_reconciliation_status(
+        order, amount, fees, source, now=datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
+    )
+    assert amount is None
+    assert status == "PENDING_POSTING"
+    assert "not assumed to be zero" not in source
+    assert fees == []
+
+
+def test_commission_status_missing_after_posting_grace(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(filled_at="2026-10-20T12:00:00Z")
+    monkeypatch.setattr(
+        reconcile, "fetch_crypto_fee_activities",
+        lambda order, key, secret: ([], "mocked successful empty CFEE query"),
+    )
+    amount, source, fees = reconcile.reconcile_crypto_commission(order, "key", "secret")
+    status = reconcile.commission_reconciliation_status(
+        order, amount, fees, source, now=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    )
+    assert amount is None
+    assert status == "MISSING_AFTER_GRACE"
+
+
+def test_commission_status_unattributable_when_cfee_has_no_order_id(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(id="order-1", filled_at="2026-10-20T12:00:00Z")
+    monkeypatch.setattr(
+        reconcile, "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-1", "activity_type": "CFEE", "symbol": "BTCUSD",
+              "qty": "-0.0000001", "price": "80500"}],
+            "mocked CFEE activity without order_id",
+        ),
+    )
+    amount, source, fees = reconcile.reconcile_crypto_commission(order, "key", "secret")
+    status = reconcile.commission_reconciliation_status(
+        order, amount, fees, source, now=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    )
+    assert amount is None
+    assert status == "UNATTRIBUTABLE"
+    assert "symbol/time proximity is insufficient" in source
+
+
+def test_commission_status_reconciled_only_for_unique_explicit_order_link(monkeypatch):
+    from datetime import datetime, timezone
+    from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
+
+    order = SimpleNamespace(id="order-1", filled_at="2026-10-20T12:00:00Z")
+    monkeypatch.setattr(
+        reconcile,
+        "fetch_crypto_fee_activities",
+        lambda order, key, secret: (
+            [{"id": "fee-1", "order_id": "order-1", "activity_type": "CFEE",
+              "symbol": "BTCUSD", "qty": "-0.0000001", "price": "80500"}],
+            "mocked explicitly linked CFEE activity",
+        ),
+    )
+    amount, source, fees = reconcile.reconcile_crypto_commission(order, "key", "secret")
+    status = reconcile.commission_reconciliation_status(
+        order, amount, fees, source, now=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    )
+    assert amount == Decimal("0.0080500")
+    assert status == "RECONCILED"

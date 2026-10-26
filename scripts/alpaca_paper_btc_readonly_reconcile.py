@@ -275,12 +275,8 @@ def commission_reconciliation_status(
 
     if activity_read_incomplete(source_status):
         return "READ_ERROR"
-    if commission is not None:
-        return "RECONCILED"
-    if "INVALID_LINKED_ACTIVITY" in source_status:
-        return "INVALID_ACTIVITY"
-    if fees:
-        return "UNATTRIBUTABLE"
+    # Validate the fill timestamp before accepting any apparent reconciliation.
+    # A linked commission must not override an impossible/future fill time.
     filled_at = parse_iso_datetime(getattr(order, "filled_at", None))
     if filled_at is None:
         return "READ_ERROR"
@@ -288,10 +284,15 @@ def commission_reconciliation_status(
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     age = current - filled_at
-    # Allow a small clock-skew window, but never treat a materially future fill
-    # timestamp as a normal pending commission.
+    # Allow a small clock-skew window, but fail closed on a materially future fill.
     if age < -timedelta(minutes=5):
         return "READ_ERROR"
+    if commission is not None:
+        return "RECONCILED"
+    if "INVALID_LINKED_ACTIVITY" in source_status:
+        return "INVALID_ACTIVITY"
+    if fees:
+        return "UNATTRIBUTABLE"
     if age < timedelta(hours=48):
         return "PENDING_POSTING"
     return "MISSING_AFTER_GRACE"

@@ -1247,7 +1247,7 @@ def test_emergency_liquidation_clears_terminal_pending_order_before_retrying_pos
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="canceled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="canceled")
 
         def close_position(self, symbol):
             fake.closed.append(symbol)
@@ -1278,7 +1278,7 @@ def test_emergency_liquidation_keeps_pending_close_when_open_order_snapshot_lags
             self.closed = []
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="accepted")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="accepted")
 
         def get_all_positions(self):
             return [SimpleNamespace(symbol="AAPL", qty="1")]
@@ -1326,7 +1326,7 @@ def test_emergency_liquidation_save_state_failure_after_acceptance_does_not_dupl
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="accepted")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="accepted")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1377,7 +1377,7 @@ def test_filled_pending_close_is_preserved_while_position_snapshot_is_stale(
             return [SimpleNamespace(symbol="AAPL", qty="2")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="filled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1414,7 +1414,7 @@ def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
             return []
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="filled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
 
     executor.trading_client = FakeTradingClient()
     executor._get_open_orders = lambda: []
@@ -1449,7 +1449,7 @@ def test_filled_pending_close_is_retained_until_position_snapshot_is_flat(
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="filled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1507,7 +1507,7 @@ def test_emergency_liquidation_preserves_non_terminal_pending_orders(
 
         def get_order_by_id(self, order_id):
             assert order_id == "close-AAPL-existing"
-            return SimpleNamespace(id=order_id, status=broker_status)
+            return SimpleNamespace(id=order_id, symbol="AAPL", status=broker_status)
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1611,7 +1611,7 @@ def test_emergency_filled_close_stays_pending_until_positions_confirm_flat(
             return self.positions
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="filled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1671,7 +1671,7 @@ def test_unresolved_liquidation_reconciles_unique_accepted_broker_order(
             )]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="accepted")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="accepted")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1730,7 +1730,7 @@ def test_unresolved_liquidation_reconciles_replacement_child_not_replaced_parent
             ]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="accepted")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="accepted")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1829,7 +1829,7 @@ def test_unresolved_liquidation_retries_only_after_unique_terminal_rejection(
             )]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="rejected")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="rejected")
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1960,7 +1960,7 @@ def test_partial_close_order_remains_pending_across_restart_and_repeated_reconci
         closed=[],
         get_all_positions=lambda: [SimpleNamespace(symbol="AAPL", qty="0.4")],
         get_order_by_id=lambda order_id: SimpleNamespace(
-            id=order_id, status="partially_filled"
+            id=order_id, symbol="AAPL", status="partially_filled"
         ),
         close_position=lambda symbol: pytest.fail(
             "Must not submit another close while the prior order is partially filled"
@@ -2089,7 +2089,7 @@ def test_liquidation_normalizes_enum_status_values(
         def get_order_by_id(self, order_id):
             # Simulate an SDK string-valued Enum: str(status) need not equal status.value.
             return SimpleNamespace(
-                id=order_id, status=SimpleNamespace(value=broker_status)
+                id=order_id, symbol="AAPL", status=SimpleNamespace(value=broker_status)
             )
 
         def close_position(self, symbol):
@@ -2134,7 +2134,7 @@ def test_filled_close_uses_fresh_positions_snapshot_before_clearing_pending(
             return snapshot
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="filled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
 
         def close_position(self, symbol):
             self.close_calls.append(symbol)
@@ -2178,7 +2178,7 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
 
         def get_order_by_id(self, order_id):
             return SimpleNamespace(
-                id=order_id, status="canceled", filled_qty="0.6", qty="1"
+                id=order_id, symbol="AAPL", status="canceled", filled_qty="0.6", qty="1"
             )
 
         def close_position(self, symbol):
@@ -2238,7 +2238,7 @@ def test_unresolved_canceled_partial_close_refreshes_positions_before_retry(
             )]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="canceled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="canceled")
 
         def close_position(self, symbol):
             self.close_calls.append(symbol)
@@ -2264,7 +2264,7 @@ def test_unresolved_canceled_partial_close_refreshes_positions_before_retry(
             return [SimpleNamespace(symbol="AAPL", qty="0.4")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, status="canceled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="canceled")
 
         def close_position(self, symbol):
             resumed_client_calls.append(symbol)
@@ -2311,7 +2311,7 @@ def test_direct_terminal_partial_close_refreshes_residual_after_restart(
 
         def get_order_by_id(self, order_id):
             assert order_id == "close-partial-canceled"
-            return SimpleNamespace(id=order_id, status="canceled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="canceled")
 
     fake = FakeTradingClient()
     first.trading_client = fake
@@ -2461,7 +2461,7 @@ def test_emergency_liquidation_keeps_nonterminal_or_replaced_close_order_pending
 
         def get_order_by_id(self, order_id):
             assert order_id == "close-existing"
-            return SimpleNamespace(id=order_id, status=status)
+            return SimpleNamespace(id=order_id, symbol="AAPL", status=status)
 
         def close_position(self, symbol):
             pytest.fail(

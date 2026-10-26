@@ -120,7 +120,7 @@ def test_nearby_fee_without_order_link_remains_unknown(monkeypatch):
         SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "COMMISSION_STATUS=NO_CANDIDATE_ACTIVITY" in source
+    assert "COMMISSION_STATUS=UNATTRIBUTABLE" in source
     assert "symbol/time proximity is insufficient" in source
     assert len(records) == 1
 
@@ -136,7 +136,7 @@ def test_commission_absent_fails_closed(monkeypatch):
         SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "explicitly order-linked BTCUSD CFEE records=0" in source
+    assert "COMMISSION_STATUS=NO_CANDIDATE_ACTIVITY" in source
     assert records == []
 
 def test_quantity_difference_is_not_hidden_by_commission_hypothesis():

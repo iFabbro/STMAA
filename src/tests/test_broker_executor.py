@@ -3032,3 +3032,50 @@ def test_persisted_liquidation_state_rejects_pending_and_unresolved_overlap(
     saved = json.loads(persisted_before)
     assert "AAPL" in saved["emergency_liquidation_pending"]
     assert "AAPL" in saved["emergency_liquidation_unresolved"]
+
+
+def test_stale_positions_with_partial_fill_reserves_full_order_exposure(
+    alpaca_env, monkeypatch
+):
+    """Do not understate gross exposure while a fill may be absent from positions."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    submitted = []
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    # Simulate an eventually consistent positions endpoint that has not yet
+    # reflected the fill on MSFT.
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    partial_order = SimpleNamespace(
+        id="partial-msft",
+        symbol="MSFT",
+        status="partially_filled",
+        qty="10",
+        filled_qty="4",
+        limit_price=None,
+        notional="6000",
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [partial_order])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda tickers: {"AAPL": 100.0, "MSFT": 600.0},
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    # Reserving only the 60% unfilled remainder would leave room for a new buy;
+    # reserving the full active order blocks that extra exposure until reconciled.
+    assert submitted == []

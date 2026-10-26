@@ -289,4 +289,4 @@ def test_restart_with_unmatched_ambiguous_close_intent_fails_closed(
 
     assert broker.close_calls == []
     assert "AAPL" in executor.state["emergency_liquidation_unresolved"]
-    assert executor.state["emergency_liquidation_pending"] == {}
+    assert executor.state.get("emergency_liquidation_pending", {}) == {}

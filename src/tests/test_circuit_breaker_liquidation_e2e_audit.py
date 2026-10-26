@@ -484,3 +484,42 @@ def test_ambiguous_close_exception_survives_restart_without_duplicate_close(
     assert "AAPL" in restarted.state["emergency_liquidation_unresolved"]
     assert close_calls == ["AAPL"]
 
+
+def test_terminal_pending_order_id_must_match_broker_order_symbol(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    executor.state["emergency_liquidation_pending"] = {"AAPL": "terminal-msft"}
+    executor._save_state()
+    close_calls = []
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: [SimpleNamespace(symbol="AAPL", qty="10")],
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_order_by_id",
+        lambda order_id: SimpleNamespace(
+            id=order_id, symbol="MSFT", status="canceled"
+        ),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "close_position",
+        lambda symbol: close_calls.append(symbol),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Pending liquidation order ID does not match broker order symbol",
+    ):
+        executor._liquidate_all_positions([])
+
+    assert close_calls == []
+    assert executor.state["emergency_liquidation_pending"] == {
+        "AAPL": "terminal-msft"
+    }
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted["emergency_liquidation_pending"] == {"AAPL": "terminal-msft"}

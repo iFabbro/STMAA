@@ -163,7 +163,14 @@ def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metr
 ):
     executor = BrokerExecutor(initial_capital=500000.0)
     snapshots = iter([account_snapshot(10000.0), account_snapshot(9800.0)])
-    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+
+    def mocked_account_status():
+        snapshot = next(snapshots)
+        executor.state["account_id"] = "mock-account"
+        executor._current_account_identity_verified = True
+        return {**snapshot, "account_id": "mock-account"}
+
+    monkeypatch.setattr(executor, "get_account_status", mocked_account_status)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(
         executor,
@@ -196,3 +203,9 @@ def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metr
     exported_metrics = json.loads(Path("logs/metrics.json").read_text(encoding="utf-8"))
     assert exported_metrics["total_return"] == pytest.approx(0.0)
     assert exported_metrics["max_drawdown"] == pytest.approx(0.0)
+
+    # A fresh process must recover only the durable pre-failure history.
+    restarted_executor = BrokerExecutor(initial_capital=500000.0)
+    assert restarted_executor.state["account_id"] == "mock-account"
+    assert restarted_executor.state["equity_history"] == pytest.approx([10000.0])
+    assert restarted_executor.metrics.equity_curve == pytest.approx([10000.0])

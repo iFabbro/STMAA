@@ -412,3 +412,75 @@ def test_pending_liquidation_order_id_must_match_broker_order_symbol(
     assert cancel_calls == []
     assert close_calls == []
 
+def test_liquidation_aborts_when_unrelated_order_cancellation_fails(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    unrelated_order = SimpleNamespace(id="unrelated-order", symbol="MSFT")
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [unrelated_order])
+    cancel_calls = []
+
+    def fail_cancel(order_id):
+        cancel_calls.append(order_id)
+        raise OSError("simulated broker cancellation failure")
+
+    monkeypatch.setattr(executor.trading_client, "cancel_order_by_id", fail_cancel)
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: pytest.fail("positions must not be acted on after cancellation failure"),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "close_position",
+        lambda symbol: pytest.fail("no close may be submitted after cancellation failure"),
+    )
+
+    with pytest.raises(OSError, match="simulated broker cancellation failure"):
+        executor._liquidate_all_positions([unrelated_order])
+
+    assert cancel_calls == ["unrelated-order"]
+    assert executor.state.get("emergency_liquidation_pending", {}) == {}
+    assert executor.state.get("emergency_liquidation_unresolved", {}) == {}
+
+
+def test_ambiguous_close_exception_survives_restart_without_duplicate_close(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    position = SimpleNamespace(symbol="AAPL", qty="10")
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor.trading_client, "get_all_positions", lambda: [position])
+    monkeypatch.setattr(executor.trading_client, "get_orders", lambda **kwargs: [])
+    close_calls = []
+
+    def ambiguous_close(symbol):
+        close_calls.append(symbol)
+        raise TimeoutError("broker response lost after close submission")
+
+    monkeypatch.setattr(executor.trading_client, "close_position", ambiguous_close)
+
+    with pytest.raises(TimeoutError, match="broker response lost after close submission"):
+        executor._liquidate_all_positions([])
+
+    durable = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert "AAPL" in durable["emergency_liquidation_unresolved"]
+    assert durable["emergency_liquidation_unresolved"]["AAPL"]["reason"] == (
+        "close_submission_outcome_unconfirmed"
+    )
+    assert close_calls == ["AAPL"]
+
+    restarted = BrokerExecutor(initial_capital=500000.0)
+    monkeypatch.setattr(restarted, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(restarted.trading_client, "get_all_positions", lambda: [position])
+    monkeypatch.setattr(restarted.trading_client, "get_orders", lambda **kwargs: [])
+    monkeypatch.setattr(
+        restarted.trading_client,
+        "close_position",
+        lambda symbol: pytest.fail("restart must not duplicate an ambiguous close"),
+    )
+
+    assert restarted._liquidate_all_positions([]) == []
+    assert "AAPL" in restarted.state["emergency_liquidation_unresolved"]
+    assert close_calls == ["AAPL"]
+

@@ -5,7 +5,6 @@ from scripts.alpaca_paper_btc_readonly_reconcile import (
     QTY_TOLERANCE,
     as_decimal,
     compare_position_quantity,
-    commission_reconciliation_status,
     first_available_decimal,
     norm_status,
     norm_symbol,

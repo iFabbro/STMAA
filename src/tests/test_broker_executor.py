@@ -947,7 +947,7 @@ def test_reserved_notional_accepts_notional_order_without_quantity(alpaca_env):
 
     assert executor._get_reserved_notional([notional_order], prices={}) == pytest.approx(250.0)
 
-def test_reserved_notional_scales_notional_by_remaining_quantity(alpaca_env):
+def test_reserved_notional_keeps_full_exposure_for_partially_filled_order(alpaca_env):
     from types import SimpleNamespace
 
     executor = BrokerExecutor()
@@ -956,7 +956,22 @@ def test_reserved_notional_scales_notional_by_remaining_quantity(alpaca_env):
         limit_price=None, notional="1000", symbol="UNKNOWN",
     )
 
-    assert executor._get_reserved_notional([partially_filled_order], prices={}) == pytest.approx(600.0)
+    # Position snapshots can lag partial fills. Reserve the original order
+    # notional conservatively rather than assuming the fill is already in positions.
+    assert executor._get_reserved_notional([partially_filled_order], prices={}) == pytest.approx(1000.0)
+
+
+def test_reserved_notional_fails_closed_when_active_order_has_no_remaining_qty(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    inconsistent_order = SimpleNamespace(
+        status="partially_filled", qty="10", filled_qty="10",
+        limit_price="100", notional="1000", symbol="AAPL",
+    )
+
+    with pytest.raises(RuntimeError, match="no remaining quantity"):
+        executor._get_reserved_notional([inconsistent_order], prices={})
 
 def test_execute_weights_aborts_before_orders_if_open_order_exposure_unknown(
     alpaca_env, monkeypatch

@@ -749,6 +749,31 @@ class BrokerExecutor:
         a returned order is persisted immediately so a later invocation can
         reconcile it against the broker's current open-order snapshot.
         """
+        def validate_positions_snapshot(snapshot):
+            if not isinstance(snapshot, (list, tuple)):
+                raise RuntimeError(
+                    "Cannot safely liquidate with an invalid broker positions snapshot"
+                )
+            seen_symbols = set()
+            for position in snapshot:
+                symbol = str(getattr(position, "symbol", "") or "").strip()
+                if not symbol or symbol in seen_symbols:
+                    raise RuntimeError(
+                        "Cannot safely liquidate with missing or duplicate position symbols"
+                    )
+                seen_symbols.add(symbol)
+                try:
+                    quantity = float(getattr(position, "qty", None))
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        "Cannot safely liquidate a position with invalid symbol/quantity"
+                    ) from exc
+                if not np.isfinite(quantity):
+                    raise RuntimeError(
+                        "Cannot safely liquidate a position with invalid symbol/quantity"
+                    )
+            return list(snapshot)
+
         pending = dict(self.state.get("emergency_liquidation_pending", {}))
         pending_ids = {str(order_id) for order_id in pending.values() if order_id}
         for order in open_orders:
@@ -771,7 +796,7 @@ class BrokerExecutor:
             )
 
         # Query directly so an API failure cannot be mistaken for an empty portfolio.
-        positions = self.trading_client.get_all_positions()
+        positions = validate_positions_snapshot(self.trading_client.get_all_positions())
         liquidations = []
         active_pending = {}
         # Only confirmed terminal outcomes permit a new close. A replaced order
@@ -815,7 +840,7 @@ class BrokerExecutor:
         if refresh_positions:
             # Do not use the snapshot fetched before order reconciliation to decide
             # whether a residual position remains after a terminal close order.
-            positions = self.trading_client.get_all_positions()
+            positions = validate_positions_snapshot(self.trading_client.get_all_positions())
 
         for symbol, order_id in filled_pending.items():
             matching_positions = [

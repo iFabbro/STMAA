@@ -840,7 +840,7 @@ class BrokerExecutor:
         remaining_ids = {str(getattr(order, "id", "")) for order in remaining_orders}
         unexpected_orders = [
             order for order in remaining_orders
-            if str(getattr(order, "id", "")) not in pending_ids
+            if str(getattr(order, "id", "")) not in pending_order_symbols
         ]
         if unexpected_orders:
             raise RuntimeError(

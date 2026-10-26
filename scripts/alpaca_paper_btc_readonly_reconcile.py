@@ -120,7 +120,9 @@ def fetch_order_fill_activities(order: object, key: str, secret: str) -> tuple[l
             payload = response.json()
             if not isinstance(payload, list):
                 return [], "unexpected FILL account activities response shape"
-            activities.extend(item for item in payload if isinstance(item, dict))
+            if any(not isinstance(item, dict) for item in payload):
+                return [], "unexpected FILL account activities item shape"
+            activities.extend(payload)
             if len(payload) < 100:
                 break
             next_token = payload[-1].get("id")
@@ -207,7 +209,9 @@ def fetch_crypto_fee_activities(order: object, key: str, secret: str) -> tuple[l
             payload = response.json()
             if not isinstance(payload, list):
                 return [], "unexpected account activities response shape"
-            activities.extend(item for item in payload if isinstance(item, dict))
+            if any(not isinstance(item, dict) for item in payload):
+                return [], "unexpected CFEE account activities item shape"
+            activities.extend(payload)
             if len(payload) < 100:
                 break
             next_token = payload[-1].get("id")
@@ -299,7 +303,9 @@ def activity_read_incomplete(source_status: str) -> bool:
     incomplete_markers = (
         "read failed (",
         "unexpected FILL account activities response shape",
+        "unexpected FILL account activities item shape",
         "unexpected account activities response shape",
+        "unexpected CFEE account activities item shape",
         "pagination did not advance safely",
         "response contained a different order_id",
         "broker order ID unavailable",

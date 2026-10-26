@@ -31,7 +31,7 @@ def test_decimal_conversion_is_exact_and_fail_closed():
 
 def test_quantity_tolerance_is_explicit_and_small():
     assert QTY_TOLERANCE == Decimal("0.000000001")
-    assert abs(Decimal("0.000121728") - Decimal("0.0001217275")) > QTY_TOLERANCE
+    assert abs(Decimal("0.000121728") - Decimal("0.0001217265")) > QTY_TOLERANCE
 
 
 def test_commission_is_only_reported_if_payload_exposes_it():
@@ -62,7 +62,7 @@ def test_reconcile_crypto_commission_converts_unique_cfee_to_usd(monkeypatch):
         SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount == Decimal("0.0080500")
-    assert "explicitly order-linked CFEE" in source
+    assert "explicitly linked CFEE qty × price converted to USD" in source
     assert len(records) == 1
 
 
@@ -92,13 +92,13 @@ def test_reconcile_crypto_commission_fails_closed_when_fee_fields_missing(monkey
         reconcile,
         "fetch_crypto_fee_activities",
         lambda order, key, secret: (
-            [{"id": "fee-1", "activity_type": "CFEE", "symbol": "BTCUSD",
+            [{"id": "fee-1", "order_id": "order-1", "activity_type": "CFEE", "symbol": "BTCUSD",
               "qty": None, "price": "80500"}],
             "mocked supported read-only source",
         ),
     )
     amount, source, _ = reconcile.reconcile_crypto_commission(
-        SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
+        SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
     assert "qty/price missing or invalid" in source

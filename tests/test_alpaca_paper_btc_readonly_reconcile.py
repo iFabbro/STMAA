@@ -82,7 +82,7 @@ def test_reconcile_crypto_commission_fails_closed_on_ambiguous_records(monkeypat
         SimpleNamespace(filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "explicitly order-linked BTCUSD CFEE records=0" in source
+    assert "COMMISSION_STATUS=UNATTRIBUTABLE" in source
     assert len(records) == 2
 
 
@@ -120,8 +120,8 @@ def test_nearby_fee_without_order_link_remains_unknown(monkeypatch):
         SimpleNamespace(id="order-1", filled_at="2026-10-25T12:00:00Z"), "key", "secret"
     )
     assert amount is None
-    assert "explicitly order-linked BTCUSD CFEE records=0" in source
-    assert "commission remains unknown" in source
+    assert "COMMISSION_STATUS=NO_CANDIDATE_ACTIVITY" in source
+    assert "symbol/time proximity is insufficient" in source
     assert len(records) == 1
 
 

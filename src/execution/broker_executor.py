@@ -210,6 +210,15 @@ class BrokerExecutor:
             for key in ("emergency_liquidation_pending", "emergency_liquidation_unresolved"):
                 if key in loaded_state and not isinstance(loaded_state[key], dict):
                     raise ValueError(f"persisted broker state field {key} must be an object")
+            for key in ("order_submission_unresolved", "order_submission_confirmed"):
+                if key in loaded_state:
+                    entries = loaded_state[key]
+                    if not isinstance(entries, dict):
+                        raise ValueError(f"persisted broker state field {key} must be an object")
+                    if any(not isinstance(entry, dict) for entry in entries.values()):
+                        raise ValueError(
+                            f"persisted broker state entries in {key} must be objects"
+                        )
         except Exception as exc:
             # A corrupt/unreadable state may contain the only record of an accepted
             # close request. Never continue with an empty in-memory state: that could
@@ -395,9 +404,31 @@ class BrokerExecutor:
             }
 
     def _get_open_orders(self):
-        return self.trading_client.get_orders(
-            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
-        )
+        """Return a structurally verified open-order snapshot or fail closed."""
+        try:
+            orders = self.trading_client.get_orders(
+                filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
+            )
+            if not isinstance(orders, (list, tuple)):
+                raise ValueError("Broker returned an invalid open-orders response shape")
+
+            seen_ids = set()
+            for order in orders:
+                order_id = str(getattr(order, "id", "") or "").strip()
+                symbol = str(getattr(order, "symbol", "") or "").strip()
+                if not order_id or not symbol:
+                    raise ValueError("Broker returned an open order without a valid ID or symbol")
+                if order_id in seen_ids:
+                    raise ValueError("Broker returned duplicate open-order IDs")
+                seen_ids.add(order_id)
+            return list(orders)
+        except Exception as exc:
+            self.logger.error(
+                "Open-order read/validation failed; refusing execution: %s", exc
+            )
+            raise RuntimeError(
+                "Unable to retrieve or validate broker open orders; refusing execution"
+            ) from exc
 
     def _order_status_value(self, order) -> str:
         status = getattr(order, "status", "")
@@ -880,6 +911,10 @@ class BrokerExecutor:
                 symbol = str(getattr(position, "symbol", "")).strip()
                 if not symbol:
                     raise ValueError("Broker returned a position without a valid symbol")
+                if symbol in parsed_positions:
+                    raise ValueError(
+                        f"Broker returned duplicate position rows for {symbol}"
+                    )
                 values = {
                     "qty": float(position.qty),
                     "market_value": float(position.market_value),

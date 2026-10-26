@@ -1133,9 +1133,20 @@ class BrokerExecutor:
             self.state["account_data_fresh"] = False
             self._save_state()
             orders_executed = self._liquidate_all_positions(open_orders)
+            # The liquidation orders and their pending IDs are persisted by
+            # _liquidate_all_positions. Treat bookkeeping as a separate commit:
+            # if its save fails, restore the in-memory counters to the last durable
+            # values while preserving the already-persisted liquidation outcome.
+            previous_execution_time = self.state.get("last_execution_time")
+            previous_total_orders = self.state.get("total_orders", 0)
             self.state["last_execution_time"] = datetime.now().isoformat()
-            self.state["total_orders"] += self._count_submitted_orders(orders_executed)
-            self._save_state()
+            self.state["total_orders"] = previous_total_orders + self._count_submitted_orders(orders_executed)
+            try:
+                self._save_state()
+            except Exception:
+                self.state["last_execution_time"] = previous_execution_time
+                self.state["total_orders"] = previous_total_orders
+                raise
             metrics_refresh_error = None
             metrics_refreshed = False
             post_account = None

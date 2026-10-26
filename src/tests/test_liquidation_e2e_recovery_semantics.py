@@ -39,7 +39,7 @@ class ReconciliationClient:
         return list(response)
 
     def get_order_by_id(self, order_id):
-        return SimpleNamespace(id=order_id, status=self.order_status)
+        return SimpleNamespace(id=order_id, symbol="AAPL", status=self.order_status)
 
     def get_orders(self, **kwargs):
         return []

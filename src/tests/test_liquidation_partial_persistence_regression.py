@@ -70,6 +70,30 @@ def test_multiple_positions_partial_liquidation_persists_each_outcome(executor_e
     assert client.close_calls == ["AAPL", "MSFT"]
 
 
+@pytest.mark.parametrize(
+    "positions",
+    [
+        [_position("AAPL", 2), SimpleNamespace(symbol="", qty="1")],
+        [_position("AAPL", 2), _position("AAPL", 3)],
+        [_position("AAPL", 2), _position("MSFT", "nan")],
+    ],
+)
+def test_malformed_positions_snapshot_blocks_all_new_closes(executor_env, positions):
+    """Validate the entire broker snapshot before acting on any valid-looking row."""
+    executor = BrokerExecutor()
+    client = LiquidationClient(positions=positions)
+    executor.trading_client = client
+    executor._get_open_orders = lambda: []
+
+    with pytest.raises(RuntimeError, match="Cannot safely liquidate"):
+        executor._liquidate_all_positions([])
+
+    assert client.close_calls == []
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted.get("emergency_liquidation_pending", {}) == {}
+    assert persisted.get("emergency_liquidation_unresolved", {}) == {}
+
+
 def test_cancel_failure_aborts_before_any_position_close(executor_env):
     executor = BrokerExecutor()
     client = LiquidationClient(

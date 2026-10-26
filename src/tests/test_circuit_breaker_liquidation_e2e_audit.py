@@ -234,7 +234,7 @@ def test_partial_fill_after_canceled_pending_close_retries_only_residual_quantit
 
         def get_order_by_id(self, order_id):
             assert order_id == "close-1"
-            return SimpleNamespace(status="canceled")
+            return SimpleNamespace(id=order_id, symbol="AAPL", status="canceled")
 
         def close_position(self, symbol):
             self.close_calls.append(symbol)

@@ -5,6 +5,7 @@ orders against Alpaca.
 """
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import numpy as np
 import pytest
 
@@ -196,3 +197,90 @@ def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metr
     exported_metrics = json.loads(Path("logs/metrics.json").read_text(encoding="utf-8"))
     assert exported_metrics["total_return"] == pytest.approx(0.0)
     assert exported_metrics["max_drawdown"] == pytest.approx(0.0)
+
+
+
+def test_close_accepted_but_pending_state_save_fails_restart_stays_fail_closed(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    position = SimpleNamespace(symbol="AAPL", qty="10")
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor.trading_client, "get_all_positions", lambda: [position])
+    monkeypatch.setattr(executor.trading_client, "get_orders", lambda **kwargs: [])
+    close_calls = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "close_position",
+        lambda symbol: (
+            close_calls.append(symbol)
+            or SimpleNamespace(id="mock-close-accepted", status="accepted")
+        ),
+    )
+    original_save_state = executor._save_state
+
+    def fail_pending_commit():
+        if executor.state.get("emergency_liquidation_pending", {}).get("AAPL"):
+            raise OSError("simulated pending-state disk failure")
+        original_save_state()
+
+    monkeypatch.setattr(executor, "_save_state", fail_pending_commit)
+
+    with pytest.raises(OSError, match="simulated pending-state disk failure"):
+        executor._liquidate_all_positions([])
+
+    # Atomic persistence must leave the durable pre-request intent available.
+    persisted_state = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert "AAPL" in persisted_state["emergency_liquidation_unresolved"]
+    assert "AAPL" not in persisted_state.get("emergency_liquidation_pending", {})
+    assert close_calls == ["AAPL"]
+
+    # Simulate a process restart from the last durable state. No unique broker
+    # history match is available, so the unresolved intent must block resubmission.
+    restarted = BrokerExecutor(initial_capital=500000.0)
+    monkeypatch.setattr(restarted, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(restarted.trading_client, "get_all_positions", lambda: [position])
+    monkeypatch.setattr(restarted.trading_client, "get_orders", lambda **kwargs: [])
+    monkeypatch.setattr(
+        restarted.trading_client,
+        "close_position",
+        lambda symbol: pytest.fail("restart must not submit a duplicate close"),
+    )
+
+    assert restarted._liquidate_all_positions([]) == []
+    assert "AAPL" in restarted.state["emergency_liquidation_unresolved"]
+    assert close_calls == ["AAPL"]
+
+
+def test_liquidation_bookkeeping_save_failure_rolls_back_memory_counters(
+    executor_env, monkeypatch
+):
+    executor = BrokerExecutor(initial_capital=500000.0)
+    snapshots = iter([account_snapshot(10000.0)])
+    monkeypatch.setattr(executor, "get_account_status", lambda: next(snapshots))
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    original_save_state = executor._save_state
+
+    def persist_liquidation_order(open_orders):
+        executor.state["emergency_liquidation_pending"] = {"AAPL": "mock-close-1"}
+        original_save_state()
+        return [{"ticker": "AAPL", "order_id": "mock-close-1", "status": "accepted"}]
+
+    monkeypatch.setattr(executor, "_liquidate_all_positions", persist_liquidation_order)
+
+    def fail_bookkeeping_commit():
+        if executor.state.get("total_orders", 0) > 0:
+            raise OSError("simulated bookkeeping disk failure")
+        original_save_state()
+
+    monkeypatch.setattr(executor, "_save_state", fail_bookkeeping_commit)
+
+    with pytest.raises(OSError, match="simulated bookkeeping disk failure"):
+        executor.execute_weights(liquidation_weights())
+
+    persisted_state = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted_state["total_orders"] == 0
+    assert persisted_state["last_execution_time"] is None
+    assert persisted_state["emergency_liquidation_pending"]["AAPL"] == "mock-close-1"
+    assert executor.state["total_orders"] == 0
+    assert executor.state["last_execution_time"] is None

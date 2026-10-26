@@ -469,6 +469,24 @@ def main() -> int:
         print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked to this order")
         return 0
 
+    # A not-yet-due commission is an expected unresolved business state, not a
+    # failed execution of the read-only check. Keep the explicit PENDING result
+    # visible and do not treat the reconciliation as complete.
+    if (
+        order_status == "filled"
+        and filled_qty > 0
+        and avg_price is not None
+        and fills_match
+        and commission is None
+        and commission_status == "PENDING_POSTING"
+    ):
+        print(
+            "RESULT: PENDING — read-only checks completed; commission posting grace "
+            "period has not elapsed; reconciliation remains incomplete and amount "
+            "remains unknown"
+        )
+        return 0
+
     reasons = []
     if order_status != "filled" or filled_qty <= 0 or avg_price is None:
         reasons.append("order fill details incomplete")

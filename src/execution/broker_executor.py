@@ -532,22 +532,34 @@ class BrokerExecutor:
             )
         remaining_qty = qty - filled_qty
         if remaining_qty == 0:
-            return 0.0
+            # An order returned in the active/open snapshot with no remaining
+            # quantity is internally inconsistent (e.g. a stale status snapshot).
+            # Do not silently drop its exposure while positions may lag fills.
+            raise RuntimeError(
+                "Cannot estimate exposure for active order: no remaining quantity "
+                "despite non-terminal status"
+            )
 
+        # Reserve the full requested notional for every active order, not only its
+        # unfilled remainder. Position snapshots can lag partial fills; counting
+        # only the remainder could understate gross exposure until the fill appears
+        # in get_all_positions(). This is intentionally conservative and may
+        # temporarily overstate exposure when the broker already reflects the fill.
         limit_price = getattr(order, "limit_price", None)
         if limit_price not in (None, ""):
             price = parse_positive(limit_price, "limit_price")
-            return remaining_qty * price
+            return qty * price
 
         symbol = getattr(order, "symbol", None)
         if symbol and symbol in prices:
             price = parse_positive(prices[symbol], f"market price for {symbol}")
-            return remaining_qty * price
+            return qty * price
 
-        # Some broker responses provide the original order notional but no price.
-        # Scale it by the remaining quantity only when total qty is known.
+        # Broker responses may provide the original order notional without a price.
+        # Reserve the original notional until the order is terminal and positions
+        # have been reconciled in a separate read cycle.
         if notional is not None:
-            return notional * (remaining_qty / qty)
+            return notional
 
         raise RuntimeError(
             f"Cannot estimate exposure for active order {symbol or '<unknown symbol>'}: "

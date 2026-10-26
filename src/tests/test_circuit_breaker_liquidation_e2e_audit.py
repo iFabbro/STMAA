@@ -4,6 +4,7 @@ All broker interactions are mocked. These tests never submit, cancel, or close
 orders against Alpaca.
 """
 import json
+from pathlib import Path
 import numpy as np
 import pytest
 
@@ -192,6 +193,6 @@ def test_circuit_breaker_metrics_persistence_failure_rolls_back_uncommitted_metr
     assert executor.state["equity_history"] == pytest.approx([10000.0])
     persisted_state = json.loads(executor.state_file.read_text(encoding="utf-8"))
     assert persisted_state["equity_history"] == pytest.approx([10000.0])
-    exported_metrics = json.loads((__import__("pathlib").Path("logs/metrics.json")).read_text(encoding="utf-8"))
+    exported_metrics = json.loads(Path("logs/metrics.json").read_text(encoding="utf-8"))
     assert exported_metrics["total_return"] == pytest.approx(0.0)
     assert exported_metrics["max_drawdown"] == pytest.approx(0.0)

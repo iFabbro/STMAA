@@ -95,3 +95,35 @@ def test_smoke_preflight_blocks_invalid_exposure_limit(monkeypatch):
     monkeypatch.setenv("MAX_PORTFOLIO_EXPOSURE", "nan")
     with pytest.raises(RuntimeError, match="exposure limit is invalid"):
         validate_smoke_order_preflight(FakeExecutor(), "SPY", 10.0, fresh_quote())
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        {
+            "price": 100.0,
+            "timestamp": (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat(),
+        },
+        {
+            "price": 100.0,
+            "timestamp": "not-a-timestamp",
+        },
+    ],
+)
+def test_smoke_preflight_blocks_future_or_malformed_timestamp(quote):
+    with pytest.raises(RuntimeError, match="valid timestamped market quote|market quote"):
+        validate_smoke_order_preflight(FakeExecutor(), "SPY", 10.0, quote)
+
+
+@pytest.mark.parametrize(
+    "positions",
+    [
+        {"AAPL": {"market_value": float("nan")}},
+        {"AAPL": {"market_value": float("inf")}},
+        {"AAPL": {"market_value": "not-a-number"}},
+    ],
+)
+def test_smoke_preflight_blocks_non_finite_or_unparseable_position_exposure(positions):
+    executor = FakeExecutor(positions=positions)
+    with pytest.raises(RuntimeError, match="exposure is invalid"):
+        validate_smoke_order_preflight(executor, "SPY", 10.0, fresh_quote())

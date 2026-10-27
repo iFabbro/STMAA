@@ -11,6 +11,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
+from alpaca.data.historical import CryptoHistoricalDataClient
+from alpaca.data.requests import CryptoLatestQuoteRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
@@ -20,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.execution.broker_executor import BrokerExecutor  # noqa: E402
+from src.execution.smoke_order_preflight import validate_smoke_order_preflight  # noqa: E402
 
 SYMBOL = "BTC/USD"
 MAX_NOTIONAL_USD = Decimal("10.00")
@@ -103,6 +106,27 @@ def main() -> int:
         raise SystemExit(
             f"FAIL: {len(btc_orders)} open {SYMBOL} order(s) already exist; refusing duplicate order"
         )
+
+    # Crypto has a separate market-data endpoint. Require a current, timestamped
+    # quote and the same strict account/position/open-order/exposure preflight
+    # used by the stock smoke path before placing this bounded notional order.
+    crypto_data = CryptoHistoricalDataClient(key, secret)
+    crypto_quotes = crypto_data.get_crypto_latest_quote(
+        CryptoLatestQuoteRequest(symbol_or_symbols=[SYMBOL])
+    )
+    raw_quote = crypto_quotes.get(SYMBOL) if isinstance(crypto_quotes, dict) else None
+    try:
+        bid = float(getattr(raw_quote, "bid_price", None))
+        ask = float(getattr(raw_quote, "ask_price", None))
+        quote_timestamp = getattr(raw_quote, "timestamp", None)
+        if not (bid > 0 and ask > 0 and ask >= bid):
+            raise ValueError("invalid bid/ask")
+        smoke_quote = {"price": (bid + ask) / 2.0, "timestamp": quote_timestamp}
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise SystemExit("FAIL: no valid BTC/USD market quote; refusing smoke order") from exc
+    validate_smoke_order_preflight(
+        executor, SYMBOL, float(MAX_NOTIONAL_USD), smoke_quote
+    )
 
     print("PREFLIGHT: PASS")
     print(f"Account status: {account_status}")

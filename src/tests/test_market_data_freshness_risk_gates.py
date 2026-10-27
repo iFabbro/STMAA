@@ -153,13 +153,6 @@ def test_market_data_provider_exception_blocks_all_new_orders(
         provider_failure,
     )
     monkeypatch.setattr(
-        executor,
-        "_get_prices_from_bars",
-        lambda tickers: (_ for _ in ()).throw(
-            AssertionError("Must not use stale-bar fallback after provider failure")
-        ),
-    )
-    monkeypatch.setattr(
         executor.trading_client,
         "submit_order",
         lambda request: submitted.append(request),

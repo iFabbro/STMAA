@@ -158,3 +158,22 @@ def test_all_three_risk_uncertainties_combined_never_submit_new_exposure(
         bot.execute_trade(weights)
 
     assert submitted == []
+
+
+def test_missing_drawdown_peak_with_existing_account_state_blocks_new_exposure(
+    combined_gate_env, monkeypatch
+):
+    bot, _, weights, submitted = _build_bot(
+        monkeypatch, peak=None, unresolved=True
+    )
+    vix_reads = []
+    monkeypatch.setattr(bot, "get_vix_value", lambda: vix_reads.append(True) or 20.0)
+
+    with pytest.raises(
+        RuntimeError,
+        match="persisted risk peak is missing for existing broker state",
+    ):
+        bot.execute_trade(weights)
+
+    assert vix_reads == []
+    assert submitted == []

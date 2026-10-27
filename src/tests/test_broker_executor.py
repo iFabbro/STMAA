@@ -87,11 +87,12 @@ def test_reserved_notional_counts_accepted(alpaca_env):
     assert reserved == 1000.0
 
 
-def test_reserved_notional_counts_partially_filled_residual(alpaca_env):
+def test_reserved_notional_counts_full_partially_filled_order_until_reconciled(alpaca_env):
     executor = BrokerExecutor()
     orders = [_FakeOrder("partially_filled", qty=10, filled_qty=4, limit_price=50.0, symbol="MSFT")]
     reserved = executor._get_reserved_notional(orders, prices={"MSFT": 50.0})
-    assert reserved == 300.0
+    # Broker position snapshots may lag fills; reserve the original notional.
+    assert reserved == 500.0
 
 
 def test_reserved_notional_ignores_filled(alpaca_env):
@@ -947,7 +948,7 @@ def test_reserved_notional_accepts_notional_order_without_quantity(alpaca_env):
 
     assert executor._get_reserved_notional([notional_order], prices={}) == pytest.approx(250.0)
 
-def test_reserved_notional_scales_notional_by_remaining_quantity(alpaca_env):
+def test_reserved_notional_keeps_full_exposure_for_partially_filled_order(alpaca_env):
     from types import SimpleNamespace
 
     executor = BrokerExecutor()
@@ -956,7 +957,22 @@ def test_reserved_notional_scales_notional_by_remaining_quantity(alpaca_env):
         limit_price=None, notional="1000", symbol="UNKNOWN",
     )
 
-    assert executor._get_reserved_notional([partially_filled_order], prices={}) == pytest.approx(600.0)
+    # Position snapshots can lag partial fills. Reserve the original order
+    # notional conservatively rather than assuming the fill is already in positions.
+    assert executor._get_reserved_notional([partially_filled_order], prices={}) == pytest.approx(1000.0)
+
+
+def test_reserved_notional_fails_closed_when_active_order_has_no_remaining_qty(alpaca_env):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    inconsistent_order = SimpleNamespace(
+        status="partially_filled", qty="10", filled_qty="10",
+        limit_price="100", notional="1000", symbol="AAPL",
+    )
+
+    with pytest.raises(RuntimeError, match="no remaining quantity"):
+        executor._get_reserved_notional([inconsistent_order], prices={})
 
 def test_execute_weights_aborts_before_orders_if_open_order_exposure_unknown(
     alpaca_env, monkeypatch
@@ -3017,3 +3033,50 @@ def test_persisted_liquidation_state_rejects_pending_and_unresolved_overlap(
     saved = json.loads(persisted_before)
     assert "AAPL" in saved["emergency_liquidation_pending"]
     assert "AAPL" in saved["emergency_liquidation_unresolved"]
+
+
+def test_stale_positions_with_partial_fill_reserves_full_order_exposure(
+    alpaca_env, monkeypatch
+):
+    """Do not understate gross exposure while a fill may be absent from positions."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    submitted = []
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    # Simulate an eventually consistent positions endpoint that has not yet
+    # reflected the fill on MSFT.
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    partial_order = SimpleNamespace(
+        id="partial-msft",
+        symbol="MSFT",
+        status="partially_filled",
+        qty="10",
+        filled_qty="4",
+        limit_price=None,
+        notional="6000",
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [partial_order])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars",
+        lambda tickers: {"AAPL": 100.0, "MSFT": 600.0},
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    # Reserving only the 60% unfilled remainder would leave room for a new buy;
+    # reserving the full active order blocks that extra exposure until reconciled.
+    assert submitted == []

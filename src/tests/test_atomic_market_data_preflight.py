@@ -1,8 +1,26 @@
+"""Atomic preflight regression for stale quotes in multi-symbol rebalances."""
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
+import pytest
+
+from src.execution.broker_executor import BrokerExecutor
+from src.strategy.weight_interface import PortfolioWeights
+
+
+@pytest.fixture
+def isolated_env(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv(
+        "STMAA_BROKER_STATE_FILE",
+        str(tmp_path / "state" / "broker_state.json"),
+    )
 
 
 def test_stale_quote_for_one_symbol_blocks_entire_multi_symbol_rebalance(
-    alpaca_env, monkeypatch
+    isolated_env, monkeypatch
 ):
     """A valid quote for one symbol must not permit a partial rebalance."""
     executor = BrokerExecutor()

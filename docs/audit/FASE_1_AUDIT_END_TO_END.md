@@ -3,7 +3,7 @@
 **Data di aggiornamento:** 27 ottobre 2026  
 **Repository:** `iFabbro/STMAA`  
 **Commit verificato al termine della verifica PR #89:** `bfb88c29443bee0de655c0eca2e5cca124e132c8`  
-**Stato:** modifiche di audit integrate fino alla PR #90; chiusura formale subordinata alla verifica dei controlli post-merge della PR #90 e all'integrazione della documentazione.
+**Stato:** controlli di codice della Fase 1 completati fino alla PR #90; documentazione in revisione tramite PR #91.
 
 ## 1. Obiettivo e confini
 
@@ -95,7 +95,7 @@ Sono stati inoltre verificati i controlli post-merge per le PR #76–82 e #85–
 
 La PR #84 è stata chiusa perché il suo branch era precedente alle modifiche successive ed è stata sostituita dalla [PR #90](https://github.com/iFabbro/STMAA/pull/90), integrata in `main` al commit `8157a9aa0e37ff6d132abf2d477f616486aed4c6`. La PR #90 trasferisce sulla versione corrente i test che verificano il blocco in presenza di timestamp di quotazione futuri o malformati e di valori di esposizione pari a NaN, infiniti o non interpretabili.
 
-I controlli pre-merge della PR #90 (`pytest`, `test`, `ruff`, `gitleaks`) sono tutti verdi. Alla data di questa revisione, `ruff` e `gitleaks` sono verdi anche sul commit di merge; `pytest` e `test` risultano ancora in esecuzione. La Fase 1 sarà formalmente chiusa dopo la verifica positiva di tutti i controlli post-merge e l'integrazione della presente documentazione.
+I controlli pre-merge e post-merge della PR #90 (`pytest`, `test`, `ruff`, `gitleaks`) sono tutti completati con esito positivo. Commit di merge: `8157a9aa0e37ff6d132abf2d477f616486aed4c6`. La documentazione è sottoposta a revisione tramite [PR #91](https://github.com/iFabbro/STMAA/pull/91); i controlli CI della PR documentale devono concludersi prima di integrarla.
 
 Le PR storiche #3, #9, #16 e #55 sono state chiuse senza merge; le relative aree sono state affrontate da modifiche successive.
 

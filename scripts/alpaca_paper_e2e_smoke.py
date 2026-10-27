@@ -20,6 +20,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from src.execution.broker_executor import BrokerExecutor
+from src.execution.smoke_order_preflight import validate_smoke_order_preflight
 
 MAX_NOTIONAL_USD = Decimal("10.00")
 PAPER_ENDPOINT = "https://paper-api.alpaca.markets"
@@ -55,6 +56,13 @@ def main():
     open_orders = executor._get_open_orders()
     if open_orders is None:
         raise SystemExit("FAIL: open orders could not be read")
+    quotes = executor.alpaca_feed.get_latest_quotes(["SPY"])
+    validate_smoke_order_preflight(
+        executor,
+        "SPY",
+        float(MAX_NOTIONAL_USD),
+        quotes.get("SPY") if isinstance(quotes, dict) else None,
+    )
 
     print("PREFLIGHT: PASS")
     print(f"Account status: {account.get('status')}")

@@ -3,7 +3,7 @@
 **Data di aggiornamento:** 27 ottobre 2026  
 **Repository:** `iFabbro/STMAA`  
 **Commit verificato al termine della verifica PR #89:** `bfb88c29443bee0de655c0eca2e5cca124e132c8`  
-**Stato:** audit di codice e regressione avanzato; chiusura formale subordinata al completamento della PR #90.
+**Stato:** modifiche di audit integrate fino alla PR #90; chiusura formale subordinata alla verifica dei controlli post-merge della PR #90 e all'integrazione della documentazione.
 
 ## 1. Obiettivo e confini
 
@@ -93,13 +93,11 @@ Sono stati inoltre verificati i controlli post-merge per le PR #76–82 e #85–
 
 ## 4. Residuo da chiudere prima della chiusura formale della Fase 1
 
-La PR #84 è rimasta aperta su un branch precedente alle modifiche successive. I suoi test utili riguardano:
-- timestamp di quotazione futuri o malformati;
-- valori di esposizione delle posizioni pari a NaN, infiniti o non interpretabili.
+La PR #84 è stata chiusa perché il suo branch era precedente alle modifiche successive ed è stata sostituita dalla [PR #90](https://github.com/iFabbro/STMAA/pull/90), integrata in `main` al commit `8157a9aa0e37ff6d132abf2d477f616486aed4c6`. La PR #90 trasferisce sulla versione corrente i test che verificano il blocco in presenza di timestamp di quotazione futuri o malformati e di valori di esposizione pari a NaN, infiniti o non interpretabili.
 
-Questi test sono stati trasferiti sulla versione corrente in [PR #90](https://github.com/iFabbro/STMAA/pull/90). Alla data di questa revisione, la PR #90 è ancora in verifica CI e non deve essere considerata integrata. La Fase 1 sarà formalmente chiusa dopo che i controlli saranno verdi, la PR sarà integrata e i controlli post-merge saranno verificati.
+I controlli pre-merge della PR #90 (`pytest`, `test`, `ruff`, `gitleaks`) sono tutti verdi. Alla data di questa revisione, `ruff` e `gitleaks` sono verdi anche sul commit di merge; `pytest` e `test` risultano ancora in esecuzione. La Fase 1 sarà formalmente chiusa dopo la verifica positiva di tutti i controlli post-merge e l'integrazione della presente documentazione.
 
-Le PR storiche #3, #9, #16 e #55 sono state chiuse senza merge; le relative aree sono state affrontate da modifiche successive. La PR #84 è distinta da questi casi e resta da chiudere dopo aver verificato la copertura trasferita nella PR #90.
+Le PR storiche #3, #9, #16 e #55 sono state chiuse senza merge; le relative aree sono state affrontate da modifiche successive.
 
 ## 5. Cosa è stato dimostrato e cosa no
 

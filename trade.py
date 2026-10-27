@@ -218,6 +218,22 @@ class PaperTradingBot:
         print("🔄 Esecuzione trade...")
         risk_module = getattr(self.pipeline, "risk_module", None)
         if risk_module is not None:
+            # Capture durable history before get_account_status refreshes the
+            # persisted account ID. A missing peak is only a valid first-run
+            # baseline when no prior account/execution history exists.
+            prior_state = getattr(self.executor, "state", None)
+            prior_state_has_account_history = isinstance(prior_state, dict) and any(
+                (
+                    bool(prior_state.get("account_id")),
+                    bool(prior_state.get("last_execution_time")),
+                    bool(prior_state.get("total_orders")),
+                    bool(prior_state.get("equity_history")),
+                    bool(prior_state.get("order_submission_unresolved")),
+                    bool(prior_state.get("order_submission_confirmed")),
+                    bool(prior_state.get("emergency_liquidation_pending")),
+                    bool(prior_state.get("emergency_liquidation_unresolved")),
+                )
+            )
             account = self.executor.get_account_status()
             if account.get("account_data_fresh") is not True:
                 raise RuntimeError("Cannot verify current broker account equity; refusing to submit target weights")
@@ -251,6 +267,10 @@ class PaperTradingBot:
                 )
                 # Legacy peaks without matching provenance may have come from
                 # configured initial capital; re-anchor to this verified snapshot.
+                if stored_peak is None and prior_state_has_account_history:
+                    raise RuntimeError(
+                        "Cannot calculate drawdown: persisted risk peak is missing for existing broker state"
+                    )
                 if stored_peak is None or not provenance_matches:
                     stored_peak = portfolio_value
                     # The overlay also keeps an in-memory high-water mark. Re-anchor

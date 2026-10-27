@@ -1615,14 +1615,55 @@ class BrokerExecutor:
         return result
 
     def _get_prices_from_bars(self, tickers: List[str]) -> Dict[str, float]:
+        """Return only positive prices backed by recent, timestamped quotes.
+
+        Daily bar closes can be hours old during a live session and are not a
+        safe fallback for sizing market orders. Missing, malformed, stale, or
+        implausibly future-dated quotes are omitted; the execution preflight
+        then blocks the rebalance before submitting any order.
+        """
+        max_quote_age = timedelta(minutes=5)
+        future_tolerance = timedelta(seconds=30)
+        now = datetime.now(timezone.utc)
         try:
-            bars_df = self.alpaca_feed.get_bars(tickers, days=2)
+            quotes = self.alpaca_feed.get_latest_quotes(tickers)
+            if not isinstance(quotes, dict):
+                raise RuntimeError("Market data provider returned an invalid quote snapshot")
             prices = {}
             for ticker in tickers:
-                close_col = f"Close_{ticker}"
-                if close_col in bars_df.columns:
-                    prices[ticker] = float(bars_df[close_col].iloc[-1])
+                quote = quotes.get(ticker)
+                if not isinstance(quote, dict):
+                    continue
+                try:
+                    price = float(quote.get("price"))
+                    raw_timestamp = quote.get("timestamp")
+                    if isinstance(raw_timestamp, datetime):
+                        quote_timestamp = raw_timestamp
+                    elif raw_timestamp:
+                        quote_timestamp = datetime.fromisoformat(
+                            str(raw_timestamp).replace("Z", "+00:00")
+                        )
+                    else:
+                        continue
+                    if quote_timestamp.tzinfo is None:
+                        continue
+                    quote_timestamp = quote_timestamp.astimezone(timezone.utc)
+                    age = now - quote_timestamp
+                    if (
+                        not np.isfinite(price)
+                        or price <= 0
+                        or age > max_quote_age
+                        or age < -future_tolerance
+                    ):
+                        self.logger.warning(
+                            "Rejecting invalid or stale market quote for %s (age=%s)",
+                            ticker, age,
+                        )
+                        continue
+                    prices[ticker] = price
+                except (TypeError, ValueError, OverflowError):
+                    self.logger.warning("Rejecting malformed market quote for %s", ticker)
             return prices
         except Exception as e:
-            self.logger.warning(f"_get_prices_from_bars fallback: {e}")
+            self.logger.warning(f"Latest market quote read failed; refusing stale-bar fallback: {e}")
             return {}

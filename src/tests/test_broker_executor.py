@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import numpy as np
 import pytest
 
@@ -3079,4 +3081,66 @@ def test_stale_positions_with_partial_fill_reserves_full_order_exposure(
 
     # Reserving only the 60% unfilled remainder would leave room for a new buy;
     # reserving the full active order blocks that extra exposure until reconciled.
+    assert submitted == []
+
+
+@pytest.mark.parametrize(
+    "quote_time, expected",
+    [
+        (lambda now: now - timedelta(minutes=10), {}),
+        (lambda now: now + timedelta(minutes=2), {}),
+        (lambda now: None, {}),
+        (lambda now: now - timedelta(seconds=20), {"AAPL": 100.0}),
+    ],
+)
+def test_price_preflight_rejects_stale_future_or_untimestamped_quotes(
+    alpaca_env, monkeypatch, quote_time, expected
+):
+    executor = BrokerExecutor()
+    now = datetime.now(timezone.utc)
+    timestamp = quote_time(now)
+    quote = {"price": 100.0, "timestamp": timestamp.isoformat() if timestamp else None}
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {"AAPL": quote},
+    )
+
+    assert executor._get_prices_from_bars(["AAPL"]) == expected
+
+
+def test_execute_weights_blocks_new_position_when_quote_is_stale(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {
+            ticker: {"price": 100.0, "timestamp": stale_timestamp}
+            for ticker in tickers
+        },
+    )
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
     assert submitted == []

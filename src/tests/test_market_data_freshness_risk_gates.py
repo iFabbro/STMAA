@@ -133,3 +133,35 @@ def test_unestimable_pending_order_blocks_even_when_target_quotes_are_fresh(
         )
 
     assert submitted == []
+
+
+def test_market_data_provider_exception_blocks_all_new_orders(
+    executor_env, monkeypatch
+):
+    """A provider outage must not fall back to stale bars or partially submit."""
+    executor = executor_env
+    submitted = []
+    market_data_calls = []
+
+    def provider_failure(tickers):
+        market_data_calls.append(list(tickers))
+        raise RuntimeError("simulated market data provider outage")
+
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        provider_failure,
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert market_data_calls == [["AAPL"]]
+    assert submitted == []

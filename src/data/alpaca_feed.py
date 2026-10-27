@@ -159,16 +159,41 @@ class AlpacaFeed:
             quotes = self.client.get_stock_latest_quote(request)
         except Exception as e:
             logger.error(f"Errore get_latest_quotes: {e}")
-            return {t: {"price": 0.0, "change_pct": 0.0} for t in tickers}
+            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None} for t in tickers}
 
         result = {}
         for ticker in tickers:
             q = quotes.get(ticker)
             if q is None:
-                result[ticker] = {"price": 0.0, "change_pct": 0.0}
+                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
                 continue
-            mid = (float(q.ask_price) + float(q.bid_price)) / 2
-            result[ticker] = {"price": round(mid, 2), "change_pct": 0.0}
+            try:
+                bid = float(q.bid_price)
+                ask = float(q.ask_price)
+                quote_time = getattr(q, "timestamp", None)
+                if (
+                    not pd.notna(bid)
+                    or not pd.notna(ask)
+                    or bid <= 0
+                    or ask <= 0
+                    or ask < bid
+                    or quote_time is None
+                ):
+                    raise ValueError("quote has invalid bid/ask or missing timestamp")
+                timestamp = (
+                    quote_time.isoformat()
+                    if hasattr(quote_time, "isoformat")
+                    else str(quote_time)
+                )
+                mid = (ask + bid) / 2
+                result[ticker] = {
+                    "price": round(mid, 6),
+                    "change_pct": 0.0,
+                    "timestamp": timestamp,
+                }
+            except (TypeError, ValueError, OverflowError) as exc:
+                logger.warning("Invalid latest quote for %s: %s", ticker, exc)
+                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
 
         # Tenta di arricchire con variazione % usando barre intraday
         try:

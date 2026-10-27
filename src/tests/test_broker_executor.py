@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import numpy as np
 import pytest
 
@@ -3080,8 +3082,6 @@ def test_stale_positions_with_partial_fill_reserves_full_order_exposure(
     # Reserving only the 60% unfilled remainder would leave room for a new buy;
     # reserving the full active order blocks that extra exposure until reconciled.
     assert submitted == []
-
-from datetime import datetime, timedelta, timezone
 
 
 @pytest.mark.parametrize(

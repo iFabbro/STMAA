@@ -87,11 +87,12 @@ def test_reserved_notional_counts_accepted(alpaca_env):
     assert reserved == 1000.0
 
 
-def test_reserved_notional_counts_partially_filled_residual(alpaca_env):
+def test_reserved_notional_counts_full_partially_filled_order_until_reconciled(alpaca_env):
     executor = BrokerExecutor()
     orders = [_FakeOrder("partially_filled", qty=10, filled_qty=4, limit_price=50.0, symbol="MSFT")]
     reserved = executor._get_reserved_notional(orders, prices={"MSFT": 50.0})
-    assert reserved == 300.0
+    # Broker position snapshots may lag fills; reserve the original notional.
+    assert reserved == 500.0
 
 
 def test_reserved_notional_ignores_filled(alpaca_env):

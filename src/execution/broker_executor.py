@@ -1169,31 +1169,126 @@ class BrokerExecutor:
             self._record_confirmed_submission(ticker, order_info)
 
     def _refresh_confirmed_submission_statuses(self) -> None:
-        """Refresh persisted acknowledged orders from the broker before deciding to block."""
+        """Refresh broker status and fill quantity before reconciling positions."""
         confirmed = dict(self.state.get("order_submission_confirmed", {}))
         changed = False
+        terminal_statuses = {"filled", "canceled", "cancelled", "expired", "rejected"}
         for client_order_id, stored_order in confirmed.items():
             status = self._status_text(stored_order.get("status", "unknown"), default="unknown")
-            if status in {"filled", "canceled", "cancelled", "expired", "rejected"}:
+            if status in terminal_statuses and stored_order.get("position_reconciled") is True:
                 continue
             order_id = stored_order.get("order_id")
             if not order_id:
+                if status in terminal_statuses:
+                    raise RuntimeError(
+                        "Terminal broker order lacks an ID for position reconciliation; manual reconciliation required"
+                    )
                 continue
             try:
                 order = self.trading_client.get_order_by_id(order_id)
             except Exception as exc:
-                # Unknown broker state is not evidence that the order is terminal.
+                # A terminal status without a fresh order/fill read cannot prove
+                # that the position snapshot includes the fill.
                 self.logger.warning(
                     "Unable to refresh acknowledged order %s (%s); retaining fail-closed guard: %s",
                     client_order_id, order_id, exc,
                 )
+                if status in terminal_statuses:
+                    raise RuntimeError(
+                        "Unable to refresh terminal broker order before position reconciliation"
+                    ) from exc
                 continue
             broker_status = self._status_text(getattr(order, "status", "unknown"), default="unknown")
+            raw_filled_qty = getattr(order, "filled_qty", None)
+            updated = dict(stored_order)
             if broker_status != stored_order.get("status"):
-                updated = dict(stored_order)
                 updated["status"] = broker_status
-                confirmed[client_order_id] = updated
                 changed = True
+            if raw_filled_qty not in (None, ""):
+                try:
+                    filled_qty = float(raw_filled_qty)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError("Broker returned invalid filled quantity for acknowledged order") from exc
+                if not np.isfinite(filled_qty) or filled_qty < 0:
+                    raise RuntimeError("Broker returned invalid filled quantity for acknowledged order")
+                if updated.get("filled_qty") != filled_qty:
+                    updated["filled_qty"] = filled_qty
+                    changed = True
+            elif broker_status in terminal_statuses:
+                raise RuntimeError(
+                    "Terminal broker order has no verified filled quantity; manual reconciliation required"
+                )
+            confirmed[client_order_id] = updated
+
+        if changed:
+            previous_state = dict(self.state)
+            self.state["order_submission_confirmed"] = confirmed
+            try:
+                self._save_state()
+            except Exception:
+                self.state.clear()
+                self.state.update(previous_state)
+                raise
+
+    def _reconcile_terminal_order_positions(self) -> None:
+        """Keep terminal orders blocked until a broker position snapshot reflects their fills."""
+        confirmed = dict(self.state.get("order_submission_confirmed", {}))
+        terminal_statuses = {"filled", "canceled", "cancelled", "expired", "rejected"}
+        pending = [
+            (client_order_id, order)
+            for client_order_id, order in confirmed.items()
+            if self._status_text(order.get("status", "unknown"), default="unknown") in terminal_statuses
+            and order.get("position_reconciled") is not True
+        ]
+        if not pending:
+            return
+
+        positions = self.get_positions()
+        changed = False
+        for client_order_id, order in pending:
+            ticker = str(order.get("ticker", "")).strip()
+            if not ticker or order.get("pre_order_position_qty") is None:
+                raise RuntimeError(
+                    "Terminal broker order lacks a pre-order position baseline; manual reconciliation required"
+                )
+            try:
+                baseline_qty = float(order["pre_order_position_qty"])
+                filled_qty = float(order["filled_qty"])
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    "Terminal broker order has invalid quantity provenance; manual reconciliation required"
+                ) from exc
+            if (
+                not np.isfinite(baseline_qty)
+                or not np.isfinite(filled_qty)
+                or filled_qty < 0
+            ):
+                raise RuntimeError(
+                    "Terminal broker order has invalid quantity provenance; manual reconciliation required"
+                )
+            side = str(order.get("side", "")).lower()
+            if side == "buy":
+                expected_qty = baseline_qty + filled_qty
+            elif side == "sell":
+                expected_qty = baseline_qty - filled_qty
+            else:
+                raise RuntimeError(
+                    "Terminal broker order has unknown side; manual reconciliation required"
+                )
+            actual_qty = float(positions.get(ticker, {}).get("qty", 0.0) or 0.0)
+            if not np.isfinite(actual_qty):
+                raise RuntimeError("Broker position quantity is invalid during order reconciliation")
+            tolerance = max(1e-6, 1e-5 * max(1.0, abs(expected_qty), abs(actual_qty)))
+            if abs(actual_qty - expected_qty) > tolerance:
+                raise RuntimeError(
+                    f"Broker position snapshot has not reconciled terminal order {client_order_id} "
+                    f"for {ticker}; expected quantity {expected_qty}, observed {actual_qty}"
+                )
+            updated = dict(order)
+            updated["position_reconciled"] = True
+            confirmed[client_order_id] = updated
+            changed = True
+
         if changed:
             previous_state = dict(self.state)
             self.state["order_submission_confirmed"] = confirmed
@@ -1207,6 +1302,7 @@ class BrokerExecutor:
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         self._reconcile_unresolved_submissions()
         self._refresh_confirmed_submission_statuses()
+        self._reconcile_terminal_order_positions()
         unresolved_submissions = self.state.get("order_submission_unresolved", {})
         confirmed_submissions = self.state.get("order_submission_confirmed", {})
         active_confirmed = {
@@ -1557,6 +1653,9 @@ class BrokerExecutor:
                         "status": self._status_text(order.status, default="unknown"),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
+                        "pre_order_position_qty": float(
+                            positions.get(ticker, {}).get("qty", 0.0) or 0.0
+                        ),
                     }
                     orders_executed.append(order_info)
                     self._record_confirmed_submission(ticker, order_info)

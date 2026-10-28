@@ -17,9 +17,6 @@ def alpaca_env(monkeypatch, tmp_path):
 
 
 def test_confirmed_order_enum_status_is_normalized_before_reconciliation(alpaca_env, monkeypatch):
-    from enum import Enum
-    from types import SimpleNamespace
-
     class BrokerStatus(Enum):
         FILLED = "filled"
 

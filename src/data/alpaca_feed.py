@@ -163,7 +163,8 @@ class AlpacaFeed:
         result = pd.DataFrame()
         for ticker in tickers:
             sub = bars[bars["Symbol"] == ticker][["Close", "High", "Low", "Volume"]].copy()
-            sub = sub.sort_index().tail(days)
+            # Preserve the full available history for rolling features; trim output only after indicators are computed.
+            sub = sub.sort_index()
 
             result[f"Close_{ticker}"] = sub["Close"]
 
@@ -195,6 +196,8 @@ class AlpacaFeed:
             ).max(axis=1)
             result[f"ATR_{ticker}"] = tr.rolling(14).mean().reindex(result.index)
 
+        result.sort_index(inplace=True)
+        result = result.tail(days)
         result.dropna(how="all", inplace=True)
 
         # A fresh final OHLCV bar is not sufficient if the strategy features

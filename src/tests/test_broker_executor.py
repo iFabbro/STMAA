@@ -2529,6 +2529,7 @@ def test_account_status_persists_separate_verified_equity_and_portfolio_value(al
         equity="1100.0",
         daytrade_count=0,
         status="ACTIVE",
+        trading_blocked=False,
     ))
 
     account = executor.get_account_status()
@@ -2571,6 +2572,7 @@ def test_account_status_missing_current_id_discards_persisted_identity_for_peak_
         equity="90000.0",
         daytrade_count=0,
         status="ACTIVE",
+        trading_blocked=False,
         id=None,
     ))
 
@@ -2772,6 +2774,7 @@ def test_account_status_refuses_a_different_broker_account_id(alpaca_env):
         equity="1100.0",
         daytrade_count=0,
         status="ACTIVE",
+        trading_blocked=False,
     ))
 
     account = executor.get_account_status()
@@ -2799,6 +2802,7 @@ def test_account_api_failure_marks_persisted_snapshot_stale_after_prior_success(
             equity="1100.0",
             daytrade_count=0,
             status="ACTIVE",
+        trading_blocked=False,
         )
 
     executor.trading_client = SimpleNamespace(get_account=get_account)

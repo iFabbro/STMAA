@@ -163,7 +163,8 @@ class AlpacaFeed:
         result = pd.DataFrame()
         for ticker in tickers:
             sub = bars[bars["Symbol"] == ticker][["Close", "High", "Low", "Volume"]].copy()
-            sub = sub.sort_index().tail(days)
+            # Preserve the full available history for rolling features; trim output only after indicators are computed.
+            sub = sub.sort_index()
 
             result[f"Close_{ticker}"] = sub["Close"]
 
@@ -195,7 +196,36 @@ class AlpacaFeed:
             ).max(axis=1)
             result[f"ATR_{ticker}"] = tr.rolling(14).mean().reindex(result.index)
 
+        result.sort_index(inplace=True)
+        result = result.tail(days)
         result.dropna(how="all", inplace=True)
+
+        # A fresh final OHLCV bar is not sufficient if the strategy features
+        # computed from the rolling history are missing or non-finite. Refuse
+        # to pass an incomplete final observation into target-weight inference.
+        required_latest_features = ("Close", "RSI", "MACD", "BB_middle", "ATR")
+        if result.empty:
+            raise RuntimeError("AlpacaFeed: no usable strategy features were produced")
+        for ticker in tickers:
+            missing_features = []
+            for feature in required_latest_features:
+                column = f"{feature}_{ticker}"
+                if column not in result.columns:
+                    missing_features.append(column)
+                    continue
+                try:
+                    value = float(result[column].iloc[-1])
+                except (TypeError, ValueError):
+                    missing_features.append(column)
+                    continue
+                if not pd.notna(value) or not value == value or value in (float("inf"), float("-inf")):
+                    missing_features.append(column)
+            if missing_features:
+                raise RuntimeError(
+                    f"AlpacaFeed: invalid latest strategy features for {ticker}: "
+                    + ", ".join(missing_features)
+                )
+
         logger.info(f"✅ Bars pronte: {len(result)} righe, {len(tickers)} tickers")
         return result
 

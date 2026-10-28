@@ -475,7 +475,7 @@ def test_execute_weights_holds_position_when_target_is_unchanged(alpaca_env, mon
         "buying_power": 10000.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 1000.0}}
+    positions = {"AAPL": {"market_value": 1000.0, "qty": 10.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -504,7 +504,7 @@ def test_execute_weights_sells_only_delta_when_target_is_reduced(alpaca_env, mon
         "buying_power": 10000.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 1000.0}}
+    positions = {"AAPL": {"market_value": 1000.0, "qty": 10.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -534,7 +534,7 @@ def test_execute_weights_zero_target_closes_position(alpaca_env, monkeypatch):
         "buying_power": 10000.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 200.0}}
+    positions = {"AAPL": {"market_value": 200.0, "qty": 2.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -606,7 +606,7 @@ def test_drawdown_risk_gate_does_not_implicitly_liquidate_positions(alpaca_env, 
     # The mocked account snapshot represents a successful response with a
     # verified current account ID; the real get_account_status sets this flag.
     executor._current_account_identity_verified = True
-    positions = {"AAPL": {"market_value": 500.0}}
+    positions = {"AAPL": {"market_value": 500.0, "qty": 5.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -726,7 +726,7 @@ def test_zero_buying_power_still_allows_risk_reducing_sell(alpaca_env, monkeypat
         "buying_power": 0.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 200.0}}
+    positions = {"AAPL": {"market_value": 200.0, "qty": 2.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -757,9 +757,9 @@ def test_pending_risk_reduction_blocks_new_exposure_in_same_batch(alpaca_env, mo
         "account_data_fresh": True,
     })
     positions = {
-        "A": {"market_value": 1000.0},
-        "B": {"market_value": 500.0},
-        "C": {"market_value": 3500.0},
+        "A": {"market_value": 1000.0, "qty": 10.0},
+        "B": {"market_value": 500.0, "qty": 5.0},
+        "C": {"market_value": 3500.0, "qty": 35.0},
     }
     monkeypatch.setattr(executor, "get_positions", lambda: positions.copy())
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
@@ -1038,7 +1038,7 @@ def test_execute_weights_preflights_quote_for_risk_forced_position_reduction(
     })
     monkeypatch.setattr(
         executor, "get_positions",
-        lambda: {"AAPL": {"market_value": 2000.0}},
+        lambda: {"AAPL": {"market_value": 2000.0, "qty": 20.0}},
     )
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {})
@@ -1050,7 +1050,7 @@ def test_execute_weights_preflights_quote_for_risk_forced_position_reduction(
 
     monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
 
-    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+    with pytest.raises(RuntimeError, match="Cannot safely calculate exposure"):
         executor.execute_weights(
             PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
         )

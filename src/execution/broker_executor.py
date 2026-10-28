@@ -1203,6 +1203,27 @@ class BrokerExecutor:
             broker_status = self._status_text(getattr(order, "status", "unknown"), default="unknown")
             raw_filled_qty = getattr(order, "filled_qty", None)
             updated = dict(stored_order)
+            if broker_status in terminal_statuses:
+                broker_symbol = str(getattr(order, "symbol", "") or "").strip()
+                raw_side = getattr(order, "side", "")
+                broker_side = str(getattr(raw_side, "value", raw_side)).lower()
+                try:
+                    broker_qty = float(getattr(order, "qty", None))
+                    expected_order_qty = float(stored_order.get("quantity"))
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        "Terminal broker order has invalid identity/quantity; manual reconciliation required"
+                    ) from exc
+                if (
+                    broker_symbol != str(stored_order.get("ticker", "")).strip()
+                    or broker_side != str(stored_order.get("side", "")).lower()
+                    or not np.isfinite(broker_qty)
+                    or not np.isfinite(expected_order_qty)
+                    or not np.isclose(broker_qty, expected_order_qty, rtol=1e-6, atol=1e-8)
+                ):
+                    raise RuntimeError(
+                        "Terminal broker order identity differs from persisted intent; manual reconciliation required"
+                    )
             if broker_status != stored_order.get("status"):
                 updated["status"] = broker_status
                 changed = True

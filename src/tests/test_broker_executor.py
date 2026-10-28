@@ -504,7 +504,7 @@ def test_execute_weights_sells_only_delta_when_target_is_reduced(alpaca_env, mon
         "buying_power": 10000.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 1000.0}}
+    positions = {"AAPL": {"market_value": 1000.0, "qty": 10.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
@@ -726,7 +726,7 @@ def test_zero_buying_power_still_allows_risk_reducing_sell(alpaca_env, monkeypat
         "buying_power": 0.0, "equity": 10000.0,
         "account_data_fresh": True,
     })
-    positions = {"AAPL": {"market_value": 200.0}}
+    positions = {"AAPL": {"market_value": 200.0, "qty": 2.0}}
     monkeypatch.setattr(executor, "get_positions", lambda: positions)
     monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
     monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})

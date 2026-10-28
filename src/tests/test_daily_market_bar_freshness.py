@@ -38,25 +38,47 @@ def _bars(rows):
     return pd.DataFrame(values, index=index)
 
 
+def _history(symbol, base_price, *, flat=False, invalid_close_at=None):
+    dates = pd.bdate_range(end="2026-10-27", periods=30)
+    rows = []
+    for index, timestamp in enumerate(dates):
+        close = float(base_price if flat else base_price + index)
+        if invalid_close_at == index:
+            close = float("nan")
+        rows.append((
+            symbol,
+            timestamp.strftime("%Y-%m-%d"),
+            close,
+            (base_price if flat else base_price + index) + 1.0,
+            (base_price if flat else base_price + index) - 1.0,
+            close,
+            1000.0 + index,
+        ))
+    return rows
+
+
 def test_daily_bars_accept_complete_fresh_snapshot_for_every_ticker(feed, monkeypatch):
-    snapshot = _bars([
-        ("AAPL", "2026-10-27", 99.0, 102.0, 98.0, 101.0, 1000.0),
-        ("MSFT", "2026-10-27", 199.0, 202.0, 198.0, 201.0, 2000.0),
-    ])
-    monkeypatch.setattr(feed.client, "get_stock_bars", lambda request: type("Response", (), {"df": snapshot})())
+    snapshot = _bars(_history("AAPL", 100.0) + _history("MSFT", 200.0))
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
 
     result = feed.get_bars(["AAPL", "MSFT"], days=1)
 
     assert not result.empty
-    assert result["Close_AAPL"].iloc[-1] == pytest.approx(101.0)
-    assert result["Close_MSFT"].iloc[-1] == pytest.approx(201.0)
+    assert result["Close_AAPL"].iloc[-1] == pytest.approx(129.0)
+    assert result["Close_MSFT"].iloc[-1] == pytest.approx(229.0)
 
 
 def test_daily_bars_fail_closed_when_a_requested_ticker_is_missing(feed, monkeypatch):
-    snapshot = _bars([
-        ("AAPL", "2026-10-27", 99.0, 102.0, 98.0, 101.0, 1000.0),
-    ])
-    monkeypatch.setattr(feed.client, "get_stock_bars", lambda request: type("Response", (), {"df": snapshot})())
+    snapshot = _bars(_history("AAPL", 100.0))
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
 
     with pytest.raises(RuntimeError, match="no market bars received for MSFT"):
         feed.get_bars(["AAPL", "MSFT"], days=1)
@@ -66,7 +88,11 @@ def test_daily_bars_fail_closed_when_latest_session_is_stale(feed, monkeypatch):
     snapshot = _bars([
         ("AAPL", "2026-10-26", 99.0, 102.0, 98.0, 101.0, 1000.0),
     ])
-    monkeypatch.setattr(feed.client, "get_stock_bars", lambda request: type("Response", (), {"df": snapshot})())
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
 
     with pytest.raises(RuntimeError, match="stale daily bars for AAPL"):
         feed.get_bars(["AAPL"], days=1)
@@ -82,7 +108,43 @@ def test_daily_bars_fail_closed_when_latest_session_is_stale(feed, monkeypatch):
 )
 def test_daily_bars_fail_closed_on_invalid_latest_ohlcv(feed, monkeypatch, ohlcv):
     snapshot = _bars([("AAPL", "2026-10-27", *ohlcv)])
-    monkeypatch.setattr(feed.client, "get_stock_bars", lambda request: type("Response", (), {"df": snapshot})())
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
 
     with pytest.raises(RuntimeError, match="invalid latest daily"):
+        feed.get_bars(["AAPL"], days=1)
+
+
+def test_daily_bars_fail_closed_when_latest_strategy_indicator_is_undefined(
+    feed, monkeypatch
+):
+    # Flat closes make RSI undefined (zero gains and zero losses), despite
+    # a fresh, valid OHLCV bar. Such features must not reach PPO inference.
+    snapshot = _bars(_history("AAPL", 100.0, flat=True))
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid latest strategy features for AAPL: RSI_AAPL"):
+        feed.get_bars(["AAPL"], days=1)
+
+
+def test_daily_bars_fail_closed_when_recent_history_makes_latest_features_invalid(
+    feed, monkeypatch
+):
+    # The final OHLCV row is valid, but a missing close inside the indicator
+    # lookback contaminates the latest rolling features.
+    snapshot = _bars(_history("AAPL", 100.0, invalid_close_at=27))
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid latest strategy features for AAPL"):
         feed.get_bars(["AAPL"], days=1)

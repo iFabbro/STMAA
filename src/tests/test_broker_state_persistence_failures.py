@@ -25,8 +25,11 @@ def _concurrent_state_writer(state_file, barrier, result_queue, marker):
 
 
 @pytest.fixture
-def persistence_executor(alpaca_env, monkeypatch):
-    monkeypatch.setenv("STMAA_BROKER_STATE_FILE", str(__import__("pathlib").Path.cwd() / "state.json"))
+def persistence_executor(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv("STMAA_BROKER_STATE_FILE", str(tmp_path / "state.json"))
     return BrokerExecutor()
 
 

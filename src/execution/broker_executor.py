@@ -466,8 +466,7 @@ class BrokerExecutor:
             ) from exc
 
     def _order_status_value(self, order) -> str:
-        status = getattr(order, "status", "")
-        return str(status).lower()
+        return self._status_text(getattr(order, "status", ""))
 
     def _estimate_order_notional(self, order, prices: Optional[Dict[str, float]] = None) -> float:
         """Estimate remaining exposure; fail closed when an active order is unpriceable."""
@@ -1086,7 +1085,7 @@ class BrokerExecutor:
                 "quantity": intent.get("quantity"),
                 "order_id": str(order_id),
                 "client_order_id": str(client_order_id),
-                "status": str(getattr(order, "status", "unknown")),
+                "status": self._status_text(getattr(order, "status", "unknown"), default="unknown"),
                 "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "price": intent.get("price"),
                 "reconciled": True,
@@ -1098,7 +1097,7 @@ class BrokerExecutor:
         confirmed = dict(self.state.get("order_submission_confirmed", {}))
         changed = False
         for client_order_id, stored_order in confirmed.items():
-            status = str(stored_order.get("status", "unknown")).strip().lower()
+            status = self._status_text(stored_order.get("status", "unknown"), default="unknown")
             if status in {"filled", "canceled", "cancelled", "expired", "rejected"}:
                 continue
             order_id = stored_order.get("order_id")
@@ -1113,7 +1112,7 @@ class BrokerExecutor:
                     client_order_id, order_id, exc,
                 )
                 continue
-            broker_status = str(getattr(order, "status", "unknown"))
+            broker_status = self._status_text(getattr(order, "status", "unknown"), default="unknown")
             if broker_status != stored_order.get("status"):
                 updated = dict(stored_order)
                 updated["status"] = broker_status
@@ -1137,7 +1136,7 @@ class BrokerExecutor:
         active_confirmed = {
             ticker: order
             for ticker, order in confirmed_submissions.items()
-            if str(order.get("status", "unknown")).strip().lower() not in {
+            if self._status_text(order.get("status", "unknown"), default="unknown") not in {
                 "filled", "canceled", "cancelled", "expired", "rejected"
             }
         }
@@ -1479,7 +1478,7 @@ class BrokerExecutor:
                         "quantity": qty,
                         "order_id": str(order_id),
                         "client_order_id": client_order_id,
-                        "status": str(order.status),
+                        "status": self._status_text(order.status, default="unknown"),
                         "timestamp": datetime.now().isoformat(),
                         "price": price,
                     }

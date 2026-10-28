@@ -1103,6 +1103,20 @@ class BrokerExecutor:
                 }
                 if not all(np.isfinite(value) for value in values.values()):
                     raise ValueError(f"Broker returned non-finite position data for {symbol}")
+                quantity = values["qty"]
+                market_value = values["market_value"]
+                # Exposure is calculated from market_value. A broker row that
+                # reports a non-flat quantity with zero value (or a flat quantity
+                # with non-zero value) is internally inconsistent and must not be
+                # treated as a reliable exposure snapshot.
+                if (quantity == 0) != (market_value == 0):
+                    raise ValueError(
+                        f"Broker returned inconsistent quantity/market value for {symbol}"
+                    )
+                if quantity != 0 and values["avg_entry_price"] <= 0:
+                    raise ValueError(
+                        f"Broker returned invalid average entry price for open position {symbol}"
+                    )
                 parsed_positions[symbol] = values
             return parsed_positions
         except Exception as e:

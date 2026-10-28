@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import pandas as pd
+import pandas_market_calendars as mcal
 
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
@@ -49,6 +50,24 @@ class AlpacaFeed:
     # ------------------------------------------------------------------
     # Dati storici (bars giornalieri)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _latest_completed_nyse_session_date(now=None):
+        """Return the most recent fully completed NYSE session date."""
+        current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+        if current.tzinfo is None:
+            current = current.tz_localize("UTC")
+        current = current.tz_convert("UTC")
+        calendar = mcal.get_calendar("NYSE")
+        start = (current - pd.Timedelta(days=14)).date().isoformat()
+        end = current.date().isoformat()
+        schedule = calendar.schedule(start_date=start, end_date=end)
+        if schedule.empty:
+            raise RuntimeError("AlpacaFeed: NYSE calendar has no recent sessions")
+        completed = schedule[schedule["market_close"] <= current]
+        if completed.empty:
+            raise RuntimeError("AlpacaFeed: no completed NYSE session available")
+        return completed.index[-1].date()
 
     def get_bars(
         self,
@@ -102,8 +121,43 @@ class AlpacaFeed:
             },
             inplace=True,
         )
-        bars["Date"] = pd.to_datetime(bars["Date"]).dt.tz_localize(None)
+        bars["Date"] = pd.to_datetime(bars["Date"], utc=True).dt.tz_localize(None)
         bars = bars.set_index("Date")
+
+        # Never silently build a partial multi-asset feature matrix: a missing
+        # symbol can otherwise produce target weights from incomplete observations.
+        for ticker in tickers:
+            ticker_bars = bars[bars["Symbol"] == ticker].sort_index()
+            if ticker_bars.empty:
+                raise RuntimeError(f"AlpacaFeed: no market bars received for {ticker}")
+            if timeframe == _DAILY_TIMEFRAME:
+                expected_session = self._latest_completed_nyse_session_date(end)
+                latest_date = ticker_bars.index[-1].date()
+                if latest_date != expected_session:
+                    raise RuntimeError(
+                        f"AlpacaFeed: stale daily bars for {ticker}; "
+                        f"latest observation {latest_date}, expected {expected_session}"
+                    )
+                latest = ticker_bars.iloc[-1]
+                try:
+                    close = float(latest["Close"])
+                    high = float(latest["High"])
+                    low = float(latest["Low"])
+                    volume = float(latest["Volume"])
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"AlpacaFeed: invalid latest daily bar for {ticker}"
+                    ) from exc
+                if (
+                    not all(pd.notna(value) and value == value for value in (close, high, low, volume))
+                    or min(close, high, low) <= 0
+                    or volume < 0
+                    or high < low
+                    or not (low <= close <= high)
+                ):
+                    raise RuntimeError(
+                        f"AlpacaFeed: invalid latest daily OHLCV values for {ticker}"
+                    )
 
         # Costruisce DataFrame flat atteso dalla pipeline
         result = pd.DataFrame()

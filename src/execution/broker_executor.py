@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import tempfile
+import fcntl
 import copy
 import uuid
 import numpy as np
@@ -173,8 +174,11 @@ class BrokerExecutor:
             )
         else:
             self.state_file = default_state_file
+        self._persisted_state_revision = -1
+        self._state_persistence_failed = False
         self.state = {
             "state_schema_version": 1,
+            "state_revision": 0,
             "last_execution_time": None,
             "total_orders": 0,
             "configured_initial_capital": float(initial_capital),
@@ -216,6 +220,10 @@ class BrokerExecutor:
                 raise ValueError(
                     "persisted broker state schema is missing or unsupported; manual reconciliation required"
                 )
+            state_revision = loaded_state.get("state_revision", 0)
+            if type(state_revision) is not int or state_revision < 0:
+                raise ValueError("persisted broker state revision is invalid")
+            self._persisted_state_revision = state_revision
             safety_maps = (
                 "emergency_liquidation_pending",
                 "emergency_liquidation_unresolved",
@@ -358,24 +366,49 @@ class BrokerExecutor:
             raise
 
     def _save_state(self):
-        """Persist state atomically so an interrupted write cannot truncate it."""
+        """Atomically persist state and reject stale writers across processes."""
+        if self._state_persistence_failed:
+            raise RuntimeError("Broker state persistence previously failed; refusing further execution")
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.state_file.with_name(self.state_file.name + ".lock")
         temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=self.state_file.parent,
-                prefix=f".{self.state_file.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as state_file:
-                temp_path = Path(state_file.name)
-                json.dump(self.state, state_file)
-                state_file.flush()
-                os.fsync(state_file.fileno())
-            os.replace(temp_path, self.state_file)
+            with open(lock_path, "a+", encoding="utf-8") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                disk_revision = -1
+                if self.state_file.exists():
+                    with open(self.state_file, encoding="utf-8") as existing_file:
+                        existing_state = json.load(existing_file)
+                    if not isinstance(existing_state, dict):
+                        raise RuntimeError("Persisted broker state is not a JSON object")
+                    disk_revision = existing_state.get("state_revision", 0)
+                    if type(disk_revision) is not int or disk_revision < 0:
+                        raise RuntimeError("Persisted broker state revision is invalid")
+                if disk_revision != self._persisted_state_revision:
+                    raise RuntimeError(
+                        "Persisted broker state changed in another process; refusing stale overwrite"
+                    )
+                next_revision = disk_revision + 1
+                payload = copy.deepcopy(self.state)
+                payload["state_revision"] = next_revision
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=self.state_file.parent,
+                    prefix=f".{self.state_file.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as state_file:
+                    temp_path = Path(state_file.name)
+                    json.dump(payload, state_file)
+                    state_file.flush()
+                    os.fsync(state_file.fileno())
+                os.replace(temp_path, self.state_file)
+                self.state["state_revision"] = next_revision
+                self._persisted_state_revision = next_revision
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         except Exception:
+            self._state_persistence_failed = True
             if temp_path is not None:
                 try:
                     temp_path.unlink(missing_ok=True)

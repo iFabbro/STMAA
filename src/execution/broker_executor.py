@@ -387,13 +387,27 @@ class BrokerExecutor:
         self._current_account_identity_verified = False
         try:
             account = self.trading_client.get_account()
+            raw_status = getattr(account, "status", None)
+            status_value = getattr(raw_status, "value", raw_status)
+            account_status = str(status_value or "").strip().lower().rsplit(".", 1)[-1]
+            trading_blocked = getattr(account, "trading_blocked", None)
+            if account_status != "active":
+                raise ValueError(
+                    f"Broker account status is not active ({account_status or 'unknown'})"
+                )
+            if trading_blocked is not False:
+                raise ValueError(
+                    "Broker account trading_blocked flag is true or unavailable"
+                )
+
             data = {
                 "cash": float(account.cash),
                 "portfolio_value": float(account.portfolio_value),
                 "buying_power": float(account.buying_power),
                 "equity": float(account.equity),
                 "daytrade_count": account.daytrade_count,
-                "status": account.status,
+                "status": account_status,
+                "trading_blocked": trading_blocked,
                 "account_data_fresh": True,
                 "account_data_source": "alpaca_account",
                 "account_snapshot_at": datetime.now(timezone.utc).isoformat(),

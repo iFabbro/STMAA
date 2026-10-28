@@ -3221,3 +3221,48 @@ def test_market_data_provider_exception_blocks_new_position(
         )
 
     assert submitted == []
+
+
+def test_multisymbol_preflight_blocks_all_orders_if_one_required_quote_is_stale(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    now = datetime.now(timezone.utc)
+    fresh_timestamp = now.isoformat()
+    stale_timestamp = (now - timedelta(minutes=10)).isoformat()
+    submitted = []
+
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {
+            "AAPL": {"price": 100.0, "timestamp": fresh_timestamp},
+            "MSFT": {"price": 200.0, "timestamp": stale_timestamp},
+        },
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="valid prices unavailable for: MSFT",
+    ):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1, 0.1]), tickers=["AAPL", "MSFT"])
+        )
+
+    # Preflight must validate the whole rebalance before submitting even the
+    # AAPL order backed by a fresh quote.
+    assert submitted == []

@@ -1,6 +1,5 @@
 """End-to-end fail-closed checks for malformed or implausibly timed quotes."""
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import numpy as np
 import pytest

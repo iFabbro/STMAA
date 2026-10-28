@@ -798,3 +798,37 @@ def test_execute_trade_explicit_drawdown_liquidation_bypasses_unavailable_vix(
     assert executor.submitted_weights.metadata["circuit_breaker_triggered"] is True
     assert executor.submitted_weights.metadata["liquidate_on_circuit_breaker"] is True
     np.testing.assert_array_equal(executor.submitted_weights.weights, np.zeros(1))
+
+
+def test_run_loop_does_not_submit_orders_when_market_data_features_are_invalid(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL"]
+    bot.executor = SimpleNamespace(paper_trading=True)
+    generated_weights = []
+    submitted_weights = []
+
+    def invalid_market_data():
+        raise RuntimeError(
+            "AlpacaFeed: invalid latest strategy features for AAPL: RSI_AAPL"
+        )
+
+    bot.get_market_data = invalid_market_data
+    bot.generate_weights = lambda data: generated_weights.append(data)
+    bot.execute_trade = lambda weights: submitted_weights.append(weights)
+    bot.update_hub_state = lambda result: None
+
+    monkeypatch.setattr(trade, "running", True)
+
+    def stop_after_one_iteration(_interval):
+        monkeypatch.setattr(trade, "running", False)
+
+    monkeypatch.setattr(trade.time, "sleep", stop_after_one_iteration)
+
+    bot.run_loop(interval_seconds=0)
+
+    assert generated_weights == []
+    assert submitted_weights == []

@@ -127,3 +127,32 @@ def test_smoke_preflight_blocks_non_finite_or_unparseable_position_exposure(posi
     executor = FakeExecutor(positions=positions)
     with pytest.raises(RuntimeError, match="exposure is invalid"):
         validate_smoke_order_preflight(executor, "SPY", 10.0, fresh_quote())
+
+
+def test_direct_smoke_order_path_blocks_pending_order_even_when_quote_is_stale():
+    executor = FakeExecutor(open_orders=[object()])
+    stale_quote = {
+        "price": 100.0,
+        "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+    }
+    with pytest.raises(RuntimeError, match="existing open orders"):
+        validate_smoke_order_preflight(executor, "SPY", 10.0, stale_quote)
+
+
+def test_direct_smoke_order_path_blocks_unresolved_restart_state_before_quote_use():
+    executor = FakeExecutor(
+        state={
+            "order_submission_unresolved": {
+                "AAPL": {
+                    "client_order_id": "persisted-ambiguous-order",
+                    "reason": "submission_outcome_unconfirmed",
+                }
+            }
+        }
+    )
+    stale_quote = {
+        "price": 100.0,
+        "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+    }
+    with pytest.raises(RuntimeError, match="persisted broker submissions need reconciliation"):
+        validate_smoke_order_preflight(executor, "SPY", 10.0, stale_quote)

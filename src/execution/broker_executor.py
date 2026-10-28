@@ -1486,6 +1486,35 @@ class BrokerExecutor:
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))
         prices = self._get_prices_from_bars(execution_tickers)
+
+        # Risk sizing must use broker quantity marked to a recent quote, not the
+        # broker's market_value field alone (which can lag the quote or be
+        # internally inconsistent with quantity). If any existing position
+        # cannot be marked reliably, fail closed before submitting any order.
+        marked_positions = {}
+        for ticker, position in positions.items():
+            try:
+                quantity = float(position.get("qty"))
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot safely calculate exposure: invalid broker quantity for {ticker}"
+                ) from exc
+            price = prices.get(ticker)
+            if (
+                not np.isfinite(quantity)
+                or price is None
+                or not np.isfinite(float(price))
+                or float(price) <= 0
+            ):
+                raise RuntimeError(
+                    f"Cannot safely calculate exposure: missing or invalid recent price for held position {ticker}"
+                )
+            marked_positions[ticker] = {
+                **position,
+                "market_value": quantity * float(price),
+                "risk_mark_price": float(price),
+            }
+        positions = marked_positions
         reserved_notional = self._get_reserved_notional(open_orders, prices=prices)
         if reserved_notional > 0:
             self.logger.warning(

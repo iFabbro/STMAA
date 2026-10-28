@@ -1,219 +1,154 @@
+# STMAA — Structural Trading Multi-Agent Architecture
+
 <p align="center">
-  <img src="./Logo.png" alt="Logo STMAA" width="180" />
+  <img src="./Logo.png" alt="STMAA logo" width="160" />
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.13-blue?logo=python&style=for-the-badge" alt="Python 3.13" />
-  <img src="https://img.shields.io/badge/Status-Alpha-orange?style=for-the-badge" alt="Status Alpha" />
-  <img src="https://img.shields.io/badge/Lifecycle-Experimental-orange?style=for-the-badge" alt="Lifecycle Experimental" />
-  <img src="https://img.shields.io/badge/Architecture-Multi--Agent-purple?style=for-the-badge" alt="Architecture Multi-Agent" />
-  <img src="https://img.shields.io/badge/Execution-Alpaca-blue?style=for-the-badge" alt="Execution Alpaca" />
-  <a href="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml"><img src="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/Status-Alpha-orange?style=for-the-badge" alt="Alpha status" />
+  <img src="https://img.shields.io/badge/Trading-Paper%20only-blue?style=for-the-badge" alt="Paper trading only" />
+  <a href="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml"><img src="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License" />
 </p>
 
-# STMAA
-Structural Trading Multi-Agent Architecture
+STMAA is an experimental, modular framework for systematic-trading research, portfolio-weight generation, backtesting, risk controls, and broker integration. Its design separates market-data validation, feature processing, strategy output, risk overlays, execution, persistence, and operational monitoring.
 
-STMAA is a modular research and execution framework for algorithmic trading, currently in active development. The project is built around a weight-centric portfolio interface that separates strategy logic, risk controls, execution, broker communication, and monitoring into independent components.
+**Current scope: research and Alpaca Paper Trading. STMAA is not certified or represented as production-ready software, and this repository's trading entry point is configured for paper trading only.** Passing tests does not establish profitability, eliminate execution risk, or certify suitability for live capital.
 
-The same strategy contract is intended to support:
+## Current capabilities
 
-- research
-- backtesting
-- paper trading
-- live execution
+- **Weight-centric strategy interface:** strategies express target allocations as portfolio weights.
+- **Market-data integration:** Alpaca historical bars and latest quotes, with validation intended to reject missing, malformed, incomplete, or stale inputs.
+- **Risk controls:** portfolio and position exposure constraints, drawdown-related controls, and VIX-aware risk overlay logic.
+- **Broker execution safeguards:** checks for account eligibility, pending/open orders, position and order-state consistency, and data needed to estimate exposure. When required state cannot be trusted, execution paths are designed to fail closed rather than submit a new order.
+- **Order-state reconciliation:** safeguards for delayed broker position updates after fills, including partial fills and unresolved discrepancies.
+- **Persisted execution state:** local state handling with atomic-write protections, process locking, and stale-writer checks.
+- **Backtesting components:** a research backtesting engine and shared weight-oriented interfaces.
+- **Operational visibility:** SQLite run/event logging and a terminal monitoring hub.
+- **Automated regression tests:** coverage for strategy, data, execution, risk, and failure scenarios.
 
-## Project Status
-
-STMAA is not a production-ready trading system.
-
-The repository currently reflects an alpha-stage architecture with a working core, active development areas, and several components still under validation or refinement. That includes areas such as reinforcement-learning integration, advanced risk logic, extended market-data handling, and full production hardening.
-
-## Demo
-
-<p align="center">
-  <img src="./hub-screenshot.png" alt="STMAA hub screenshot" />
-</p>
-
-## Why STMAA?
-
-Most trading bots combine signal generation, execution, broker logic, and monitoring into a single flow.
-
-STMAA instead uses a layered architecture:
-
-- market data feeds the system.
-- feature engineering prepares the inputs.
-- strategies generate portfolio weights.
-- the risk overlay constrains exposure.
-- the broker executor transforms weights into orders.
-- the broker handles execution.
-- logging records system activity.
-- the monitoring hub keeps the workflow visible.
-
-Each layer has a single responsibility. This makes the framework easier to extend, test, debug, and evolve as the project matures.
-
-## Features
-
-- Modular multi-agent architecture.
-- Weight-centric execution model.
-- Execution-consistent backtesting.
-- Alpaca paper trading integration.
-- Risk overlay.
-- SQLite structured logging.
-- Terminal monitoring hub.
-- Automated test suite.
-- DRL-ready architecture.
-- Research-oriented design.
+These are implementation-level capabilities, not a guarantee that every market, broker, network, or process failure is covered. Review the code and current CI results before relying on any behavior.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  MD[Market Data] --> FE[Feature Engineering]
-  FE --> ST[Strategy]
-  ST --> PW[Portfolio Weights]
-  PW --> RO[Risk Overlay]
-  RO --> BE[Broker Executor]
-  BE --> BR[Broker]
-  BE --> LG[SQLite Logger]
-  BE --> HB[Terminal Hub]
+  MD[Market data] --> DV[Data validation]
+  DV --> FE[Features]
+  FE --> ST[Strategy / PPO when available]
+  ST --> PW[Portfolio weights]
+  PW --> RO[Risk overlay]
+  RO --> EX[Broker executor]
+  EX <--> BR[Alpaca Paper API]
+  EX --> PS[Persisted execution state]
+  EX --> LG[SQLite logs]
+  LG --> HUB[Terminal monitoring hub]
 ```
 
-## Why STMAA instead of a monolithic trading bot?
+The repository includes PPO-related code, but the presence of an agent or training dependency should not be interpreted as proof of a trained, validated, or profitable model. Model quality and strategy performance require separate evaluation.
 
-| Feature | STMAA | Typical trading bot |
-|---|---:|---:|
-| Modular architecture | ✅ | ⚠️ |
-| Weight-based execution | ✅ | ❌ |
-| Risk overlay | ✅ | ⚠️ |
-| Execution-consistent backtesting | ✅ | ⚠️ |
-| Paper trading | ✅ | ✅ |
-| Live execution ready | ✅ | ⚠️ |
-| Monitoring hub | ✅ | ❌ |
-| Research oriented | ✅ | ⚠️ |
+## Safety and operating limits
 
-## Quick Start
+- The supplied `.env.example` configures `STMAA_TRADING_MODE=paper` and the Alpaca Paper API endpoint.
+- The `trade.py` entry point constructs the broker executor with paper trading enabled.
+- Risk configuration includes `MAX_PORTFOLIO_EXPOSURE` (default `0.50`) and `MAX_DRAWDOWN` (default `0.15`); values are validated at startup. Other risk controls are configured in the relevant strategy/execution modules.
+- The execution path contains fail-closed checks for important invalid or indeterminate broker, order, position, market-data, and persistence states.
+- Emergency liquidation on drawdown is opt-in and defaults to disabled in `.env.example`.
+- Automated tests use mocks and local state for many failure scenarios. A passing mocked test does not prove end-to-end broker behavior in every real-world condition.
 
-### Requirements
+**Do not point this project at a live brokerage account or use it to trade real funds based on the README alone.** Any future live-trading support would require a separate implementation review, explicit safeguards, operational testing, and independent risk validation.
 
-- Python 3.13 (the version tested in CI).
-- A virtual environment is recommended.
-- Alpaca paper trading credentials if you want to test the execution path.
+## Demo
 
-### Setup
+<p align="center">
+  <img src="./hub-screenshot.png" alt="STMAA terminal monitoring hub" />
+</p>
+
+## Requirements
+
+- Python 3.13 (the version configured in CI).
+- Git.
+- Alpaca Paper Trading credentials for workflows that require market data or broker access.
+
+## Quick start
+
+Clone the repository and create an isolated environment:
 
 ```bash
 git clone https://github.com/iFabbro/STMAA.git
 cd STMAA
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Run the main workflow
+Create a local environment file from the example:
 
 ```bash
-PYTHONPATH=. python3 trade.py
+cp .env.example .env
 ```
 
-### Run the orchestration hub
+Set your **Alpaca Paper Trading** API credentials in `.env`. Do not commit credentials or other secrets. Keep the paper endpoint and paper mode configuration unless you are working on an explicitly reviewed change.
+
+Run the test suite using the same test paths configured in CI:
 
 ```bash
-PYTHONPATH=. python3 hub.py
+python -m pytest src/tests tests -q
 ```
 
-### Run the test suite
+Start the paper-trading workflow:
 
 ```bash
-PYTHONPATH=. python3 -m pytest src/tests -q
+PYTHONPATH=. python trade.py
 ```
 
-## Example Session
+Start the terminal monitoring hub in a separate terminal:
+
+```bash
+PYTHONPATH=. python hub.py
+```
+
+The trading workflow may require valid credentials and accessible market data. Do not interpret startup success as evidence that a strategy is profitable or that all execution scenarios have been validated.
+
+## Repository map
 
 ```text
-Loading market data...
-Computing indicators...
-Generating portfolio weights...
-Applying risk overlay...
-Submitting paper orders...
-Updating hub state...
-Cycle completed successfully.
+.
+├── src/
+│   ├── agents/       # Agent and portfolio-related components
+│   ├── backtest/     # Backtesting components
+│   ├── data/         # Market-data access and processing
+│   ├── execution/    # Broker executor and execution safeguards
+│   ├── strategy/     # Weight interface and risk overlay
+│   ├── tests/        # Automated regression tests
+│   └── utils/        # Metrics and SQLite logging
+├── tests/            # Additional tests, when present
+├── scripts/          # Helper and validation scripts, when present
+├── trade.py          # Paper-trading entry point
+├── hub.py            # Terminal monitoring hub
+├── train.py          # Training entry point
+├── requirements.txt
+├── .env.example      # Paper-trading configuration template
+└── ROADMAP.md        # Roadmap document; verify against current implementation
 ```
 
-## Project Structure
+## Continuous integration
 
-```text
-src/
-├── agents/
-├── backtest/
-├── data/
-├── execution/
-├── strategy/
-├── tests/
-└── utils/
+The GitHub Actions workflow at [`.github/workflows/ci.yml`](https://github.com/iFabbro/STMAA/blob/main/.github/workflows/ci.yml) runs the automated test suite on pushes to `main` and pull requests. Check the workflow and the latest run for the authoritative list and status of checks; this README does not claim that a particular commit has passed CI.
 
-trade.py
-hub.py
-ROADMAP.md
-```
+## Development status
 
-| Component | Role |
-|---|---|
-| `trade.py` | Operational entry point for the trading workflow. |
-| `hub.py` | Main orchestration layer. |
-| `src/execution/broker_executor.py` | Broker access, positions, open orders, and execution constraints. |
-| `src/utils/sqlite_logger.py` | Structured logging to SQLite. |
-| `src/tests/` | Automated tests for the core modules. |
-| `scripts/` | Local helper scripts and validation tools. |
-
-## Current Status
-
-Current development stage:
-
-- Modular architecture in place.
-- Weight interface available.
-- Risk overlay implemented.
-- Backtesting engine present.
-- Paper trading workflow available.
-- Terminal hub available.
-- Structured logging implemented.
-- Automated tests in progress and expanding.
-- CI on GitHub Actions: pytest, ruff lint and a gitleaks secrets scan.
-
-Next milestones:
-
-- Real market data.
-- DRL policy integration.
-- Portfolio optimisation.
-- Live trading hardening.
-- Historical performance dashboard.
-
-## Known Development Notes
-
-The codebase is evolving, so some areas are intentionally minimal or still being refined.
-
-Typical development items include:
-
-- reward and metric definitions under review.
-- RL observation shapes and training interfaces still stabilizing.
-- broker/execution safeguards being hardened.
-- roadmap and documentation being aligned with the current alpha status.
-
-These are expected in an active development repository and should be treated as implementation work rather than finished production behavior.
+STMAA remains in **alpha / experimental** status. Active work includes end-to-end audit coverage, broker-state reconciliation, risk calculations under incomplete or stale inputs, and the separation of implemented behavior from future research goals. Reinforcement learning, portfolio optimization, and any future live-trading capability must be evaluated on their own merits; they are not implied to be production-ready by the repository structure.
 
 ## Contributing
 
-Contributions are welcome.
-
-Please:
-
-- Fork the repository.
-- Create a feature branch.
-- Run the test suite.
-- Open a pull request.
+1. Create a focused feature branch.
+2. Add or update regression tests for behavior changes, especially failure and no-order cases.
+3. Run the test suite and relevant repository checks.
+4. Open a pull request and review the CI results before merging.
 
 ## License
 
-Released under the MIT License.
-See the `LICENSE` file for details.
+STMAA is released under the MIT License. See [`LICENSE`](LICENSE) for details.

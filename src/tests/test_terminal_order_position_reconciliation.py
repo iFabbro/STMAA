@@ -67,11 +67,17 @@ def test_filled_order_with_delayed_position_snapshot_blocks_new_submission(
         "client-order-1": _confirmed_order()
     }
     executor._save_state()
-    monkeypatch.setattr(
-        executor,
-        "get_account_status",
-        lambda: broker.account_reads.__class__(0),
-    )
+    def read_account():
+        broker.account_reads += 1
+        return {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        }
+
+    monkeypatch.setattr(executor, "get_account_status", read_account)
 
     with pytest.raises(
         RuntimeError,

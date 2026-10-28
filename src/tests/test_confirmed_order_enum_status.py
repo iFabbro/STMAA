@@ -27,12 +27,22 @@ def test_confirmed_order_enum_status_is_normalized_before_reconciliation(alpaca_
             "order_id": "broker-order-1",
             "client_order_id": "client-order-1",
             "status": "accepted",
+            "side": "buy",
+            "quantity": 1,
+            "pre_order_position_qty": 0,
         }
     }
     monkeypatch.setattr(
         executor.trading_client,
         "get_order_by_id",
-        lambda order_id: SimpleNamespace(status=BrokerStatus.FILLED),
+        lambda order_id: SimpleNamespace(
+            id=order_id,
+            symbol="AAPL",
+            side="buy",
+            qty="1",
+            filled_qty="1",
+            status=BrokerStatus.FILLED,
+        ),
     )
 
     executor._refresh_confirmed_submission_statuses()

@@ -1,3 +1,18 @@
+from types import SimpleNamespace
+from enum import Enum
+
+import pytest
+
+from src.execution.broker_executor import BrokerExecutor
+
+
+@pytest.fixture
+def alpaca_env(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+
+
 
 
 

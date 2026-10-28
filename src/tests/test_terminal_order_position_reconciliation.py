@@ -128,3 +128,30 @@ def test_terminal_order_unblocks_only_after_position_snapshot_catches_up(
     assert confirmed["status"] == "filled"
     assert confirmed["filled_qty"] == 1.0
     assert confirmed["position_reconciled"] is True
+
+def test_terminal_order_identity_mismatch_blocks_reconciliation(executor_env):
+    executor = BrokerExecutor()
+    broker = DelayedBroker()
+    executor.trading_client = broker
+    executor.state["order_submission_confirmed"] = {
+        "client-order-1": _confirmed_order()
+    }
+    executor._save_state()
+    broker.get_order_by_id = lambda order_id: SimpleNamespace(
+        id=order_id,
+        symbol="MSFT",
+        side="buy",
+        status="filled",
+        qty="1",
+        filled_qty="1",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Terminal broker order identity differs from persisted intent",
+    ):
+        executor._refresh_confirmed_submission_statuses()
+
+    assert executor.state["order_submission_confirmed"]["client-order-1"].get(
+        "position_reconciled"
+    ) is not True

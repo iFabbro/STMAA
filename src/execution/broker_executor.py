@@ -174,6 +174,7 @@ class BrokerExecutor:
         else:
             self.state_file = default_state_file
         self.state = {
+            "state_schema_version": 1,
             "last_execution_time": None,
             "total_orders": 0,
             "configured_initial_capital": float(initial_capital),
@@ -189,6 +190,11 @@ class BrokerExecutor:
             "account_snapshot_at": None,
             "account_data_fresh": False,
             "equity_history": [],
+            # Safety-critical maps must always be present in a valid state file.
+            "emergency_liquidation_pending": {},
+            "emergency_liquidation_unresolved": {},
+            "order_submission_unresolved": {},
+            "order_submission_confirmed": {},
         }
         self._load_state()
         self._restore_metrics_history()
@@ -206,6 +212,21 @@ class BrokerExecutor:
                 loaded_state = json.load(state_file)
             if not isinstance(loaded_state, dict):
                 raise ValueError("persisted broker state must be a JSON object")
+            if loaded_state.get("state_schema_version") != 1:
+                raise ValueError(
+                    "persisted broker state schema is missing or unsupported; manual reconciliation required"
+                )
+            safety_maps = (
+                "emergency_liquidation_pending",
+                "emergency_liquidation_unresolved",
+                "order_submission_unresolved",
+                "order_submission_confirmed",
+            )
+            for key in safety_maps:
+                if key not in loaded_state or not isinstance(loaded_state[key], dict):
+                    raise ValueError(
+                        f"persisted broker state is incomplete: {key} must be present as an object"
+                    )
             expected_mode = self.state["account_mode"]
             stored_mode = loaded_state.get("account_mode")
             if stored_mode is not None and stored_mode != expected_mode:

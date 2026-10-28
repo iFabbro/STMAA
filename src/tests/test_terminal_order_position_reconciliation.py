@@ -155,3 +155,26 @@ def test_terminal_order_identity_mismatch_blocks_reconciliation(executor_env):
     assert executor.state["order_submission_confirmed"]["client-order-1"].get(
         "position_reconciled"
     ) is not True
+
+def test_terminal_order_fill_cannot_exceed_requested_quantity(executor_env):
+    executor = BrokerExecutor()
+    broker = DelayedBroker()
+    executor.trading_client = broker
+    executor.state["order_submission_confirmed"] = {
+        "client-order-1": _confirmed_order()
+    }
+    executor._save_state()
+    broker.get_order_by_id = lambda order_id: SimpleNamespace(
+        id=order_id,
+        symbol="AAPL",
+        side="buy",
+        status="filled",
+        qty="1",
+        filled_qty="2",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="filled quantity greater than requested quantity",
+    ):
+        executor._refresh_confirmed_submission_statuses()

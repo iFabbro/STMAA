@@ -151,11 +151,23 @@ def test_confirmed_order_status_is_refreshed_from_broker_and_persisted():
                 "client_order_id": "client-order-123",
                 "order_id": "broker-order-456",
                 "status": "accepted",
+                "side": "buy",
+                "quantity": 2,
+                "pre_order_position_qty": 0,
             }
         },
     }
     executor.trading_client = SimpleNamespace(
-        get_order_by_id=Mock(return_value=SimpleNamespace(status="filled"))
+        get_order_by_id=Mock(
+            return_value=SimpleNamespace(
+                id="broker-order-456",
+                symbol="AAPL",
+                side="buy",
+                qty="2",
+                filled_qty="2",
+                status="filled",
+            )
+        )
     )
     persisted = []
     executor._save_state = lambda: persisted.append(deepcopy(executor.state))

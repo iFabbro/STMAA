@@ -431,10 +431,12 @@ def test_commission_status_reconciled_only_for_unique_explicit_order_link(monkey
 def test_main_reports_pending_commission_without_marking_check_execution_failed(
     monkeypatch, capsys
 ):
+    from datetime import datetime, timezone
     from types import SimpleNamespace
     from scripts import alpaca_paper_btc_readonly_reconcile as reconcile
 
-    now = "2026-10-26T08:00:00+00:00"
+    # Keep this fixture inside the 48-hour grace window regardless of when CI runs.
+    now = datetime.now(timezone.utc).isoformat()
     order = SimpleNamespace(
         id="order-1",
         client_order_id=reconcile.CLIENT_ORDER_ID,

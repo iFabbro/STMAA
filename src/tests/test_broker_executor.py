@@ -3144,3 +3144,80 @@ def test_execute_weights_blocks_new_position_when_quote_is_stale(
         )
 
     assert submitted == []
+
+
+def test_open_order_snapshot_api_failure_blocks_before_market_data_or_submission(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    market_reads = []
+    submitted = []
+
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_orders",
+        lambda **kwargs: (_ for _ in ()).throw(TimeoutError("broker order endpoint timeout")),
+    )
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: market_reads.append(tickers) or {},
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Unable to retrieve or validate broker open orders",
+    ):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert market_reads == []
+    assert submitted == []
+
+
+def test_market_data_provider_exception_blocks_new_position(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    submitted = []
+
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: (_ for _ in ()).throw(TimeoutError("market data endpoint timeout")),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []

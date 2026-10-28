@@ -61,3 +61,27 @@ def test_restricted_or_unverified_account_blocks_before_any_new_order(
 
     assert submitted == []
     assert executor.state["account_data_fresh"] is False
+
+
+def test_active_unblocked_account_snapshot_remains_usable(broker_env, monkeypatch):
+    executor = BrokerExecutor()
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_account",
+        lambda: SimpleNamespace(
+            cash="10000",
+            portfolio_value="10000",
+            buying_power="10000",
+            equity="10000",
+            daytrade_count=0,
+            status="ACTIVE",
+            trading_blocked=False,
+            id="paper-account-1",
+        ),
+    )
+
+    snapshot = executor.get_account_status()
+
+    assert snapshot["account_data_fresh"] is True
+    assert snapshot["status"] == "active"
+    assert snapshot["trading_blocked"] is False

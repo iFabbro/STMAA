@@ -1,5 +1,5 @@
 """Quantity/quote-based exposure regression matrix for uncertain broker snapshots."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import numpy as np
@@ -31,8 +31,11 @@ def _account():
     }
 
 
-def _quote(price):
-    return {"price": price, "timestamp": datetime.now(timezone.utc).isoformat()}
+def _quote(price, timestamp=None):
+    return {
+        "price": price,
+        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _buy_symbols(submitted):
@@ -194,6 +197,49 @@ def test_unpriced_external_order_blocks_new_positions(
     )
 
     with pytest.raises(RuntimeError, match="Cannot estimate exposure for active order"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []
+
+def test_stale_quote_for_held_position_blocks_new_exposure(
+    exposure_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    submitted = []
+    monkeypatch.setattr(executor, "get_account_status", _account)
+    monkeypatch.setattr(
+        executor,
+        "get_positions",
+        lambda: {
+            "MSFT": {
+                "qty": 5.0,
+                "market_value": 500.0,
+                "avg_entry_price": 100.0,
+                "unrealized_pl": 0.0,
+            }
+        },
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {
+            "MSFT": _quote(
+                100.0,
+                (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat(),
+            ),
+            "AAPL": _quote(100.0),
+        },
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot safely calculate exposure"):
         executor.execute_weights(
             PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
         )

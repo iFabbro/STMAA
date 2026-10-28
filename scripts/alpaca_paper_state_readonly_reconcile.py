@@ -51,8 +51,11 @@ def load_state(path: Path) -> dict:
     ):
         if not isinstance(state.get(key), dict):
             raise ValueError(f"persisted state field {key} is missing or invalid")
+    for key in ("emergency_liquidation_unresolved", "order_submission_unresolved", "order_submission_confirmed"):
         if any(not isinstance(value, dict) for value in state[key].values()):
             raise ValueError(f"persisted state entries in {key} must be objects")
+    if any(not isinstance(value, (dict, str)) for value in state["emergency_liquidation_pending"].values()):
+        raise ValueError("persisted liquidation pending entries must be objects or order ID strings")
     return state
 
 
@@ -108,6 +111,8 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
     ) not in {"active", "accountstatus.active"}:
         issues.append("broker account status is not clearly active")
 
+    if len(orders) >= 500:
+        issues.append("broker order snapshot reached the 500-order limit; complete order-history coverage is not established")
     orders_by_id = {str(getattr(o, "id", "")): o for o in orders if getattr(o, "id", None)}
     orders_by_client = {
         str(getattr(o, "client_order_id", "")): o
@@ -137,12 +142,12 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
         references.append(("liquidation_unresolved", str(ticker), intent, "liquidation"))
 
     for kind, key, ref, _ in references:
-        client_id = str(ref.get("client_order_id", "") or "")
-        order_id = str(ref.get("order_id", "") or "")
-        if kind == "liquidation_pending":
-            order_id = order_id or str(ref.get("order_id", "") or "")
-            # Older pending liquidation entries store the broker order ID as the value,
-            # but the schema validator currently requires dict entries.
+        if isinstance(ref, dict):
+            client_id = str(ref.get("client_order_id", "") or "")
+            order_id = str(ref.get("order_id", "") or "")
+        else:
+            client_id = ""
+            order_id = str(ref or "") if kind == "liquidation_pending" else ""
         order = orders_by_client.get(client_id) if client_id else None
         if order is None and order_id:
             order = orders_by_id.get(order_id)
@@ -150,6 +155,11 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
         found_id = str(getattr(order, "id", "") or "") if order is not None else ""
         order_fills = fills_by_order.get(found_id, []) if found_id else []
         filled_qty = sum((decimal_value(f.get("qty")) or Decimal(0) for f in order_fills), Decimal(0))
+        broker_filled_qty = decimal_value(getattr(order, "filled_qty", None)) if order is not None else None
+        fill_qty_match = (
+            broker_filled_qty is not None
+            and abs(filled_qty - broker_filled_qty) <= Decimal("0.000000001")
+        ) if order_fills else None
         checks.append({
             "kind": kind,
             "key": key,
@@ -160,7 +170,13 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
             "broker_status": status,
             "fill_activity_count": len(order_fills),
             "fill_activity_qty": str(filled_qty),
+            "broker_order_filled_qty": str(broker_filled_qty) if broker_filled_qty is not None else None,
+            "fill_qty_matches_order_summary": fill_qty_match,
         })
+        if order is not None and order_fills and fill_qty_match is False:
+            issues.append(f"{kind} {key}: summed FILL activity quantity differs from broker order filled_qty")
+        if order is not None and status == "filled" and broker_filled_qty and not order_fills:
+            issues.append(f"{kind} {key}: broker order is filled but no order-linked FILL activities were returned")
         if kind in {"unresolved_submission", "liquidation_unresolved"} and order is None:
             issues.append(f"{kind} {key}: persisted intent has no matching order in fetched broker order snapshot")
         if kind == "unresolved_submission" and order is not None:

@@ -1164,6 +1164,8 @@ class BrokerExecutor:
                 "status": self._status_text(getattr(order, "status", "unknown"), default="unknown"),
                 "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "price": intent.get("price"),
+                "pre_order_position_qty": intent.get("pre_order_position_qty"),
+                "filled_qty": getattr(order, "filled_qty", None),
                 "reconciled": True,
             }
             self._record_confirmed_submission(ticker, order_info)
@@ -1627,6 +1629,9 @@ class BrokerExecutor:
                     "side": side.value,
                     "quantity": qty,
                     "price": price,
+                    "pre_order_position_qty": float(
+                        positions.get(ticker, {}).get("qty", 0.0) or 0.0
+                    ),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "reason": "submission_outcome_unconfirmed",
                 }
@@ -1681,6 +1686,9 @@ class BrokerExecutor:
                         "side": side.value,
                         "quantity": qty,
                         "price": price,
+                        "pre_order_position_qty": float(
+                            positions.get(ticker, {}).get("qty", 0.0) or 0.0
+                        ),
                         "created_at": datetime.now(timezone.utc).isoformat(),
                         "reason": "submission_outcome_unconfirmed",
                     }

@@ -137,3 +137,31 @@ def test_incomplete_position_snapshot_blocks_rebalance_and_sends_zero_orders(
         executor.execute_weights(_target())
 
     assert len(submitted) == 0
+
+def test_duplicate_target_tickers_are_rejected_before_account_reads(
+    isolated_executor, monkeypatch
+):
+    executor = isolated_executor
+    submitted = []
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("Account reads must not occur for invalid target allocation")
+        ),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    duplicate_target = PortfolioWeights(
+        weights=np.array([0.20, 0.30]),
+        tickers=["AAPL", " aapl "],
+    )
+    with pytest.raises(ValueError, match="Target tickers must be unique"):
+        executor.execute_weights(duplicate_target)
+
+    assert submitted == []
+

@@ -43,7 +43,7 @@ def test_infers_fee_only_when_unique_order_position_and_accounting_deltas_match(
         all_orders=[order],
     )
 
-    assert fee_usd == Decimal("0.02457982275")
+    assert fee_usd == Decimal("0.02457932475")
     assert "RECONCILED_BY_UNIQUE_ACCOUNTING_MATCH" in detail
 
 

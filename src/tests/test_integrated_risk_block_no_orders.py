@@ -434,3 +434,43 @@ def test_inconsistent_active_order_exposure_blocks_new_positions(
 
     assert submitted == []
 
+@pytest.mark.parametrize(
+    ("quote", "case_name"),
+    [
+        ({"price": "NaN", "timestamp": "2026-10-29T15:00:00+00:00"}, "non_finite_price"),
+        ({"price": "0", "timestamp": "2026-10-29T15:00:00+00:00"}, "non_positive_price"),
+        ({"price": "100", "timestamp": "not-a-timestamp"}, "malformed_timestamp"),
+        ({"price": "100", "timestamp": "2026-10-29T15:00:00"}, "naive_timestamp"),
+    ],
+)
+def test_malformed_market_quote_blocks_new_position_and_sends_zero_orders(
+    isolated_executor, monkeypatch, quote, case_name
+):
+    executor = isolated_executor
+    submitted = []
+    now = datetime.now(timezone.utc)
+    quote_data = dict(quote)
+    if case_name in {"non_finite_price", "non_positive_price"}:
+        quote_data["timestamp"] = now.isoformat()
+
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {"AAPL": quote_data},
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="valid prices unavailable for: AAPL",
+    ):
+        executor.execute_weights(_target())
+
+    assert submitted == []
+

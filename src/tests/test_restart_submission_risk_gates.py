@@ -142,3 +142,46 @@ def test_nonterminal_order_identity_mismatch_blocks_reconciliation(audit_env):
     assert stored["order_id"] == "persisted-broker-id"
     assert stored["status"] == "accepted"
     assert stored.get("position_reconciled") is not True
+
+def test_nonterminal_overfilled_order_blocks_reconciliation(audit_env):
+    executor = BrokerExecutor()
+    executor.state["order_submission_confirmed"] = {
+        "persisted-client-id": {
+            "ticker": "AAPL",
+            "side": "buy",
+            "quantity": 2.0,
+            "order_id": "persisted-broker-id",
+            "client_order_id": "persisted-client-id",
+            "status": "accepted",
+            "filled_qty": 0.0,
+            "pre_order_position_qty": 0.0,
+        }
+    }
+    executor._save_state()
+
+    class OverfilledClient:
+        def get_order_by_id(self, order_id):
+            assert order_id == "persisted-broker-id"
+            return SimpleNamespace(
+                id="persisted-broker-id",
+                client_order_id="persisted-client-id",
+                status="accepted",
+                symbol="AAPL",
+                side="buy",
+                qty="2.0",
+                filled_qty="3.0",
+            )
+
+    executor.trading_client = OverfilledClient()
+
+    with pytest.raises(
+        RuntimeError,
+        match="Broker order reports filled quantity greater than requested quantity",
+    ):
+        executor._refresh_confirmed_submission_statuses()
+
+    stored = executor.state["order_submission_confirmed"]["persisted-client-id"]
+    assert stored["status"] == "accepted"
+    assert stored["filled_qty"] == 0.0
+    assert stored.get("position_reconciled") is not True
+

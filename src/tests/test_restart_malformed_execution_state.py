@@ -105,6 +105,10 @@ def test_restart_keeps_untrusted_broker_execution_state_unresolved(
         ("new", "0.5"),
         ("canceled", "10"),
         ("rejected", "10"),
+        ("pending_cancel", "10"),
+        ("pending_replace", "10"),
+        ("done_for_day", "10"),
+        ("unrecognized_broker_state", "0"),
     ],
 )
 def test_restart_keeps_contradictory_status_and_fill_unresolved(

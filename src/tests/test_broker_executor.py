@@ -3270,3 +3270,67 @@ def test_multisymbol_preflight_blocks_all_orders_if_one_required_quote_is_stale(
     # Preflight must validate the whole rebalance before submitting even the
     # AAPL order backed by a fresh quote.
     assert submitted == []
+
+
+
+def test_ambiguous_submission_survives_restart_and_blocks_duplicate_order(
+    alpaca_env, monkeypatch
+):
+    """A submit timeout plus lookup timeout must never trigger a second order."""
+    executor = BrokerExecutor(paper_trading=True)
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-29T12:00:00+00:00",
+        "account_data_source": "alpaca_account",
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+
+    submitted = []
+
+    def ambiguous_submit(request):
+        submitted.append(request)
+        # The broker may have accepted the request despite the client timeout.
+        raise TimeoutError("submit response timed out after possible broker acceptance")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", ambiguous_submit)
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert len(submitted) == 1
+    assert result["orders"][0]["status"] == "unresolved"
+    persisted = executor.state_file.read_text(encoding="utf-8")
+    assert "submission_outcome_unconfirmed" in persisted
+    client_order_id = executor.state["order_submission_unresolved"]["AAPL"]["client_order_id"]
+
+    # Simulate restart and an inconclusive broker lookup.
+    restored = BrokerExecutor(paper_trading=True)
+    assert restored.state["order_submission_unresolved"]["AAPL"]["client_order_id"] == client_order_id
+    monkeypatch.setattr(
+        restored.trading_client,
+        "get_order_by_client_id",
+        lambda client_id: (_ for _ in ()).throw(
+            TimeoutError("order lookup temporarily unavailable")
+        ),
+    )
+    second_submit_attempts = []
+    monkeypatch.setattr(
+        restored.trading_client,
+        "submit_order",
+        lambda request: second_submit_attempts.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="refusing further orders for: AAPL"):
+        restored.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert second_submit_attempts == []
+    assert restored.state["order_submission_unresolved"]["AAPL"]["client_order_id"] == client_order_id

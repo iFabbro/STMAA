@@ -92,3 +92,71 @@ def test_restart_keeps_untrusted_broker_execution_state_unresolved(
     assert restarted.state["order_submission_unresolved"]["AAPL"] == intent
     assert restarted.state["order_submission_confirmed"] == {}
     assert submitted == []
+
+
+@pytest.mark.parametrize(
+    ("status", "filled_qty"),
+    [
+        ("filled", "0"),
+        ("filled", "9"),
+        ("partially_filled", "0"),
+        ("partially_filled", "10"),
+        ("accepted", "1"),
+        ("new", "0.5"),
+        ("canceled", "10"),
+        ("rejected", "10"),
+    ],
+)
+def test_restart_keeps_contradictory_status_and_fill_unresolved(
+    restart_env, monkeypatch, status, filled_qty
+):
+    first = BrokerExecutor(paper_trading=True)
+    intent = {
+        "client_order_id": "expected-client-id",
+        "side": "buy",
+        "quantity": 10.0,
+        "price": 100.0,
+        "pre_order_position_qty": 0.0,
+        "created_at": "2026-10-29T12:00:00+00:00",
+        "reason": "submission_outcome_unconfirmed",
+    }
+    first.state["order_submission_unresolved"] = {"AAPL": intent}
+    first._save_state()
+
+    restarted = BrokerExecutor(paper_trading=True)
+    broker_order = SimpleNamespace(
+        id="broker-order-123",
+        client_order_id="expected-client-id",
+        symbol="AAPL",
+        side="buy",
+        qty="10",
+        filled_qty=filled_qty,
+        status=status,
+    )
+    submitted = []
+    monkeypatch.setattr(
+        restarted.trading_client,
+        "get_order_by_client_id",
+        lambda client_order_id: broker_order,
+    )
+    monkeypatch.setattr(
+        restarted.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+    monkeypatch.setattr(
+        restarted,
+        "get_account_status",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("Must block before account sizing and execution")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="requires reconciliation or terminal status"):
+        restarted.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert restarted.state["order_submission_unresolved"]["AAPL"] == intent
+    assert restarted.state["order_submission_confirmed"] == {}
+    assert submitted == []

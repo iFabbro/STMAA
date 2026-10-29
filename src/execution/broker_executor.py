@@ -769,6 +769,51 @@ class BrokerExecutor:
         normalized = str(value).strip().lower()
         return normalized or default
 
+    @staticmethod
+    def _validate_broker_execution_state(status, filled_qty, requested_qty):
+        """Reject broker status/fill combinations that contradict each other."""
+        normalized_status = BrokerExecutor._status_text(status, default="unknown")
+        try:
+            filled = float(filled_qty)
+            requested = float(requested_qty)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError(
+                "Broker execution state has invalid fill/request quantity; manual reconciliation required"
+            ) from exc
+        if (
+            normalized_status in {"", "unknown"}
+            or not np.isfinite(filled)
+            or not np.isfinite(requested)
+            or requested <= 0
+            or filled < 0
+            or filled > requested + 1e-8
+        ):
+            raise RuntimeError(
+                "Broker execution state is malformed; manual reconciliation required"
+            )
+        tolerance = max(1e-8, requested * 1e-6)
+        if normalized_status == "filled" and filled < requested - tolerance:
+            raise RuntimeError(
+                "Broker reports filled status with incomplete fill quantity; manual reconciliation required"
+            )
+        if normalized_status == "partially_filled" and (
+            filled <= 0 or filled >= requested - tolerance
+        ):
+            raise RuntimeError(
+                "Broker partially_filled status contradicts fill quantity; manual reconciliation required"
+            )
+        if normalized_status in {"new", "accepted", "pending_new"} and filled > tolerance:
+            raise RuntimeError(
+                "Broker unfilled status contradicts positive fill quantity; manual reconciliation required"
+            )
+        if normalized_status in {"canceled", "cancelled", "expired", "rejected"} and (
+            filled >= requested - tolerance
+        ):
+            raise RuntimeError(
+                "Broker terminal non-filled status contradicts complete fill quantity; manual reconciliation required"
+            )
+        return filled
+
     def _reconcile_unresolved_liquidation_intents(self, positions, active_pending):
         """Resolve persisted ambiguous close intents only with unique broker evidence.
 
@@ -1261,6 +1306,19 @@ class BrokerExecutor:
                 )
                 continue
 
+            try:
+                broker_filled_qty = self._validate_broker_execution_state(
+                    broker_status, broker_filled_qty, broker_qty
+                )
+            except RuntimeError as exc:
+                self.logger.error(
+                    "Broker execution status/fill contradiction for unresolved intent %s; "
+                    "retaining fail-closed state: %s",
+                    ticker,
+                    exc,
+                )
+                continue
+
             order_info = {
                 "ticker": ticker,
                 "side": intent.get("side"),
@@ -1342,24 +1400,16 @@ class BrokerExecutor:
             if broker_status != stored_order.get("status"):
                 updated["status"] = broker_status
                 changed = True
-            if raw_filled_qty not in (None, ""):
-                try:
-                    filled_qty = float(raw_filled_qty)
-                except (TypeError, ValueError) as exc:
-                    raise RuntimeError("Broker returned invalid filled quantity for acknowledged order") from exc
-                if not np.isfinite(filled_qty) or filled_qty < 0:
-                    raise RuntimeError("Broker returned invalid filled quantity for acknowledged order")
-                if filled_qty > float(stored_order.get("quantity", 0.0)) + 1e-8:
-                    raise RuntimeError(
-                        "Broker order reports filled quantity greater than requested quantity"
-                    )
-                if updated.get("filled_qty") != filled_qty:
-                    updated["filled_qty"] = filled_qty
-                    changed = True
-            elif broker_status in terminal_statuses:
+            if raw_filled_qty in (None, ""):
                 raise RuntimeError(
-                    "Terminal broker order has no verified filled quantity; manual reconciliation required"
+                    "Broker order has no verified filled quantity; manual reconciliation required"
                 )
+            filled_qty = self._validate_broker_execution_state(
+                broker_status, raw_filled_qty, broker_qty
+            )
+            if updated.get("filled_qty") != filled_qty:
+                updated["filled_qty"] = filled_qty
+                changed = True
             confirmed[client_order_id] = updated
 
         if changed:

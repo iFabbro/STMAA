@@ -3362,6 +3362,7 @@ def test_accepted_submission_state_write_failure_persists_unresolved_intent_acro
         submitted.append(request)
         accepted_order.update({
             "id": "broker-order-accepted-1",
+            "client_order_id": request.client_order_id,
             "status": "new",
             "symbol": request.symbol,
             "side": request.side,
@@ -3506,3 +3507,51 @@ def test_unpriced_existing_position_blocks_new_orders_even_with_fresh_target_quo
 
     assert submitted == []
     assert executor.state.get("order_submission_unresolved", {}) == {}
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("client_order_id", "different-client-id"),
+        ("symbol", "MSFT"),
+        ("side", "sell"),
+        ("qty", "11"),
+    ],
+)
+def test_unresolved_submission_keeps_intent_when_broker_order_identity_mismatches(
+    alpaca_env, monkeypatch, field, value
+):
+    """An order lookup cannot resolve durable intent with a mismatched identity."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor(paper_trading=True)
+    intent = {
+        "client_order_id": "client-123",
+        "side": "buy",
+        "quantity": 10.0,
+        "price": 100.0,
+        "pre_order_position_qty": 0.0,
+        "created_at": "2026-10-29T12:00:00+00:00",
+        "reason": "submission_outcome_unconfirmed",
+    }
+    executor.state["order_submission_unresolved"] = {"AAPL": intent}
+    broker_order = {
+        "id": "broker-order-123",
+        "client_order_id": "client-123",
+        "symbol": "AAPL",
+        "side": "buy",
+        "qty": "10",
+        "status": "new",
+        "filled_qty": "0",
+    }
+    broker_order[field] = value
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_order_by_client_id",
+        lambda client_id: SimpleNamespace(**broker_order),
+    )
+
+    executor._reconcile_unresolved_submissions()
+
+    assert executor.state["order_submission_unresolved"]["AAPL"] == intent
+    assert executor.state.get("order_submission_confirmed", {}) == {}

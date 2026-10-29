@@ -81,7 +81,14 @@ def test_restart_waits_for_broker_visibility_then_reconciles_without_resubmissio
         "reason": "submission_outcome_unconfirmed",
     }
     executor.state = {"order_submission_unresolved": {"AAPL": intent}}
-    broker_order = SimpleNamespace(id="broker-order-456", status="accepted")
+    broker_order = SimpleNamespace(
+        id="broker-order-456",
+        client_order_id="client-order-123",
+        symbol="AAPL",
+        side="buy",
+        qty="2",
+        status="accepted",
+    )
     executor.trading_client = SimpleNamespace(
         get_order_by_client_id=Mock(
             side_effect=[RuntimeError("not visible yet"), broker_order]

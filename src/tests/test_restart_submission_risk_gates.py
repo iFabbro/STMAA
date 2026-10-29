@@ -41,8 +41,11 @@ def test_restart_reconciles_ambiguous_submission_and_blocks_new_orders(audit_env
             assert client_order_id == "durable-client-id"
             return SimpleNamespace(
                 id="broker-order-1",
+                client_order_id="durable-client-id",
                 status="accepted",
                 symbol="AAPL",
+                side="buy",
+                qty="2.0",
             )
 
         def get_order_by_id(self, order_id):

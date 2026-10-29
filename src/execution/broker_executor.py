@@ -1192,6 +1192,39 @@ class BrokerExecutor:
             order_id = getattr(order, "id", None)
             if not order_id:
                 continue
+
+            # A lookup by client ID is not sufficient by itself: verify the
+            # returned broker object agrees with the durable intent before
+            # clearing it. Missing or mismatched identity remains unresolved.
+            broker_client_order_id = str(
+                getattr(order, "client_order_id", "") or ""
+            ).strip()
+            broker_symbol = str(getattr(order, "symbol", "") or "").strip()
+            raw_side = getattr(order, "side", "")
+            broker_side = str(getattr(raw_side, "value", raw_side)).lower()
+            try:
+                broker_qty = float(getattr(order, "qty", None))
+                intent_qty = float(intent.get("quantity"))
+            except (TypeError, ValueError):
+                continue
+            expected_side = str(intent.get("side", "")).lower()
+            if (
+                broker_client_order_id != str(client_order_id).strip()
+                or broker_symbol != str(ticker).strip()
+                or broker_side != expected_side
+                or not np.isfinite(broker_qty)
+                or not np.isfinite(intent_qty)
+                or broker_qty <= 0
+                or intent_qty <= 0
+                or not np.isclose(broker_qty, intent_qty, rtol=1e-6, atol=1e-8)
+            ):
+                self.logger.error(
+                    "Broker order identity does not match unresolved intent for %s; "
+                    "retaining fail-closed state for manual reconciliation",
+                    ticker,
+                )
+                continue
+
             order_info = {
                 "ticker": ticker,
                 "side": intent.get("side"),

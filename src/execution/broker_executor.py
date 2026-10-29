@@ -99,18 +99,44 @@ class RiskEngine:
         return gross
 
     def allow(self, ticker, target_notional, portfolio_value, positions, reserved_notional=0.0):
+        # This is a safety boundary: never let NaN/inf propagate through min/max,
+        # where comparisons can silently produce an apparently allowed target.
+        try:
+            target_notional = float(target_notional)
+            portfolio_value = float(portfolio_value)
+            reserved_notional = float(reserved_notional)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Risk inputs must be numeric and finite") from exc
+        if not np.isfinite(target_notional):
+            raise ValueError("target_notional must be finite")
+        if not np.isfinite(portfolio_value):
+            raise ValueError("portfolio_value must be finite")
+        if not np.isfinite(reserved_notional) or reserved_notional < 0:
+            raise ValueError("reserved_notional must be finite and non-negative")
         if portfolio_value <= 0:
             return 0.0, "portfolio_value_non_positive"
+
+        # Validate every exposure input, not only the target symbol. A malformed
+        # holding must stop sizing rather than be treated as zero or ignored.
+        for symbol, position in positions.items():
+            try:
+                market_value = float(position.get("market_value", 0.0) or 0.0)
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"Position exposure must be numeric for {symbol}"
+                ) from exc
+            if not np.isfinite(market_value):
+                raise ValueError(f"Position exposure must be finite for {symbol}")
+
         if abs(target_notional) < 1e-12:
             # A zero target is an intentional request to close an existing position.
             return 0.0, None
         current = abs(float(positions.get(ticker, {}).get("market_value", 0.0) or 0.0))
-        # Esposizione lorda attuale = ordini aperti riservati + tutte le posizioni.
+        # Gross exposure includes open-order reserves and every current position.
         gross = self._portfolio_gross(positions, reserved_notional=reserved_notional)
         max_position = portfolio_value * self.max_position_pct
-        # Budget residuo di esposizione totale. `current` viene restituito al budget
-        # perche' target_notional e' la dimensione desiderata della posizione su
-        # `ticker`, che sostituisce quella gia' presente in `gross`.
+        # The target replaces the existing position for this symbol, so add its
+        # current absolute exposure back when calculating the available budget.
         max_exposure = portfolio_value * self.max_exposure_pct - gross
         max_symbol = portfolio_value * self.max_symbol_concentration_pct
 

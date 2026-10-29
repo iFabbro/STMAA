@@ -329,3 +329,22 @@ def test_noncanonical_pending_order_symbol_prevents_duplicate_rebalance_order(
 
     assert result["orders"] == []
     assert submitted == []
+
+
+def test_partially_filled_pending_order_reserves_full_requested_exposure(
+    isolated_executor
+):
+    executor = isolated_executor
+    partially_filled_order = SimpleNamespace(
+        id="partially-filled-order-1",
+        symbol="AAPL",
+        status="partially_filled",
+        qty="10",
+        filled_qty="4",
+        notional=None,
+        limit_price="100",
+    )
+
+    # Position snapshots can lag fills; reserve the full requested order amount
+    # until terminal status and a separate position reconciliation confirm it.
+    assert executor._estimate_order_notional(partially_filled_order) == 1000.0

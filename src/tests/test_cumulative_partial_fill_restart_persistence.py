@@ -1,6 +1,4 @@
 """Restart persistence for cumulative terminal partial-fill reconciliation."""
-from datetime import datetime, timezone
-
 from src.execution.broker_executor import BrokerExecutor
 
 

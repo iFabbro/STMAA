@@ -392,3 +392,45 @@ def test_missing_or_untrusted_quote_blocks_new_position_and_sends_zero_orders(
 
     assert submitted == []
 
+@pytest.mark.parametrize(
+    ("order_fields", "error_match"),
+    [
+        ({"qty": "NaN", "filled_qty": "0"}, "invalid qty"),
+        ({"qty": "10", "filled_qty": "11"}, "filled_qty exceeds qty"),
+        ({"qty": "10", "filled_qty": "10"}, "no remaining quantity"),
+        ({"qty": "10", "filled_qty": "0", "notional": "inf"}, "invalid notional"),
+    ],
+)
+def test_inconsistent_active_order_exposure_blocks_new_positions(
+    isolated_executor, monkeypatch, order_fields, error_match
+):
+    executor = isolated_executor
+    submitted = []
+    order_data = {
+        "id": "inconsistent-active-order",
+        "symbol": "AAPL",
+        "status": "accepted",
+        "qty": "10",
+        "filled_qty": "0",
+        "notional": None,
+        "limit_price": "100",
+    }
+    order_data.update(order_fields)
+    active_order = SimpleNamespace(**order_data)
+
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [active_order])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0}
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match=error_match):
+        executor.execute_weights(_target())
+
+    assert submitted == []
+

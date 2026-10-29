@@ -3420,6 +3420,8 @@ def test_failed_pre_submission_state_write_never_sends_rebalance_order(
     alpaca_env, monkeypatch
 ):
     """A normal rebalance must not submit unless its unresolved intent is durable."""
+    import json
+
     executor = BrokerExecutor(paper_trading=True)
     monkeypatch.setattr(executor, "get_account_status", lambda: {
         "cash": 10000.0,

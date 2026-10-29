@@ -87,6 +87,7 @@ def test_restart_waits_for_broker_visibility_then_reconciles_without_resubmissio
         symbol="AAPL",
         side="buy",
         qty="2",
+        filled_qty="0",
         status="accepted",
     )
     executor.trading_client = SimpleNamespace(

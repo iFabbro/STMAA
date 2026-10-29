@@ -1818,8 +1818,11 @@ class BrokerExecutor:
                             positions.get(ticker, {}).get("qty", 0.0) or 0.0
                         ),
                     }
-                    orders_executed.append(order_info)
+                    # Only report an acknowledged order after its confirmed state
+                    # has been durably persisted. If persistence fails, the exception
+                    # path below records a single unresolved outcome instead.
                     self._record_confirmed_submission(ticker, order_info)
+                    orders_executed.append(order_info)
                     if self._order_status_value(order) not in {
                         "canceled", "cancelled", "expired", "rejected",
                     }:

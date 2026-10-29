@@ -1271,7 +1271,7 @@ class BrokerExecutor:
                 raise
 
     def _reconcile_terminal_order_positions(self) -> None:
-        """Keep terminal orders blocked until a broker position snapshot reflects their fills."""
+        """Reconcile terminal fills against broker positions, including sequential fills."""
         confirmed = dict(self.state.get("order_submission_confirmed", {}))
         terminal_statuses = {"filled", "canceled", "cancelled", "expired", "rejected"}
         pending = [
@@ -1283,8 +1283,13 @@ class BrokerExecutor:
         if not pending:
             return
 
+        # A single pending order can be checked directly against its expected
+        # post-fill quantity. Multiple pending orders on one symbol require a
+        # timestamped, continuous baseline chain; the final broker snapshot can
+        # then validate the whole chain without comparing each order to the same
+        # final quantity (which would incorrectly reject earlier fills).
         positions = self.get_positions()
-        changed = False
+        grouped = {}
         for client_order_id, order in pending:
             ticker = str(order.get("ticker", "")).strip()
             if not ticker or order.get("pre_order_position_qty") is None:
@@ -1315,29 +1320,87 @@ class BrokerExecutor:
                 raise RuntimeError(
                     "Terminal broker order has unknown side; manual reconciliation required"
                 )
+            if not np.isfinite(expected_qty) or expected_qty < -1e-6:
+                raise RuntimeError(
+                    "Terminal broker order implies an invalid position quantity; manual reconciliation required"
+                )
+            grouped.setdefault(ticker, []).append(
+                (client_order_id, order, baseline_qty, expected_qty)
+            )
+
+        reconciled_ids = []
+        for ticker, orders in grouped.items():
+            if len(orders) > 1:
+                timestamped = []
+                for item in orders:
+                    client_order_id, order, _, _ = item
+                    raw_timestamp = order.get("timestamp")
+                    if not raw_timestamp:
+                        raise RuntimeError(
+                            f"Multiple terminal orders for {ticker} lack timestamps; manual reconciliation required"
+                        )
+                    try:
+                        timestamp = datetime.fromisoformat(
+                            str(raw_timestamp).replace("Z", "+00:00")
+                        )
+                    except (TypeError, ValueError) as exc:
+                        raise RuntimeError(
+                            f"Multiple terminal orders for {ticker} have invalid timestamps; manual reconciliation required"
+                        ) from exc
+                    if timestamp.tzinfo is None:
+                        raise RuntimeError(
+                            f"Multiple terminal orders for {ticker} have timezone-naive timestamps; manual reconciliation required"
+                        )
+                    timestamped.append((timestamp.astimezone(timezone.utc), item))
+                timestamped.sort(key=lambda entry: entry[0])
+                if any(
+                    timestamped[index][0] == timestamped[index - 1][0]
+                    for index in range(1, len(timestamped))
+                ):
+                    raise RuntimeError(
+                        f"Multiple terminal orders for {ticker} have ambiguous timestamps; manual reconciliation required"
+                    )
+                ordered = [item for _, item in timestamped]
+                for previous, current in zip(ordered, ordered[1:]):
+                    previous_expected = previous[3]
+                    current_baseline = current[2]
+                    chain_tolerance = max(
+                        1e-6,
+                        1e-5 * max(1.0, abs(previous_expected), abs(current_baseline)),
+                    )
+                    if abs(previous_expected - current_baseline) > chain_tolerance:
+                        raise RuntimeError(
+                            f"Terminal order quantity chain is inconsistent for {ticker}; manual reconciliation required"
+                        )
+                expected_qty = ordered[-1][3]
+            else:
+                expected_qty = orders[0][3]
+
             actual_qty = float(positions.get(ticker, {}).get("qty", 0.0) or 0.0)
             if not np.isfinite(actual_qty):
                 raise RuntimeError("Broker position quantity is invalid during order reconciliation")
             tolerance = max(1e-6, 1e-5 * max(1.0, abs(expected_qty), abs(actual_qty)))
             if abs(actual_qty - expected_qty) > tolerance:
+                order_ids = ", ".join(item[0] for item in orders)
                 raise RuntimeError(
-                    f"Broker position snapshot has not reconciled terminal order {client_order_id} "
+                    f"Broker position snapshot has not reconciled terminal order(s) {order_ids} "
                     f"for {ticker}; expected quantity {expected_qty}, observed {actual_qty}"
                 )
-            updated = dict(order)
+            reconciled_ids.extend(item[0] for item in orders)
+
+        for client_order_id in reconciled_ids:
+            updated = dict(confirmed[client_order_id])
             updated["position_reconciled"] = True
             confirmed[client_order_id] = updated
-            changed = True
 
-        if changed:
-            previous_state = dict(self.state)
-            self.state["order_submission_confirmed"] = confirmed
-            try:
-                self._save_state()
-            except Exception:
-                self.state.clear()
-                self.state.update(previous_state)
-                raise
+        previous_state = dict(self.state)
+        self.state["order_submission_confirmed"] = confirmed
+        try:
+            self._save_state()
+        except Exception:
+            self.state.clear()
+            self.state.update(previous_state)
+            raise
 
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         self._reconcile_unresolved_submissions()

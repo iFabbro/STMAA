@@ -793,9 +793,16 @@ class BrokerExecutor:
             raise RuntimeError(
                 "Broker order reports filled quantity greater than requested quantity"
             )
-        if normalized_status in {"", "unknown"}:
+        known_statuses = {
+            "new", "partially_filled", "filled", "done_for_day", "canceled",
+            "cancelled", "expired", "replaced", "pending_cancel",
+            "pending_replace", "accepted", "pending_new",
+            "accepted_for_bidding", "stopped", "rejected", "suspended",
+            "calculated",
+        }
+        if normalized_status not in known_statuses:
             raise RuntimeError(
-                "Broker execution state is malformed; manual reconciliation required"
+                "Broker execution status is unrecognized; manual reconciliation required"
             )
         tolerance = max(1e-8, requested * 1e-6)
         if normalized_status == "filled" and filled < requested - tolerance:
@@ -812,11 +819,9 @@ class BrokerExecutor:
             raise RuntimeError(
                 "Broker unfilled status contradicts positive fill quantity; manual reconciliation required"
             )
-        if normalized_status in {"canceled", "cancelled", "expired", "rejected"} and (
-            filled >= requested - tolerance
-        ):
+        if normalized_status != "filled" and filled >= requested - tolerance:
             raise RuntimeError(
-                "Broker terminal non-filled status contradicts complete fill quantity; manual reconciliation required"
+                "Broker non-filled status contradicts complete fill quantity; manual reconciliation required"
             )
         return filled
 

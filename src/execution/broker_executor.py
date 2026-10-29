@@ -651,7 +651,7 @@ class BrokerExecutor:
             price = parse_positive(limit_price, "limit_price")
             return qty * price
 
-        symbol = getattr(order, "symbol", None)
+        symbol = str(getattr(order, "symbol", "") or "").strip().upper()
         if symbol and symbol in prices:
             price = parse_positive(prices[symbol], f"market price for {symbol}")
             return qty * price
@@ -1700,9 +1700,9 @@ class BrokerExecutor:
         orders_executed = []
         target_weight_by_ticker = dict(zip(weights.tickers, weights.weights))
         open_order_symbols = {
-            str(getattr(order, "symbol", "")).strip()
+            str(getattr(order, "symbol", "") or "").strip().upper()
             for order in open_orders
-            if str(getattr(order, "symbol", "")).strip()
+            if str(getattr(order, "symbol", "") or "").strip()
         }
         if circuit_breaker_triggered:
             if liquidation_requested:

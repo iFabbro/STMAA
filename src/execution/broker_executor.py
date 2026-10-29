@@ -1284,8 +1284,14 @@ class BrokerExecutor:
                     raise RuntimeError(
                         "Terminal broker order has invalid identity/quantity; manual reconciliation required"
                     ) from exc
+                broker_order_id = str(getattr(order, "id", "") or "").strip()
+                broker_client_order_id = str(
+                    getattr(order, "client_order_id", "") or ""
+                ).strip()
                 if (
-                    broker_symbol != str(stored_order.get("ticker", "")).strip()
+                    broker_order_id != str(order_id).strip()
+                    or broker_client_order_id != str(client_order_id).strip()
+                    or broker_symbol != str(stored_order.get("ticker", "")).strip()
                     or broker_side != str(stored_order.get("side", "")).lower()
                     or not np.isfinite(broker_qty)
                     or not np.isfinite(expected_order_qty)

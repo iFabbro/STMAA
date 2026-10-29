@@ -29,6 +29,7 @@ class DelayedBroker:
         assert order_id == "broker-order-1"
         return SimpleNamespace(
             id=order_id,
+            client_order_id="client-order-1",
             symbol="AAPL",
             side="buy",
             status="filled",
@@ -139,6 +140,7 @@ def test_terminal_order_identity_mismatch_blocks_reconciliation(executor_env):
     executor._save_state()
     broker.get_order_by_id = lambda order_id: SimpleNamespace(
         id=order_id,
+        client_order_id="client-order-1",
         symbol="MSFT",
         side="buy",
         status="filled",
@@ -166,6 +168,7 @@ def test_terminal_order_fill_cannot_exceed_requested_quantity(executor_env):
     executor._save_state()
     broker.get_order_by_id = lambda order_id: SimpleNamespace(
         id=order_id,
+        client_order_id="client-order-1",
         symbol="AAPL",
         side="buy",
         status="filled",

@@ -37,6 +37,7 @@ def test_confirmed_order_enum_status_is_normalized_before_reconciliation(alpaca_
         "get_order_by_id",
         lambda order_id: SimpleNamespace(
             id=order_id,
+            client_order_id="client-order-1",
             symbol="AAPL",
             side="buy",
             qty="1",

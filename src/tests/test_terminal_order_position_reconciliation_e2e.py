@@ -44,6 +44,7 @@ def terminal_order_env(monkeypatch, tmp_path):
         "get_order_by_id",
         lambda order_id: SimpleNamespace(
             id=order_id,
+            client_order_id="client-aapl-buy",
             symbol="AAPL",
             side="buy",
             qty="10",
@@ -107,6 +108,7 @@ def test_restart_with_terminal_order_and_mismatched_broker_identity_blocks(
         "get_order_by_id",
         lambda order_id: SimpleNamespace(
             id=order_id,
+            client_order_id="client-aapl-buy",
             symbol="MSFT",
             side="buy",
             qty="10",

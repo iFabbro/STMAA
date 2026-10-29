@@ -154,6 +154,38 @@ def test_unpriceable_pending_order_blocks_rebalance_and_sends_zero_orders(
     assert submitted == []
 
 
+def test_pending_market_order_without_price_blocks_rebalance_and_sends_zero_orders(
+    isolated_executor, monkeypatch
+):
+    executor = isolated_executor
+    submitted = []
+    pending_market_order = SimpleNamespace(
+        id="pending-market-order-1",
+        symbol="AAPL",
+        status="accepted",
+        qty="10",
+        filled_qty="0",
+        notional=None,
+        limit_price=None,
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [pending_market_order])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {})
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Cannot estimate exposure for active order",
+    ):
+        executor.execute_weights(_target())
+
+    assert submitted == []
+
+
 def test_stale_quote_blocks_rebalance_and_sends_zero_orders(
     isolated_executor, monkeypatch
 ):

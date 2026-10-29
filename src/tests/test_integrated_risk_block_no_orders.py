@@ -348,3 +348,47 @@ def test_partially_filled_pending_order_reserves_full_requested_exposure(
     # Position snapshots can lag fills; reserve the full requested order amount
     # until terminal status and a separate position reconciliation confirm it.
     assert executor._estimate_order_notional(partially_filled_order) == 1000.0
+
+@pytest.mark.parametrize(
+    "quote_case",
+    ["missing_quote", "missing_timestamp", "future_dated_quote"],
+)
+def test_missing_or_untrusted_quote_blocks_new_position_and_sends_zero_orders(
+    isolated_executor, monkeypatch, quote_case
+):
+    executor = isolated_executor
+    submitted = []
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    if quote_case == "missing_quote":
+        quotes = {}
+    elif quote_case == "missing_timestamp":
+        quotes = {"AAPL": {"price": 100.0}}
+    else:
+        future_timestamp = (
+            datetime.now(timezone.utc) + timedelta(minutes=2)
+        ).isoformat()
+        quotes = {
+            "AAPL": {"price": 100.0, "timestamp": future_timestamp}
+        }
+
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: quotes,
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="valid prices unavailable for: AAPL",
+    ):
+        executor.execute_weights(_target())
+
+    assert submitted == []
+

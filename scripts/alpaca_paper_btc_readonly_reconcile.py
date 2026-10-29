@@ -467,7 +467,7 @@ def main() -> int:
         print(f"COMMISSION_ACTIVITY[{i}]: id={fee_activity.get('id', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: order_id={fee_activity.get('order_id', 'n/a')}")
         explicitly_linked = bool(getattr(order, "id", None)) and str(fee_activity.get("order_id", "") or "") == str(getattr(order, "id", "") or "")
-        attribution = "EXPLICIT_ORDER_LINK" if explicitly_linked else "UNLINKED_TEMPORAL_CONTEXT_ONLY"
+        attribution = "EXPLICIT_ORDER_LINK" if explicitly_linked else "UNLINKED_PENDING_ACCOUNTING_MATCH"
         print(f"COMMISSION_ACTIVITY[{i}]: attribution={attribution}")
         print(f"COMMISSION_ACTIVITY[{i}]: activity_type={fee_activity.get('activity_type', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: date={fee_activity.get('date', 'n/a')}")
@@ -559,7 +559,7 @@ def main() -> int:
         return 1
 
     if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and commission is not None:
-        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked to this order")
+        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked or uniquely reconciled by account-wide quantity and cost-basis evidence")
         return 0
 
     # A not-yet-due commission is an expected unresolved business state, not a

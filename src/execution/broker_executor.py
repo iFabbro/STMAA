@@ -781,13 +781,19 @@ class BrokerExecutor:
                 "Broker execution state has invalid fill/request quantity; manual reconciliation required"
             ) from exc
         if (
-            normalized_status in {"", "unknown"}
-            or not np.isfinite(filled)
+            not np.isfinite(filled)
             or not np.isfinite(requested)
             or requested <= 0
             or filled < 0
-            or filled > requested + 1e-8
         ):
+            raise RuntimeError(
+                "Broker execution state is malformed; manual reconciliation required"
+            )
+        if filled > requested + 1e-8:
+            raise RuntimeError(
+                "Broker order reports filled quantity greater than requested quantity"
+            )
+        if normalized_status in {"", "unknown"}:
             raise RuntimeError(
                 "Broker execution state is malformed; manual reconciliation required"
             )

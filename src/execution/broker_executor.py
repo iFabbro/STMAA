@@ -545,7 +545,7 @@ class BrokerExecutor:
             active_statuses = {
                 "new", "partially_filled", "done_for_day", "pending_cancel",
                 "pending_replace", "accepted", "pending_new",
-                "accepted_for_bidding", "stopped", "suspended", "calculated",
+                "accepted_for_bidding", "suspended",
             }
             for order in orders:
                 order_id = str(getattr(order, "id", "") or "").strip()

@@ -3334,3 +3334,83 @@ def test_ambiguous_submission_survives_restart_and_blocks_duplicate_order(
 
     assert second_submit_attempts == []
     assert restored.state["order_submission_unresolved"]["AAPL"]["client_order_id"] == client_order_id
+
+
+
+def test_accepted_submission_state_write_failure_persists_unresolved_intent_across_restart(
+    alpaca_env, monkeypatch
+):
+    """An accepted broker order must not be resent if local acknowledgement persistence fails."""
+    executor = BrokerExecutor(paper_trading=True)
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-29T12:00:00+00:00",
+        "account_data_source": "alpaca_account",
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+
+    submitted = []
+    accepted_order = {}
+
+    def accepted_submit(request):
+        submitted.append(request)
+        accepted_order.update({
+            "id": "broker-order-accepted-1",
+            "status": "new",
+            "symbol": request.symbol,
+            "side": request.side,
+            "qty": str(request.qty),
+            "filled_qty": "0",
+        })
+        return type("BrokerOrder", (), accepted_order)()
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", accepted_submit)
+    original_save_state = executor._save_state
+    fail_once = {"pending": True}
+
+    def fail_acknowledgement_persistence_once():
+        if executor.state.get("order_submission_confirmed") and fail_once["pending"]:
+            fail_once["pending"] = False
+            raise OSError("simulated local state write failure after broker acceptance")
+        return original_save_state()
+
+    monkeypatch.setattr(executor, "_save_state", fail_acknowledgement_persistence_once)
+
+    result = executor.execute_weights(
+        PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+    )
+
+    assert len(submitted) == 1
+    assert result["orders"][0]["status"] == "unresolved"
+    persisted = executor.state_file.read_text(encoding="utf-8")
+    assert "submission_outcome_unconfirmed" in persisted
+    client_order_id = executor.state["order_submission_unresolved"]["AAPL"]["client_order_id"]
+
+    # After restart, broker lookup confirms the original order; execution must
+    # remain blocked while that order is still active, with no second submission.
+    restored = BrokerExecutor(paper_trading=True)
+    assert restored.state["order_submission_unresolved"]["AAPL"]["client_order_id"] == client_order_id
+    broker_order = type("BrokerOrder", (), accepted_order)()
+    monkeypatch.setattr(restored.trading_client, "get_order_by_client_id", lambda client_id: broker_order)
+    monkeypatch.setattr(restored.trading_client, "get_order_by_id", lambda order_id: broker_order)
+    second_submit_attempts = []
+    monkeypatch.setattr(
+        restored.trading_client,
+        "submit_order",
+        lambda request: second_submit_attempts.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="refusing further orders for: AAPL"):
+        restored.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert second_submit_attempts == []
+    assert restored.state["order_submission_confirmed"][client_order_id]["order_id"] == "broker-order-accepted-1"
+    assert "AAPL" not in restored.state.get("order_submission_unresolved", {})

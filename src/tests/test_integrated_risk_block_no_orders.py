@@ -52,7 +52,15 @@ def test_pending_broker_order_blocks_rebalance_and_sends_zero_orders(
     monkeypatch.setattr(
         executor.trading_client,
         "get_order_by_id",
-        lambda order_id: SimpleNamespace(id=order_id, status="accepted"),
+        lambda order_id: SimpleNamespace(
+            id=order_id,
+            client_order_id="client-order-1",
+            status="accepted",
+            symbol="AAPL",
+            side="buy",
+            qty="10.0",
+            filled_qty="0",
+        ),
     )
     monkeypatch.setattr(
         executor.trading_client,

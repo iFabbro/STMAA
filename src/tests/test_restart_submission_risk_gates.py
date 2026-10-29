@@ -50,7 +50,15 @@ def test_restart_reconciles_ambiguous_submission_and_blocks_new_orders(audit_env
 
         def get_order_by_id(self, order_id):
             assert order_id == "broker-order-1"
-            return SimpleNamespace(status="accepted")
+            return SimpleNamespace(
+                id="broker-order-1",
+                client_order_id="durable-client-id",
+                status="accepted",
+                symbol="AAPL",
+                side="buy",
+                qty="2.0",
+                filled_qty="0",
+            )
 
         def submit_order(self, request):
             submitted.append(request)
@@ -94,3 +102,43 @@ def test_incomplete_account_snapshot_blocks_execution_before_submission(audit_en
         )
 
     assert submitted == []
+
+
+def test_nonterminal_order_identity_mismatch_blocks_reconciliation(audit_env):
+    executor = BrokerExecutor()
+    executor.state["order_submission_confirmed"] = {
+        "persisted-client-id": {
+            "ticker": "AAPL",
+            "side": "buy",
+            "quantity": 2.0,
+            "order_id": "persisted-broker-id",
+            "client_order_id": "persisted-client-id",
+            "status": "accepted",
+            "filled_qty": 0.0,
+            "pre_order_position_qty": 0.0,
+        }
+    }
+    executor._save_state()
+
+    class MismatchedClient:
+        def get_order_by_id(self, order_id):
+            assert order_id == "persisted-broker-id"
+            return SimpleNamespace(
+                id="different-broker-id",
+                client_order_id="persisted-client-id",
+                status="accepted",
+                symbol="AAPL",
+                side="buy",
+                qty="2.0",
+                filled_qty="0",
+            )
+
+    executor.trading_client = MismatchedClient()
+
+    with pytest.raises(RuntimeError, match="Non-terminal broker order identity differs"):
+        executor._refresh_confirmed_submission_statuses()
+
+    stored = executor.state["order_submission_confirmed"]["persisted-client-id"]
+    assert stored["order_id"] == "persisted-broker-id"
+    assert stored["status"] == "accepted"
+    assert stored.get("position_reconciled") is not True

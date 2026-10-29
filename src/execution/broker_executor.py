@@ -1226,6 +1226,41 @@ class BrokerExecutor:
                 )
                 continue
 
+            broker_status = self._status_text(
+                getattr(order, "status", "unknown"), default="unknown"
+            )
+            # An identity match alone is not enough to resolve an ambiguous
+            # submission: an absent/unknown status or malformed fill quantity
+            # cannot establish the broker order's execution state.
+            if not broker_status or broker_status == "unknown":
+                self.logger.error(
+                    "Broker order status is missing or unknown for unresolved intent %s; "
+                    "retaining fail-closed state",
+                    ticker,
+                )
+                continue
+            raw_filled_qty = getattr(order, "filled_qty", None)
+            try:
+                broker_filled_qty = float(raw_filled_qty)
+            except (TypeError, ValueError, OverflowError):
+                self.logger.error(
+                    "Broker order fill quantity is missing or invalid for unresolved intent %s; "
+                    "retaining fail-closed state",
+                    ticker,
+                )
+                continue
+            if (
+                not np.isfinite(broker_filled_qty)
+                or broker_filled_qty < 0
+                or broker_filled_qty > broker_qty + 1e-8
+            ):
+                self.logger.error(
+                    "Broker order fill quantity is inconsistent for unresolved intent %s; "
+                    "retaining fail-closed state",
+                    ticker,
+                )
+                continue
+
             order_info = {
                 "ticker": ticker,
                 "side": intent.get("side"),
@@ -1236,7 +1271,7 @@ class BrokerExecutor:
                 "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "price": intent.get("price"),
                 "pre_order_position_qty": intent.get("pre_order_position_qty"),
-                "filled_qty": getattr(order, "filled_qty", None),
+                "filled_qty": broker_filled_qty,
                 "reconciled": True,
             }
             self._record_confirmed_submission(ticker, order_info)

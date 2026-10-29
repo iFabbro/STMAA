@@ -46,6 +46,7 @@ def test_restart_reconciles_ambiguous_submission_and_blocks_new_orders(audit_env
                 symbol="AAPL",
                 side="buy",
                 qty="2.0",
+                filled_qty="0",
             )
 
         def get_order_by_id(self, order_id):

@@ -3461,3 +3461,48 @@ def test_failed_pre_submission_state_write_never_sends_rebalance_order(
     assert "AAPL" not in persisted.get("order_submission_unresolved", {})
     assert persisted.get("order_submission_confirmed", {}) == {}
 
+
+
+def test_unpriced_existing_position_blocks_new_orders_even_with_fresh_target_quote(
+    alpaca_env, monkeypatch
+):
+    """A fresh target quote cannot compensate for unmeasurable existing exposure."""
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 8000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 8000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(
+        executor,
+        "get_positions",
+        lambda: {"MSFT": {"market_value": 2000.0, "qty": 20.0}},
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    # The quote adapter omits MSFT because its quote is stale or unavailable,
+    # while AAPL has a valid quote for the proposed new position.
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0}
+    )
+    submitted = []
+
+    def submit_order(request):
+        submitted.append(request)
+        return SimpleNamespace(id="unexpected", status="accepted")
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
+
+    with pytest.raises(
+        RuntimeError,
+        match="missing or invalid recent price for held position MSFT",
+    ):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []
+    assert executor.state.get("order_submission_unresolved", {}) == {}

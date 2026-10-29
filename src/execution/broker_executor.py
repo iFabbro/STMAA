@@ -1494,6 +1494,11 @@ class BrokerExecutor:
         target_weights = np.asarray(weights.weights, dtype=float)
         if target_weights.shape != (len(weights.tickers),) or not np.isfinite(target_weights).all():
             raise ValueError("Target weights must be a finite vector matching tickers")
+        if any(not isinstance(ticker, str) or not ticker.strip() for ticker in weights.tickers):
+            raise ValueError("Target tickers must be non-empty strings")
+        normalized_tickers = [ticker.strip().upper() for ticker in weights.tickers]
+        if len(set(normalized_tickers)) != len(normalized_tickers):
+            raise ValueError("Target tickers must be unique; duplicate symbols make allocation ambiguous")
         if (target_weights < 0).any():
             raise ValueError("Negative target weights are unsupported; refusing to open or increase short positions")
         if float(target_weights.sum()) > 1.0 + 1e-6:

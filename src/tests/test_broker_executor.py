@@ -3414,3 +3414,50 @@ def test_accepted_submission_state_write_failure_persists_unresolved_intent_acro
     assert second_submit_attempts == []
     assert restored.state["order_submission_confirmed"][client_order_id]["order_id"] == "broker-order-accepted-1"
     assert "AAPL" not in restored.state.get("order_submission_unresolved", {})
+
+
+def test_failed_pre_submission_state_write_never_sends_rebalance_order(
+    alpaca_env, monkeypatch
+):
+    """A normal rebalance must not submit unless its unresolved intent is durable."""
+    import json
+
+    executor = BrokerExecutor(paper_trading=True)
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_snapshot_at": "2026-10-29T12:00:00+00:00",
+        "account_data_source": "alpaca_account",
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0})
+
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+    original_save_state = executor._save_state
+
+    def fail_before_submission():
+        if "AAPL" in executor.state.get("order_submission_unresolved", {}):
+            raise OSError("simulated state write failure before broker submission")
+        return original_save_state()
+
+    monkeypatch.setattr(executor, "_save_state", fail_before_submission)
+
+    with pytest.raises(OSError, match="before broker submission"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert "AAPL" not in persisted.get("order_submission_unresolved", {})
+    assert persisted.get("order_submission_confirmed", {}) == {}
+

@@ -1313,11 +1313,9 @@ class BrokerExecutor:
                     raise RuntimeError("Broker returned invalid filled quantity for acknowledged order") from exc
                 if not np.isfinite(filled_qty) or filled_qty < 0:
                     raise RuntimeError("Broker returned invalid filled quantity for acknowledged order")
-                if broker_status in terminal_statuses and filled_qty > float(
-                    stored_order.get("quantity", 0.0)
-                ) + 1e-8:
+                if filled_qty > float(stored_order.get("quantity", 0.0)) + 1e-8:
                     raise RuntimeError(
-                        "Terminal broker order reports filled quantity greater than requested quantity"
+                        "Broker order reports filled quantity greater than requested quantity"
                     )
                 if updated.get("filled_qty") != filled_qty:
                     updated["filled_qty"] = filled_qty

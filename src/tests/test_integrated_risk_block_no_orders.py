@@ -138,6 +138,30 @@ def test_incomplete_position_snapshot_blocks_rebalance_and_sends_zero_orders(
 
     assert len(submitted) == 0
 
+def test_target_tickers_are_canonicalized_before_account_reads(
+    isolated_executor, monkeypatch
+):
+    executor = isolated_executor
+    submitted = []
+    target = PortfolioWeights(weights=np.array([0.10]), tickers=[" aapl "])
+
+    def stop_after_canonicalization():
+        assert target.tickers == ["AAPL"]
+        raise RuntimeError("stop after canonicalization")
+
+    monkeypatch.setattr(executor, "get_account_status", stop_after_canonicalization)
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="stop after canonicalization"):
+        executor.execute_weights(target)
+
+    assert submitted == []
+
+
 def test_duplicate_target_tickers_are_rejected_before_account_reads(
     isolated_executor, monkeypatch
 ):

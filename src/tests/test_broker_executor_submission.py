@@ -168,6 +168,7 @@ def test_confirmed_order_status_is_refreshed_from_broker_and_persisted():
         get_order_by_id=Mock(
             return_value=SimpleNamespace(
                 id="broker-order-456",
+                client_order_id="client-order-123",
                 symbol="AAPL",
                 side="buy",
                 qty="2",
@@ -209,3 +210,50 @@ def test_confirmed_order_status_read_failure_keeps_fail_closed_state():
     assert executor.state["order_submission_confirmed"]["client-order-123"]["status"] == "accepted"
     executor._save_state.assert_not_called()
     executor.logger.warning.assert_called_once()
+
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("id", "different-broker-order"),
+        ("client_order_id", "different-client-order"),
+    ],
+)
+def test_terminal_confirmed_order_identity_mismatch_blocks_reconciliation(
+    field, value
+):
+    """A terminal lookup must match both persisted broker and client order IDs."""
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    stored = {
+        "ticker": "AAPL",
+        "client_order_id": "client-order-123",
+        "order_id": "broker-order-456",
+        "status": "accepted",
+        "side": "buy",
+        "quantity": 2,
+        "pre_order_position_qty": 0,
+    }
+    executor.state = {
+        "order_submission_confirmed": {"client-order-123": deepcopy(stored)}
+    }
+    broker_order = {
+        "id": "broker-order-456",
+        "client_order_id": "client-order-123",
+        "symbol": "AAPL",
+        "side": "buy",
+        "qty": "2",
+        "filled_qty": "2",
+        "status": "filled",
+    }
+    broker_order[field] = value
+    executor.trading_client = SimpleNamespace(
+        get_order_by_id=Mock(return_value=SimpleNamespace(**broker_order))
+    )
+    executor._save_state = Mock()
+
+    with pytest.raises(RuntimeError, match="identity differs"):
+        executor._refresh_confirmed_submission_statuses()
+
+    assert executor.state["order_submission_confirmed"]["client-order-123"] == stored
+    executor._save_state.assert_not_called()

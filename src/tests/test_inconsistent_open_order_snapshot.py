@@ -41,6 +41,14 @@ def executor_env(monkeypatch, tmp_path):
             SimpleNamespace(id="missing-status", symbol="AAPL"),
             id="missing-status",
         ),
+        pytest.param(
+            SimpleNamespace(id="unknown-status", symbol="AAPL", status="future_broker_state"),
+            id="unknown-status",
+        ),
+        pytest.param(
+            SimpleNamespace(id="replaced-order", symbol="AAPL", status="replaced"),
+            id="replaced-parent-is-not-active",
+        ),
     ],
 )
 def test_inconsistent_open_order_snapshot_blocks_rebalance_before_submission(

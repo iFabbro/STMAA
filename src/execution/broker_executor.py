@@ -542,7 +542,11 @@ class BrokerExecutor:
                 raise ValueError("Broker returned an invalid open-orders response shape")
 
             seen_ids = set()
-            terminal_statuses = {"filled", "canceled", "cancelled", "expired", "rejected"}
+            active_statuses = {
+                "new", "partially_filled", "done_for_day", "pending_cancel",
+                "pending_replace", "accepted", "pending_new",
+                "accepted_for_bidding", "stopped", "suspended", "calculated",
+            }
             for order in orders:
                 order_id = str(getattr(order, "id", "") or "").strip()
                 symbol = str(getattr(order, "symbol", "") or "").strip()
@@ -551,9 +555,9 @@ class BrokerExecutor:
                     raise ValueError(
                         "Broker returned an open order without a valid ID, symbol, or status"
                     )
-                if status in terminal_statuses:
+                if status not in active_statuses:
                     raise ValueError(
-                        f"Broker open-order snapshot contains terminal status for {order_id}"
+                        f"Broker open-order snapshot contains unknown or non-active status for {order_id}"
                     )
                 if order_id in seen_ids:
                     raise ValueError("Broker returned duplicate open-order IDs")

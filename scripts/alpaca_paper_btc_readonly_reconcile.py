@@ -259,6 +259,67 @@ def reconcile_crypto_commission(order: object, key: str, secret: str) -> tuple[D
     return fee_usd, source_status + "; COMMISSION_STATUS=RECONCILED; explicitly linked CFEE qty × price converted to USD", fees
 
 
+
+def infer_unlinked_commission_from_position(
+    order: object,
+    fees: list[dict],
+    btc_positions: list[object],
+    all_orders: list[object],
+) -> tuple[Decimal | None, str]:
+    """Infer a fee only from a unique account-wide BTC order and matching accounting deltas.
+
+    This is deliberately stricter than matching symbol/time: exactly one filled BTC
+    order and one BTC position must exist, the sole CFEE quantity must explain the
+    fill-to-position quantity delta, and position cost basis must equal gross fill
+    notional less that fee within cent-level rounding.
+    """
+    if len(fees) != 1:
+        return None, "CFEE inference rejected: expected exactly one candidate activity"
+    fee = fees[0]
+    if str(fee.get("activity_type", "")).upper() != "CFEE":
+        return None, "CFEE inference rejected: candidate activity type mismatch"
+    if norm_symbol(fee.get("symbol", "")) != EXPECTED_SYMBOL:
+        return None, "CFEE inference rejected: candidate symbol mismatch"
+    if fee.get("order_id"):
+        return None, "CFEE inference not needed: activity already has an order_id"
+    if len(btc_positions) != 1:
+        return None, "CFEE inference rejected: expected exactly one BTC position"
+    filled_btc_orders = [
+        candidate for candidate in all_orders
+        if norm_symbol(getattr(candidate, "symbol", "")) == EXPECTED_SYMBOL
+        and norm_status(getattr(candidate, "status", "")) == "filled"
+        and (as_decimal(getattr(candidate, "filled_qty", None)) or Decimal("0")) > 0
+    ]
+    if len(all_orders) >= 500:
+        return None, "CFEE inference rejected: order history may be truncated at 500 records"
+    if len(filled_btc_orders) != 1 or str(getattr(filled_btc_orders[0], "id", "")) != str(getattr(order, "id", "")):
+        return None, "CFEE inference rejected: account does not have exactly one matching filled BTC order"
+    position = btc_positions[0]
+    position_qty = as_decimal(getattr(position, "qty", None))
+    cost_basis = as_decimal(getattr(position, "cost_basis", None))
+    filled_qty = as_decimal(getattr(order, "filled_qty", None))
+    avg_price = as_decimal(getattr(order, "filled_avg_price", None))
+    fee_qty = as_decimal(fee.get("qty"))
+    fee_price = as_decimal(fee.get("price"))
+    if any(value is None for value in (position_qty, cost_basis, filled_qty, avg_price, fee_qty, fee_price)):
+        return None, "CFEE inference rejected: required quantity/price/cost-basis data missing"
+    if filled_qty <= 0 or avg_price <= 0 or fee_qty >= 0 or fee_price <= 0:
+        return None, "CFEE inference rejected: invalid BUY fill or fee signs/values"
+    fee_usd = abs(fee_qty) * fee_price
+    quantity_delta = position_qty - filled_qty
+    if abs(quantity_delta - fee_qty) > QTY_TOLERANCE:
+        return None, "CFEE inference rejected: fee quantity does not explain fill-to-position delta"
+    if abs(fee_price - avg_price) > Decimal("0.01"):
+        return None, "CFEE inference rejected: fee conversion price differs from fill price"
+    expected_cost_basis = filled_qty * avg_price - fee_usd
+    if abs(cost_basis - expected_cost_basis) > Decimal("0.01"):
+        return None, "CFEE inference rejected: position cost basis does not reconcile to net fill"
+    return fee_usd, (
+        "COMMISSION_STATUS=RECONCILED_BY_UNIQUE_ACCOUNTING_MATCH; "
+        "unique filled BTC order + unique BTC position + CFEE quantity delta + net cost basis match"
+    )
+
+
 def commission_reconciliation_status(
     order: object,
     commission: Decimal | None,
@@ -406,7 +467,7 @@ def main() -> int:
         print(f"COMMISSION_ACTIVITY[{i}]: id={fee_activity.get('id', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: order_id={fee_activity.get('order_id', 'n/a')}")
         explicitly_linked = bool(getattr(order, "id", None)) and str(fee_activity.get("order_id", "") or "") == str(getattr(order, "id", "") or "")
-        attribution = "EXPLICIT_ORDER_LINK" if explicitly_linked else "UNLINKED_TEMPORAL_CONTEXT_ONLY"
+        attribution = "EXPLICIT_ORDER_LINK" if explicitly_linked else "UNLINKED_PENDING_ACCOUNTING_MATCH"
         print(f"COMMISSION_ACTIVITY[{i}]: attribution={attribution}")
         print(f"COMMISSION_ACTIVITY[{i}]: activity_type={fee_activity.get('activity_type', 'n/a')}")
         print(f"COMMISSION_ACTIVITY[{i}]: date={fee_activity.get('date', 'n/a')}")
@@ -414,15 +475,6 @@ def main() -> int:
         print(f"COMMISSION_ACTIVITY[{i}]: qty={safe_decimal(fee_activity.get('qty'))}")
         print(f"COMMISSION_ACTIVITY[{i}]: price={safe_decimal(fee_activity.get('price'))}")
         print(f"COMMISSION_ACTIVITY[{i}]: net_amount={safe_decimal(fee_activity.get('net_amount'))}")
-    commission_status = commission_reconciliation_status(
-        order, commission, fee_activities, commission_source
-    )
-    print(f"COMMISSION: status={commission_status}")
-    if commission is None:
-        print("COMMISSION: amount=unknown (not assumed to be zero)")
-    else:
-        print(f"COMMISSION: amount_usd={commission}")
-
     try:
         positions = client.get_all_positions()
     except Exception as exc:
@@ -443,6 +495,36 @@ def main() -> int:
         print(f"POSITION[{i}]: market_value={safe_decimal(getattr(position, 'market_value', None))}")
         print(f"POSITION[{i}]: cost_basis={safe_decimal(getattr(position, 'cost_basis', None))}")
         print(f"POSITION[{i}]: unrealized_pl={safe_decimal(getattr(position, 'unrealized_pl', None))}")
+
+    # Order history is read-only and used only to reject ambiguous fee attribution.
+    try:
+        all_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500))
+    except Exception as exc:
+        print(f"ORDER_HISTORY: read_error={type(exc).__name__}; details withheld")
+        all_orders = []
+        order_history_read_ok = False
+    else:
+        order_history_read_ok = True
+    btc_order_history = [o for o in all_orders if norm_symbol(getattr(o, "symbol", "")) in SYMBOLS]
+    print(f"ORDER_HISTORY: total_orders={len(all_orders)}; btc_orders={len(btc_order_history)}; read_ok={str(order_history_read_ok).lower()}")
+
+    if commission is None and order_history_read_ok and fee_activities:
+        inferred_commission, inference_detail = infer_unlinked_commission_from_position(
+            order, fee_activities, btc_positions, all_orders
+        )
+        print(f"COMMISSION: inference={inference_detail}")
+        if inferred_commission is not None:
+            commission = inferred_commission
+            commission_source = commission_source + "; " + inference_detail
+            print("COMMISSION: attribution=UNIQUE_ACCOUNTING_MATCH")
+    commission_status = commission_reconciliation_status(
+        order, commission, fee_activities, commission_source
+    )
+    print(f"COMMISSION: status={commission_status}")
+    if commission is None:
+        print("COMMISSION: amount=unknown (not assumed to be zero)")
+    else:
+        print(f"COMMISSION: amount_usd={commission}")
 
     quantity_delta, quantity_match = compare_position_quantity(position_qty, filled_qty)
     print("POSITION_RECON: scope=aggregate_current_account_position_vs_single_order_fill")
@@ -477,7 +559,7 @@ def main() -> int:
         return 1
 
     if order_status == "filled" and filled_qty > 0 and avg_price is not None and fills_match and commission is not None:
-        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked to this order")
+        print("RESULT: RECONCILED — order summary matches order-scoped FILL activities; commission is explicitly linked or uniquely reconciled by account-wide quantity and cost-basis evidence")
         return 0
 
     # A not-yet-due commission is an expected unresolved business state, not a

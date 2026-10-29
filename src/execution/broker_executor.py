@@ -1114,7 +1114,8 @@ class BrokerExecutor:
             positions = self.trading_client.get_all_positions()
             parsed_positions = {}
             for position in positions:
-                symbol = str(getattr(position, "symbol", "")).strip()
+                raw_symbol = getattr(position, "symbol", None)
+                symbol = str(raw_symbol).strip().upper() if raw_symbol is not None else ""
                 if not symbol:
                     raise ValueError("Broker returned a position without a valid symbol")
                 if symbol in parsed_positions:

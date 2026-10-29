@@ -34,6 +34,49 @@ def _target():
     return PortfolioWeights(weights=np.array([0.10]), tickers=["AAPL"])
 
 
+def test_broker_position_symbols_are_canonicalized_and_collisions_rejected(
+    isolated_executor, monkeypatch
+):
+    executor = isolated_executor
+    position = SimpleNamespace(
+        symbol=" aapl ",
+        qty="2",
+        market_value="200",
+        avg_entry_price="90",
+        unrealized_pl="20",
+    )
+    monkeypatch.setattr(
+        executor.trading_client, "get_all_positions", lambda: [position]
+    )
+
+    assert executor.get_positions() == {
+        "AAPL": {
+            "qty": 2.0,
+            "market_value": 200.0,
+            "avg_entry_price": 90.0,
+            "unrealized_pl": 20.0,
+        }
+    }
+
+    duplicate = SimpleNamespace(
+        symbol="aapl",
+        qty="1",
+        market_value="100",
+        avg_entry_price="90",
+        unrealized_pl="10",
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: [position, duplicate],
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Unable to retrieve broker positions",
+    ):
+        executor.get_positions()
+
+
 def test_pending_broker_order_blocks_rebalance_and_sends_zero_orders(
     isolated_executor, monkeypatch
 ):

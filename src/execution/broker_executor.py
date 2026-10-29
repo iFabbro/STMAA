@@ -1499,6 +1499,9 @@ class BrokerExecutor:
         normalized_tickers = [ticker.strip().upper() for ticker in weights.tickers]
         if len(set(normalized_tickers)) != len(normalized_tickers):
             raise ValueError("Target tickers must be unique; duplicate symbols make allocation ambiguous")
+        # Use the same canonical symbols for quote lookup, position matching,
+        # risk sizing, and order submission—not only for duplicate detection.
+        weights.tickers = normalized_tickers
         if (target_weights < 0).any():
             raise ValueError("Negative target weights are unsupported; refusing to open or increase short positions")
         if float(target_weights.sum()) > 1.0 + 1e-6:

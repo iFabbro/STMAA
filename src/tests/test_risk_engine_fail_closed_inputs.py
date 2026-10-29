@@ -1,5 +1,4 @@
 """Risk sizing must fail closed when any exposure input is unreliable."""
-import numpy as np
 import pytest
 
 from src.execution.broker_executor import RiskEngine

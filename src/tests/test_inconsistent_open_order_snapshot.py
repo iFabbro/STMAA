@@ -92,3 +92,68 @@ def test_inconsistent_open_order_snapshot_blocks_rebalance_before_submission(
 
     assert submitted == []
     assert positions_reads == []
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        pytest.param(
+            [
+                SimpleNamespace(
+                    id="duplicate-order-id",
+                    symbol="AAPL",
+                    status="accepted",
+                    qty="1",
+                    filled_qty="0",
+                    limit_price="100",
+                ),
+                SimpleNamespace(
+                    id="duplicate-order-id",
+                    symbol="MSFT",
+                    status="accepted",
+                    qty="1",
+                    filled_qty="0",
+                    limit_price="100",
+                ),
+            ],
+            id="duplicate-order-identities",
+        ),
+        pytest.param(
+            {"orders": []},
+            id="non-list-response-shape",
+        ),
+    ],
+)
+def test_duplicate_or_malformed_open_order_snapshot_blocks_before_positions(
+    executor_env, monkeypatch, snapshot
+):
+    executor = executor_env
+    submitted = []
+    positions_reads = []
+
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_orders",
+        lambda **kwargs: snapshot,
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_all_positions",
+        lambda: positions_reads.append(True) or [],
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Unable to retrieve or validate broker open orders",
+    ):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []
+    assert positions_reads == []

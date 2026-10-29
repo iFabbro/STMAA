@@ -298,3 +298,34 @@ def test_duplicate_target_tickers_are_rejected_before_account_reads(
 
     assert submitted == []
 
+
+
+def test_noncanonical_pending_order_symbol_prevents_duplicate_rebalance_order(
+    isolated_executor, monkeypatch
+):
+    executor = isolated_executor
+    submitted = []
+    pending_order = SimpleNamespace(
+        id="pending-order-symbol-normalization",
+        symbol=" aapl ",
+        status="accepted",
+        qty="1",
+        filled_qty="0",
+        notional=None,
+        limit_price="100",
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [pending_order])
+    monkeypatch.setattr(
+        executor, "_get_prices_from_bars", lambda tickers: {"AAPL": 100.0}
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    result = executor.execute_weights(_target())
+
+    assert result["orders"] == []
+    assert submitted == []

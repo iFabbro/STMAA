@@ -16,7 +16,7 @@ def load_equity_curve(path=None):
     source = Path(path) if path is not None else HUB_STATE_PATH
     try:
         state = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return []
 
     if not isinstance(state, dict):

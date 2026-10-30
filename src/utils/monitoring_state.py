@@ -32,12 +32,10 @@ def load_equity_curve(path=None):
 
     values = []
     for value in curve:
-        if isinstance(value, bool):
+        # JSON equity observations must be numeric primitives; do not coerce strings.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return []
-        try:
-            number = float(value)
-        except (TypeError, ValueError, OverflowError):
-            return []
+        number = float(value)
         if not math.isfinite(number):
             return []
         values.append(number)

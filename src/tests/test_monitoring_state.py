@@ -209,6 +209,7 @@ def test_load_equity_curve_restores_last_120_finite_points(tmp_path):
         json.dumps([]),
         json.dumps({"equity_curve": "not-a-list"}),
         json.dumps({"equity_curve": [100.0, "invalid"]}),
+        json.dumps({"equity_curve": [100.0, "101.0"]}),
         json.dumps({"equity_curve": [100.0, float("nan")]}),
         json.dumps({"equity_curve": [100.0, True]}),
     ],

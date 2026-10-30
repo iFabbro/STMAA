@@ -215,6 +215,13 @@ class PaperTradingBot:
             ) from exc
 
     def execute_trade(self, weights: PortfolioWeights):
+        """Serialize the complete risk decision and broker execution cycle."""
+        execution_lock = getattr(self.executor, "execution_lock", None)
+        lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+        with lock_context:
+            return self._execute_trade_locked(weights)
+
+    def _execute_trade_locked(self, weights: PortfolioWeights):
         """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
         risk_module = getattr(self.pipeline, "risk_module", None)

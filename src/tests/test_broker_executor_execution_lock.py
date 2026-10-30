@@ -155,3 +155,36 @@ def test_execution_lock_acquisition_failure_fails_closed(tmp_path, monkeypatch):
         executor.execute_weights(object())
 
     assert execution_called is False
+
+
+
+def test_direct_execution_lock_serializes_executor_execution(tmp_path):
+    state_file = tmp_path / "broker_state.json"
+    smoke = _executor(state_file)
+    strategy = _executor(state_file)
+    smoke_entered = Event()
+    release_smoke = Event()
+    strategy_entered = Event()
+
+    def hold_smoke_preflight_and_submission():
+        with smoke.execution_lock():
+            smoke_entered.set()
+            assert release_smoke.wait(timeout=5)
+
+    def strategy_execution(weights, min_notional):
+        strategy_entered.set()
+        return "strategy"
+
+    strategy._execute_weights_locked = strategy_execution
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        smoke_future = pool.submit(hold_smoke_preflight_and_submission)
+        assert smoke_entered.wait(timeout=5)
+        strategy_future = pool.submit(strategy.execute_weights, object())
+        # A direct Paper smoke path must exclude the normal executor path.
+        assert not strategy_entered.wait(timeout=0.2)
+        release_smoke.set()
+        smoke_future.result(timeout=5)
+        assert strategy_future.result(timeout=5) == "strategy"
+
+    assert strategy_entered.is_set()

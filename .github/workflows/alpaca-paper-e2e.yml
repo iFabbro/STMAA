@@ -7,7 +7,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: stmaa-alpaca-paper-e2e
+  # Shared across both Paper E2E workflows to prevent concurrent smoke orders.
+  group: stmaa-alpaca-paper-broker-mutations
   cancel-in-progress: false
 
 jobs:

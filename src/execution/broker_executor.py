@@ -1625,12 +1625,12 @@ class BrokerExecutor:
                         lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
                     )
                     acquired = True
-                except BlockingIOError:
+                except BlockingIOError as exc:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise RuntimeError(
                             "Timed out acquiring broker execution lock; refusing execution"
-                        )
+                        ) from exc
                     time.sleep(min(0.05, remaining))
                 except OSError as exc:
                     raise RuntimeError(

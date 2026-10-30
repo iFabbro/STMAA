@@ -190,6 +190,48 @@ def test_direct_execution_lock_serializes_executor_execution(tmp_path):
     assert strategy_entered.is_set()
 
 
+def test_execution_lock_is_reentrant_for_account_refresh(tmp_path):
+    executor = _executor(tmp_path / "broker_state.json")
+    executor.execution_lock_timeout_seconds = 0.1
+    executor._get_account_status_locked = lambda: {"account_data_fresh": True}
+
+    # get_account_status must not deadlock when called from execute_weights,
+    # which already owns the same execution lock.
+    with executor.execution_lock():
+        account = executor.get_account_status()
+
+    assert account["account_data_fresh"] is True
+
+
+def test_account_refresh_waits_for_active_execution_lock(tmp_path):
+    executor = _executor(tmp_path / "broker_state.json")
+    refresh_entered = Event()
+    execution_entered = Event()
+    release_execution = Event()
+
+    def refresh():
+        refresh_entered.set()
+        return {"account_data_fresh": True}
+
+    executor._get_account_status_locked = refresh
+
+    def hold_execution():
+        with executor.execution_lock():
+            execution_entered.set()
+            assert release_execution.wait(timeout=5)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        execution_future = pool.submit(hold_execution)
+        assert execution_entered.wait(timeout=5)
+        refresh_future = pool.submit(executor.get_account_status)
+        assert not refresh_entered.wait(timeout=0.2)
+        release_execution.set()
+        execution_future.result(timeout=5)
+        assert refresh_future.result(timeout=5)["account_data_fresh"] is True
+
+    assert refresh_entered.is_set()
+
+
 def _hold_lock_until_terminated(state_file, entered):
     executor = _executor(state_file)
     with executor.execution_lock():

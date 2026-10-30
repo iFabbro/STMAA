@@ -5,6 +5,7 @@ import logging
 import tempfile
 import fcntl
 import time
+import threading
 from contextlib import contextmanager
 import copy
 import uuid
@@ -173,6 +174,7 @@ class BrokerExecutor:
         self.paper_trading = paper_trading
         self.initial_capital = initial_capital
         self.logger = logging.getLogger(__name__)
+        self._execution_lock_local = threading.local()
 
         try:
             self.execution_lock_timeout_seconds = float(
@@ -478,6 +480,12 @@ class BrokerExecutor:
             raise
 
     def get_account_status(self) -> Dict:
+        """Refresh and persist account data under the shared broker execution lock."""
+        with self.execution_lock():
+            return self._get_account_status_locked()
+
+    def _get_account_status_locked(self) -> Dict:
+        """Perform the account refresh while the caller owns the execution lock."""
         self._current_account_identity_verified = False
         try:
             account = self.trading_client.get_account()
@@ -1606,12 +1614,30 @@ class BrokerExecutor:
 
     @contextmanager
     def execution_lock(self):
-        """Serialize broker mutations sharing this executor state-file path.
+        """Serialize broker mutations and state refreshes for this state-file path.
 
-        This is an OS file lock: participating processes must use the same
-        state-file path on a filesystem that supports advisory flock locks.
-        It is not a distributed lock across independent hosts or filesystems.
+        The lock is reentrant within one thread and executor instance so methods
+        such as get_account_status can safely be called from an already-locked
+        execution cycle. Across processes it remains an OS file lock: all
+        participants must share this state-file path on a filesystem that
+        supports advisory flock locks. It is not a distributed lock.
         """
+        local = getattr(self, "_execution_lock_local", None)
+        if local is None:
+            # Keep __new__-constructed test executors compatible while ensuring
+            # nested calls on the same instance/thread do not reacquire flock.
+            local = threading.local()
+            self._execution_lock_local = local
+
+        depth = getattr(local, "depth", 0)
+        if depth:
+            local.depth = depth + 1
+            try:
+                yield
+            finally:
+                local.depth = depth
+            return
+
         lock_path = self.state_file.with_name(
             self.state_file.name + ".execution.lock"
         )
@@ -1644,9 +1670,11 @@ class BrokerExecutor:
                     raise RuntimeError(
                         "Unable to acquire broker execution lock; refusing execution"
                     ) from exc
+            local.depth = 1
             try:
                 yield
             finally:
+                local.depth = 0
                 try:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
                 except OSError as exc:

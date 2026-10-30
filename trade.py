@@ -23,6 +23,7 @@ from src.utils.sqlite_logger import start_run, log_event, write_snapshot
 RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 
 import numpy as np
+from contextlib import nullcontext
 import pandas as pd
 import json
 import yfinance as yf
@@ -244,63 +245,67 @@ class PaperTradingBot:
             # Persist the high-water mark independently of configured initial capital.
             # A first verified account snapshot establishes the baseline; later runs
             # retain the historical peak and advance it only when a new high is reached.
-            executor_state = getattr(self.executor, "state", None)
-            if isinstance(executor_state, dict):
-                account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
-                # Provenance must come from the current broker snapshot. A persisted
-                # account ID is historical state and cannot fill a missing ID in this
-                # response; otherwise a stale high-water mark could be trusted.
-                account_id = account.get("account_id")
-                if not isinstance(account_id, str) or not account_id.strip():
-                    raise RuntimeError(
-                        "Cannot verify current broker account identity; refusing to submit target weights"
+            execution_lock = getattr(self.executor, "execution_lock", None)
+            lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+            with lock_context:
+                executor_state = getattr(self.executor, "state", None)
+                if isinstance(executor_state, dict):
+                    account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
+                    # Provenance must come from the current broker snapshot. A persisted
+                    # account ID is historical state and cannot fill a missing ID in this
+                    # response; otherwise a stale high-water mark could be trusted.
+                    account_id = account.get("account_id")
+                    if not isinstance(account_id, str) or not account_id.strip():
+                        raise RuntimeError(
+                            "Cannot verify current broker account identity; refusing to submit target weights"
+                        )
+                    account_id = account_id.strip()
+                    stored_peak = executor_state.get("risk_peak_portfolio_value")
+                    stored_peak_account_id = executor_state.get("risk_peak_account_id")
+                    provenance_matches = (
+                        executor_state.get("risk_peak_equity_source") == "alpaca_account"
+                        and executor_state.get("risk_peak_account_mode") == account_mode
+                        and bool(account_id)
+                        and bool(stored_peak_account_id)
+                        and account_id == stored_peak_account_id
                     )
-                account_id = account_id.strip()
-                stored_peak = executor_state.get("risk_peak_portfolio_value")
-                stored_peak_account_id = executor_state.get("risk_peak_account_id")
-                provenance_matches = (
-                    executor_state.get("risk_peak_equity_source") == "alpaca_account"
-                    and executor_state.get("risk_peak_account_mode") == account_mode
-                    and bool(account_id)
-                    and bool(stored_peak_account_id)
-                    and account_id == stored_peak_account_id
-                )
-                # Legacy peaks without matching provenance may have come from
-                # configured initial capital; re-anchor to this verified snapshot.
-                if stored_peak is None and prior_state_has_account_history:
-                    raise RuntimeError(
-                        "Cannot calculate drawdown: persisted risk peak is missing for existing broker state"
-                    )
-                if stored_peak is None or not provenance_matches:
-                    stored_peak = portfolio_value
-                    # The overlay also keeps an in-memory high-water mark. Re-anchor
-                    # it whenever persisted provenance is incomplete or mismatched;
-                    # otherwise a stale peak can zero targets while this account's
-                    # circuit-breaker flag remains false.
+                    # Legacy peaks without matching provenance may have come from
+                    # configured initial capital; re-anchor to this verified snapshot.
+                    if stored_peak is None and prior_state_has_account_history:
+                        raise RuntimeError(
+                            "Cannot calculate drawdown: persisted risk peak is missing for existing broker state"
+                        )
+                    if stored_peak is None or not provenance_matches:
+                        stored_peak = portfolio_value
+                        # The overlay also keeps an in-memory high-water mark. Re-anchor
+                        # it whenever persisted provenance is incomplete or mismatched;
+                        # otherwise a stale peak can zero targets while this account's
+                        # circuit-breaker flag remains false.
+                        if hasattr(risk_module, "peak_portfolio_value"):
+                            risk_module.peak_portfolio_value = portfolio_value
+                    else:
+                        stored_peak = float(stored_peak)
+                        if not np.isfinite(stored_peak) or stored_peak <= 0:
+                            raise RuntimeError("Stored risk drawdown peak is invalid")
+                    peak_portfolio_value = max(stored_peak, portfolio_value)
+                    executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                    executor_state["risk_peak_equity_source"] = "alpaca_account"
+                    executor_state["risk_peak_account_mode"] = account_mode
+                    executor_state["risk_peak_account_id"] = account_id
+                    executor_state["peak_equity"] = peak_portfolio_value
+                    executor_state["peak_equity_source"] = "verified_account"
+                    executor_state["peak_equity_account_mode"] = account_mode
+                    executor_state["peak_equity_account_id"] = account_id
+                    save_state = getattr(self.executor, "_save_state", None)
+                    if callable(save_state):
+                        save_state()
+                else:
+                    # Without persisted account identity there is no trustworthy
+                    # provenance for an in-memory peak; anchor to verified equity.
+                    peak_portfolio_value = portfolio_value
                     if hasattr(risk_module, "peak_portfolio_value"):
                         risk_module.peak_portfolio_value = portfolio_value
-                else:
-                    stored_peak = float(stored_peak)
-                    if not np.isfinite(stored_peak) or stored_peak <= 0:
-                        raise RuntimeError("Stored risk drawdown peak is invalid")
-                peak_portfolio_value = max(stored_peak, portfolio_value)
-                executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
-                executor_state["risk_peak_equity_source"] = "alpaca_account"
-                executor_state["risk_peak_account_mode"] = account_mode
-                executor_state["risk_peak_account_id"] = account_id
-                executor_state["peak_equity"] = peak_portfolio_value
-                executor_state["peak_equity_source"] = "verified_account"
-                executor_state["peak_equity_account_mode"] = account_mode
-                executor_state["peak_equity_account_id"] = account_id
-                save_state = getattr(self.executor, "_save_state", None)
-                if callable(save_state):
-                    save_state()
-            else:
-                # Without persisted account identity there is no trustworthy
-                # provenance for an in-memory peak; anchor to verified equity.
-                peak_portfolio_value = portfolio_value
-                if hasattr(risk_module, "peak_portfolio_value"):
-                    risk_module.peak_portfolio_value = portfolio_value
+
 
             self.pipeline.current_portfolio_value = portfolio_value
             drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)

@@ -476,7 +476,7 @@ class PaperTradingBot:
             try:
                 market_data = self.get_market_data()
                 weights = self.generate_weights(market_data)
-                result = self.execute_and_persist_cycle(weights)
+                self.execute_and_persist_cycle(weights)
 
                 status = self.executor.get_account_status()
                 if status.get("account_data_fresh") is not True:

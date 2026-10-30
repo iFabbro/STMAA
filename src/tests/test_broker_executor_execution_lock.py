@@ -188,3 +188,77 @@ def test_direct_execution_lock_serializes_executor_execution(tmp_path):
         assert strategy_future.result(timeout=5) == "strategy"
 
     assert strategy_entered.is_set()
+
+
+def _hold_lock_until_terminated(state_file, entered):
+    executor = _executor(state_file)
+    with executor.execution_lock():
+        entered.set()
+        import time
+
+        while True:
+            time.sleep(0.05)
+
+
+def test_execution_lock_timeout_fails_closed(tmp_path):
+    state_file = tmp_path / "broker_state.json"
+    holder = _executor(state_file)
+    contender = _executor(state_file)
+    contender.execution_lock_timeout_seconds = 0.15
+    execution_called = False
+    holder_entered = Event()
+    release_holder = Event()
+
+    def forbidden_execution(weights, min_notional):
+        nonlocal execution_called
+        execution_called = True
+        return "unsafe"
+
+    def hold():
+        with holder.execution_lock():
+            holder_entered.set()
+            assert release_holder.wait(timeout=5)
+
+    contender._execute_weights_locked = forbidden_execution
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(hold)
+        assert holder_entered.wait(timeout=5)
+        with pytest.raises(RuntimeError, match="Timed out acquiring broker execution lock"):
+            contender.execute_weights(object())
+        release_holder.set()
+        future.result(timeout=5)
+
+    assert execution_called is False
+
+
+def test_execution_lock_recovers_after_process_crash(tmp_path):
+    state_file = tmp_path / "broker_state.json"
+    context = get_context("spawn")
+    child_entered = context.Event()
+    child = context.Process(
+        target=_hold_lock_until_terminated,
+        args=(state_file, child_entered),
+    )
+    parent = _executor(state_file)
+    parent.execution_lock_timeout_seconds = 1.0
+    child.start()
+    try:
+        assert child_entered.wait(timeout=10)
+        child.terminate()
+        child.join(timeout=10)
+        assert child.exitcode is not None and child.exitcode != 0
+        with parent.execution_lock():
+            pass
+    finally:
+        if child.is_alive():
+            child.terminate()
+            child.join(timeout=5)
+
+
+def test_invalid_execution_lock_timeout_is_rejected(monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv("STMAA_BROKER_EXECUTION_LOCK_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValueError, match="finite positive number"):
+        BrokerExecutor()

@@ -159,6 +159,8 @@ STMAA è distribuito con licenza MIT. Consultare il file [`LICENSE`](LICENSE) pe
 The broker execution lock is a host-local operating-system file lock (fcntl.flock).
 All cooperating STMAA processes on the same host must use the same
 STMAA_BROKER_STATE_FILE path on a filesystem that supports advisory locks.
+At startup, configured paths are resolved to canonical absolute paths (including
+existing symlink targets) before lock-file names are derived.
 Lock acquisition is bounded by STMAA_BROKER_EXECUTION_LOCK_TIMEOUT_SECONDS
 (default: 30 seconds); timeout or lock errors stop the execution cycle before
 broker mutations are attempted.

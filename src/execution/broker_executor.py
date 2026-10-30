@@ -27,6 +27,11 @@ RISK_LIMITS = {
 }
 
 
+def _canonicalize_state_file_path(path):
+    """Resolve path aliases before deriving process-shared lock-file names."""
+    return Path(path).expanduser().resolve(strict=False)
+
+
 def _validate_risk_limits(limits):
     """Fail fast when account-level risk limits are missing or out of range."""
     exposure = float(limits["max_portfolio_exposure"])
@@ -215,6 +220,9 @@ class BrokerExecutor:
             )
         else:
             self.state_file = default_state_file
+        # Resolve relative paths and symlink aliases so cooperating processes
+        # derive the same execution/persistence lock paths for one state file.
+        self.state_file = _canonicalize_state_file_path(self.state_file)
         self._persisted_state_revision = -1
         self._state_persistence_failed = False
         self.state = {

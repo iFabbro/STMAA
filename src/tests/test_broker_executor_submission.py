@@ -19,8 +19,9 @@ def test_total_orders_counts_only_broker_acknowledged_orders():
     assert BrokerExecutor._count_submitted_orders(orders) == 3
 
 
-def test_execute_weights_fails_closed_when_submission_outcome_is_unresolved():
+def test_execute_weights_fails_closed_when_submission_outcome_is_unresolved(tmp_path):
     executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state_file = tmp_path / "broker_state.json"
     executor.state = {
         "order_submission_unresolved": {
             "AAPL": {
@@ -70,8 +71,9 @@ def test_acknowledged_order_is_persisted_atomically_with_intent_removal():
     assert persisted["order_submission_confirmed"]["client-order-123"]["order_id"] == "broker-order-456"
 
 
-def test_restart_waits_for_broker_visibility_then_reconciles_without_resubmission():
+def test_restart_waits_for_broker_visibility_then_reconciles_without_resubmission(tmp_path):
     executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state_file = tmp_path / "broker_state.json"
     intent = {
         "client_order_id": "client-order-123",
         "side": "buy",

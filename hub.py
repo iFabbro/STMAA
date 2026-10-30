@@ -206,7 +206,7 @@ def render():
             "tickers": tickers,
             "orders": len(orders),
             "equity": equity,
-            "account_data_fresh": account_fresh,
+            "account_data_fresh": snapshot_verified_at_capture,
             "account_data_source": state.get("account_data_source"),
         },
     )
@@ -267,7 +267,7 @@ def render():
         print(f"  {Colors.MUTED}Nessun ordine eseguito nel ciclo persistito.{Colors.ENDC}")
 
     print_header("SYSTEM STATUS")
-    print(f"  System snapshot: {'fresh' if account_fresh else 'unavailable/stale'}")
+    print(f"  Snapshot verified at capture: {'yes' if snapshot_verified_at_capture else 'no'}")
     print(f"{Colors.TITLE}Tickers:{Colors.ENDC} {len(tickers)}")
     print(f"{Colors.TITLE}Dashboard refresh:{Colors.ENDC} 30 seconds")
     print(f"{Colors.TITLE}Configured capital:{Colors.ENDC} n/a (not persisted)")

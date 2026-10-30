@@ -249,6 +249,16 @@ def end_run(run_id: str, status: str = "completed", db_path: Path = DB_PATH) -> 
             )
 
 
+
+def _require_active_run(conn: sqlite3.Connection, run_id: str) -> None:
+    """Reject writes after a run is terminal while preserving FK errors for unknown IDs."""
+    row = conn.execute(
+        "SELECT status, ended_at FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is not None and (row["status"] != "running" or row["ended_at"] is not None):
+        raise ValueError(f"Run {run_id!r} is not active; refusing to append audit data")
+
+
 def log_event(
     run_id: str,
     source: str,
@@ -262,6 +272,9 @@ def log_event(
 ) -> None:
     init_db(db_path)
     with db_conn(db_path) as conn:
+        # Serialize with end_run so a terminal run cannot receive late audit rows.
+        conn.execute("BEGIN IMMEDIATE")
+        _require_active_run(conn, run_id)
         conn.execute(
             """
             INSERT INTO events (ts, run_id, source, agent_id, event_type, level, symbol, message, payload)
@@ -286,6 +299,9 @@ def write_snapshot(
 ) -> None:
     init_db(db_path)
     with db_conn(db_path) as conn:
+        # Serialize with end_run so a terminal run cannot receive late snapshots.
+        conn.execute("BEGIN IMMEDIATE")
+        _require_active_run(conn, run_id)
         conn.execute(
             """
             INSERT INTO snapshots (

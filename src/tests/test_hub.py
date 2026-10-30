@@ -168,3 +168,34 @@ def test_render_rejects_boolean_financial_and_metric_values(
     assert "n/a (not persisted)" in out
     assert "Max Drawdown" in out
     assert "Sharpe Ratio" in out
+
+
+def test_run_dashboard_finalizes_run_after_keyboard_interrupt(monkeypatch):
+    finalized = []
+    monkeypatch.setattr(hub, "render", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        hub, "end_run",
+        lambda run_id, status: finalized.append((run_id, status)),
+    )
+
+    hub.run_dashboard()
+
+    assert finalized == [(hub.RUN_ID, "stopped")]
+
+
+def test_run_dashboard_marks_unexpected_failure(monkeypatch):
+    finalized = []
+    monkeypatch.setattr(
+        hub, "render",
+        lambda: (_ for _ in ()).throw(RuntimeError("dashboard failed")),
+    )
+    monkeypatch.setattr(
+        hub, "end_run",
+        lambda run_id, status: finalized.append((run_id, status)),
+    )
+
+    import pytest
+    with pytest.raises(RuntimeError, match="dashboard failed"):
+        hub.run_dashboard()
+
+    assert finalized == [(hub.RUN_ID, "failed")]

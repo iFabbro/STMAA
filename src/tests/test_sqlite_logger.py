@@ -62,3 +62,39 @@ def test_events_and_snapshots_accept_existing_run_ids(tmp_path):
 
     assert event_count == 1
     assert snapshot_count == 1
+
+
+def test_events_and_snapshots_reject_terminal_runs(tmp_path):
+    database = tmp_path / "stmaa.db"
+    run_id = start_run(mode="test", db_path=database)
+    from src.utils.sqlite_logger import end_run
+
+    end_run(run_id, status="completed", db_path=database)
+
+    with pytest.raises(ValueError, match="not active"):
+        log_event(
+            run_id,
+            "test",
+            "late-event",
+            "must not be persisted",
+            db_path=database,
+        )
+
+    with pytest.raises(ValueError, match="not active"):
+        write_snapshot(
+            run_id,
+            "test",
+            equity=1000.0,
+            db_path=database,
+        )
+
+    with db_conn(database) as conn:
+        event_count = conn.execute(
+            "SELECT COUNT(*) FROM events WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
+        snapshot_count = conn.execute(
+            "SELECT COUNT(*) FROM snapshots WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
+
+    assert event_count == 0
+    assert snapshot_count == 0

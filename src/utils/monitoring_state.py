@@ -1,12 +1,42 @@
 """Atomic persistence for the read-only trading dashboard snapshot."""
 
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
 
 
 HUB_STATE_PATH = Path("logs/hub_state.json")
+MAX_EQUITY_POINTS = 120
+
+
+def load_equity_curve(path=None):
+    """Load the last verified equity observations from the monitoring snapshot."""
+    source = Path(path) if path is not None else HUB_STATE_PATH
+    try:
+        state = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(state, dict):
+        return []
+    curve = state.get("equity_curve")
+    if not isinstance(curve, list):
+        return []
+
+    values = []
+    for value in curve:
+        if isinstance(value, bool):
+            return []
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return []
+        if not math.isfinite(number):
+            return []
+        values.append(number)
+    return values[-MAX_EQUITY_POINTS:]
 
 
 def write_hub_state(state, path=None):

@@ -116,7 +116,7 @@ def start_run(
 def end_run(run_id: str, status: str = "completed", db_path: Path = DB_PATH) -> None:
     """Finalize an active run exactly once with a terminal status."""
     if status not in {"completed", "failed"}:
-        raise ValueError("Run status must be 'completed' or 'failed'")
+        raise ValueError("Run status must be a terminal value: 'completed' or 'failed'")
 
     init_db(db_path)
     with db_conn(db_path) as conn:

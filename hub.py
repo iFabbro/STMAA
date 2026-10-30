@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot
+from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
 
-RUN_ID = start_run(mode="hub", meta={"component": "hub"})
+RUN_ID = None
 HUB_STATE = Path("logs/hub_state.json")
 
 
@@ -114,7 +114,6 @@ def get_live_quotes(tickers):
         return {ticker: {"price": 0.0, "change_pct": 0.0} for ticker in tickers}
 
 
-log_event(RUN_ID, "hub", "startup", "hub.py started")
 
 
 def render():
@@ -197,17 +196,18 @@ def render():
     print_metric("Exposure", f"{exposure:.2%}" if exposure is not None else NA)
     print_metric("Regime", str(regime).upper() if regime else NA)
 
-    write_snapshot(
-        RUN_ID,
-        "hub",
-        payload={
-            "tickers": tickers,
-            "orders": len(orders),
-            "equity": equity,
-            "account_data_fresh": snapshot_verified_at_capture,
-            "account_data_source": state.get("account_data_source"),
-        },
-    )
+    if RUN_ID is not None:
+        write_snapshot(
+            RUN_ID,
+            "hub",
+            payload={
+                "tickers": tickers,
+                "orders": len(orders),
+                "equity": equity,
+                "account_data_fresh": snapshot_verified_at_capture,
+                "account_data_source": state.get("account_data_source"),
+            },
+        )
 
     print_header("EQUITY CURVE")
     if equity_curve:
@@ -277,10 +277,24 @@ def render():
     print(f"{Colors.HEADER}{Colors.BOLD}{'=' * 72}{Colors.ENDC}\n")
 
 
-if __name__ == "__main__":
+def main():
+    global RUN_ID
+    RUN_ID = start_run(mode="hub", meta={"component": "hub"})
+    status = "failed"
     try:
+        log_event(RUN_ID, "hub", "startup", "hub.py started")
         while True:
             render()
             time.sleep(30)
     except KeyboardInterrupt:
         print("\nStopped.")
+        status = "completed"
+    finally:
+        run_id = RUN_ID
+        RUN_ID = None
+        if run_id is not None:
+            end_run(run_id, status=status)
+
+
+if __name__ == "__main__":
+    main()

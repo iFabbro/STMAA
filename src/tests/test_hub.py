@@ -75,7 +75,7 @@ def test_render_uses_snapshot_state(tmp_path, monkeypatch, capsys):
     assert "$123,456.00" in out
     assert "AAPL" in out
     assert "BULL" in out
-    assert "Account snapshot fresh" in out
+    assert "Last snapshot verified at capture (historical)" in out
     assert "paper" in out
     assert "Orders in last cycle: 1" in out
 
@@ -95,7 +95,7 @@ def test_render_missing_state_does_not_invent_financial_values_or_status(
 
     assert "n/a (no persisted timestamp)" in out
     assert "unknown (not persisted)" in out
-    assert "Account snapshot unavailable or stale" in out
+    assert "Last snapshot unavailable or stale at capture" in out
     assert "n/a (not persisted)" in out
     assert "no valid persisted equity history" in out
     assert "Quote feed: unavailable" in out
@@ -124,7 +124,7 @@ def test_render_empty_or_invalid_equity_curve_is_safe(tmp_path, monkeypatch, cap
 
     assert "no valid persisted equity history" in out
     assert "n/a (insufficient persisted history)" in out
-    assert "Account snapshot unavailable or stale" in out
+    assert "Last snapshot unavailable or stale at capture" in out
 
 
 

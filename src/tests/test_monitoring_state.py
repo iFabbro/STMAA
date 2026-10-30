@@ -98,6 +98,36 @@ def test_trade_update_hub_state_persists_dashboard_fields_and_metrics(
     assert state["last_result"] == result
 
 
+
+def test_trade_update_hub_state_does_not_advance_curve_when_snapshot_write_fails(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    class AccountExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 123456.0,
+                "cash": 1000.0,
+                "equity": 123400.0,
+                "account_data_fresh": True,
+            }
+
+    def fail_write(state):
+        raise OSError("snapshot write failed")
+
+    monkeypatch.setattr(trade, "write_hub_state", fail_write)
+    bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
+    bot.executor = AccountExecutor()
+    bot.equity_curve = [122000.0]
+
+    with pytest.raises(OSError, match="snapshot write failed"):
+        bot.update_hub_state({"orders": [], "metrics": {}})
+
+    assert bot.equity_curve == [122000.0]
+
 def test_trade_update_hub_state_fails_closed_on_stale_account(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

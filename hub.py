@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot
+from src.utils.sqlite_logger import end_run, start_run, log_event, write_snapshot
 
 RUN_ID = start_run(mode="hub", meta={"component": "hub"})
 HUB_STATE = Path("logs/hub_state.json")
@@ -277,10 +277,19 @@ def render():
     print(f"{Colors.HEADER}{Colors.BOLD}{'=' * 72}{Colors.ENDC}\n")
 
 
-if __name__ == "__main__":
+def run_dashboard():
+    """Run the dashboard and always finalize its SQLite run record."""
+    run_status = "failed"
     try:
         while True:
             render()
             time.sleep(30)
     except KeyboardInterrupt:
+        run_status = "stopped"
         print("\nStopped.")
+    finally:
+        end_run(RUN_ID, status=run_status)
+
+
+if __name__ == "__main__":
+    run_dashboard()

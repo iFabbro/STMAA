@@ -1,5 +1,4 @@
 """Malformed persisted submission intents must remain fail-closed after restart."""
-from copy import deepcopy
 from types import SimpleNamespace
 
 import numpy as np

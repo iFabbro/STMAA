@@ -44,7 +44,7 @@ def load_state():
         try:
             state = json.loads(HUB_STATE.read_text())
             return state if isinstance(state, dict) else {}
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
     return {}
 
@@ -59,6 +59,8 @@ def _finite_number(value):
 
 def _valid_curve(value):
     if not isinstance(value, list):
+        return []
+    if any(isinstance(item, bool) for item in value):
         return []
     numbers = [_finite_number(item) for item in value]
     if any(item is None for item in numbers):

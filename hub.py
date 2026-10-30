@@ -50,12 +50,10 @@ def load_state():
 
 
 def _finite_number(value):
-    if isinstance(value, bool):
+    # Persisted dashboard values must be JSON numbers, not coercible strings or booleans.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
+    number = float(value)
     return number if math.isfinite(number) else None
 
 

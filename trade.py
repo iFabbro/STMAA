@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.utils.sqlite_logger import start_run, log_event, write_snapshot
-from src.utils.monitoring_state import write_hub_state
+from src.utils.monitoring_state import load_equity_curve, write_hub_state
 RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 
 import numpy as np
@@ -63,8 +63,8 @@ class PaperTradingBot:
         self.tickers = tickers
         self.initial_capital = initial_capital
         self.liquidate_on_drawdown = liquidate_on_drawdown
-        # Real account history starts from a verified broker snapshot, not configured capital.
-        self.equity_curve = []
+        # Restore verified broker-equity history from the last atomic dashboard snapshot.
+        self.equity_curve = load_equity_curve()
 
         self.executor = BrokerExecutor(
             api_key=api_key if api_key is not None else os.getenv('ALPACA_API_KEY'),

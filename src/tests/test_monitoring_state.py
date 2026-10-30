@@ -115,3 +115,37 @@ def test_trade_update_hub_state_fails_closed_on_stale_account(tmp_path, monkeypa
         bot.update_hub_state({"orders": [], "metrics": {}})
 
     assert not (tmp_path / "logs" / "hub_state.json").exists()
+
+
+
+def test_load_equity_curve_restores_last_120_finite_points(tmp_path):
+    destination = tmp_path / "hub_state.json"
+    points = [float(value) for value in range(1, 126)]
+    destination.write_text(json.dumps({"equity_curve": points}), encoding="utf-8")
+
+    restored = monitoring_state.load_equity_curve(destination)
+
+    assert restored == points[-120:]
+    assert len(restored) == 120
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{malformed",
+        json.dumps([]),
+        json.dumps({"equity_curve": "not-a-list"}),
+        json.dumps({"equity_curve": [100.0, "invalid"]}),
+        json.dumps({"equity_curve": [100.0, float("nan")]}),
+        json.dumps({"equity_curve": [100.0, True]}),
+    ],
+)
+def test_load_equity_curve_returns_empty_for_invalid_snapshot(tmp_path, payload):
+    destination = tmp_path / "hub_state.json"
+    destination.write_text(payload, encoding="utf-8")
+
+    assert monitoring_state.load_equity_curve(destination) == []
+
+
+def test_load_equity_curve_returns_empty_when_snapshot_is_missing(tmp_path):
+    assert monitoring_state.load_equity_curve(tmp_path / "missing.json") == []

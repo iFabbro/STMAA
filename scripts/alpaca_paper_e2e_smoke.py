@@ -44,7 +44,7 @@ def main():
 
     # Hold the same state-path lock used by normal BrokerExecutor execution.
     with executor.execution_lock():
-    
+
         account = executor.get_account_status()
         if not account.get("account_data_fresh") or not account.get("account_id"):
             raise SystemExit("FAIL: account identity/data could not be verified")
@@ -52,7 +52,7 @@ def main():
             raise SystemExit("FAIL: account is not active")
         if account.get("buying_power") is None or Decimal(str(account["buying_power"])) < MAX_NOTIONAL_USD:
             raise SystemExit("FAIL: buying power is insufficient for bounded test order")
-    
+
         positions = executor.get_positions()
         if positions is None:
             raise SystemExit("FAIL: positions could not be read")
@@ -66,14 +66,14 @@ def main():
             float(MAX_NOTIONAL_USD),
             quotes.get("SPY") if isinstance(quotes, dict) else None,
         )
-    
+
         print("PREFLIGHT: PASS")
         print(f"Account status: {account.get('status')}")
         print(f"Account data fresh: {account.get('account_data_fresh')}")
         print(f"Positions read: {len(positions)}")
         print(f"Open orders read: {len(open_orders)}")
         print("Paper endpoint confirmed by configured SDK mode.")
-    
+
         # Stable per-workflow-run client order ID. If submission is ambiguous, look
         # up this ID; never resubmit the order automatically.
         run_id = os.environ.get("GITHUB_RUN_ID", str(uuid.uuid4()))
@@ -105,7 +105,7 @@ def main():
         print(f"ORDER: client_order_id={client_order_id}")
         print(f"ORDER: broker_order_id_present={bool(order_id)}")
         print(f"ORDER: initial_status={status}")
-    
+
         # Poll the broker for a bounded period; do not cancel or resubmit on timeout.
         deadline = time.monotonic() + 45
         while status not in {"filled", "partially_filled", "rejected", "canceled", "cancelled", "expired"} and time.monotonic() < deadline:
@@ -118,7 +118,7 @@ def main():
         print(f"ORDER: final_status={status}")
         print(f"ORDER: filled_qty={getattr(order, 'filled_qty', 'unknown')}")
         print(f"ORDER: filled_avg_price_present={getattr(order, 'filled_avg_price', None) is not None}")
-    
+
         # Re-read positions and orders after execution; verify the broker is readable.
         post_positions = executor.get_positions()
         post_open_orders = executor._get_open_orders()
@@ -126,7 +126,7 @@ def main():
             raise SystemExit("FAIL: post-order broker state could not be read")
         print(f"POSTCHECK: positions_read={len(post_positions)}")
         print(f"POSTCHECK: open_orders_read={len(post_open_orders)}")
-    
+
         # Verify state can be persisted and reloaded without exposing account IDs.
         executor._save_state()
         restarted = BrokerExecutor(
@@ -140,7 +140,7 @@ def main():
         if status == "rejected":
             raise SystemExit("FAIL: Paper test order was rejected")
         print("RESULT: Paper broker smoke test completed. Review order status and CI logs before further action.")
-    
+
 
 if __name__ == "__main__":
     main()

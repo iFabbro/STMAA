@@ -60,26 +60,26 @@ def main() -> int:
 
     # Hold the same state-path lock used by normal BrokerExecutor execution.
     with executor.execution_lock():
-    
+
         account = client.get_account()
         account_status = str(getattr(account, "status", "")).lower()
         if account_status not in {"active", "accountstatus.active"}:
             raise SystemExit(f"FAIL: Paper account is not active (status={account_status or 'unknown'})")
-    
+
         asset = client.get_asset(SYMBOL)
         if not bool(getattr(asset, "tradable", False)):
             raise SystemExit(f"FAIL: {SYMBOL} is not marked tradable for this account")
         asset_class = str(getattr(asset, "class", "")).lower()
         if asset_class and "crypto" not in asset_class:
             raise SystemExit(f"FAIL: {SYMBOL} resolved to unexpected asset class {asset_class}")
-    
+
         # Crypto purchasing power is not necessarily the stock buying_power field.
         crypto_bp = getattr(account, "non_marginable_buying_power", None)
         if crypto_bp is None:
             crypto_bp = getattr(account, "buying_power", None)
         if crypto_bp is None or Decimal(str(crypto_bp)) < MAX_NOTIONAL_USD:
             raise SystemExit("FAIL: crypto/non-marginable buying power is insufficient")
-    
+
         # A fixed broker-side client_order_id is the durable idempotency key.
         # Unlike runner-local files, Alpaca's order record survives completed runs.
         # Any lookup error is fail-closed: never submit when prior outcome is uncertain.
@@ -102,14 +102,14 @@ def main() -> int:
                 "FAIL: durable BTC E2E idempotency key already exists "
                 f"(status={prior_status}); refusing another order"
             )
-    
+
         open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
         btc_orders = [o for o in open_orders if norm_symbol(getattr(o, "symbol", "")) == SYMBOL]
         if btc_orders:
             raise SystemExit(
                 f"FAIL: {len(btc_orders)} open {SYMBOL} order(s) already exist; refusing duplicate order"
             )
-    
+
         # Crypto has a separate market-data endpoint. Require a current, timestamped
         # quote and the same strict account/position/open-order/exposure preflight
         # used by the stock smoke path before placing this bounded notional order.
@@ -130,14 +130,14 @@ def main() -> int:
         validate_smoke_order_preflight(
             executor, SYMBOL, float(MAX_NOTIONAL_USD), smoke_quote
         )
-    
+
         print("PREFLIGHT: PASS")
         print(f"Account status: {account_status}")
         print(f"Asset tradable: {getattr(asset, 'tradable', None)}")
         print(f"Crypto buying power sufficient: {Decimal(str(crypto_bp)) >= MAX_NOTIONAL_USD}")
         print(f"Existing open {SYMBOL} orders: 0")
         print("Environment: Alpaca Paper; no Live endpoint configured.")
-    
+
         request = MarketOrderRequest(
             symbol=SYMBOL,
             notional=float(MAX_NOTIONAL_USD),
@@ -145,7 +145,7 @@ def main() -> int:
             time_in_force=TimeInForce.GTC,
             client_order_id=client_order_id,
         )
-    
+
         try:
             order = client.submit_order(order_data=request)
         except Exception as exc:
@@ -158,7 +158,7 @@ def main() -> int:
                 raise SystemExit(
                     "FAIL: order not found during reconciliation; no retry performed"
                 ) from None
-    
+
         print(f"ORDER: client_order_id={client_order_id}")
         print(f"ORDER: broker_order_id_present={bool(getattr(order, 'id', None))}")
         status = norm_status(getattr(order, "status", "unknown"))
@@ -175,7 +175,7 @@ def main() -> int:
         print(f"ORDER: final_status={status}")
         print(f"ORDER: filled_qty={filled_qty}")
         print(f"ORDER: filled_avg_price_present={avg_price is not None}")
-    
+
         # Read back BTC-specific position and open-order state.
         positions = client.get_all_positions()
         btc_positions = [p for p in positions if norm_symbol(getattr(p, "symbol", "")) == SYMBOL]
@@ -183,7 +183,7 @@ def main() -> int:
         btc_open = [o for o in remaining_orders if norm_symbol(getattr(o, "symbol", "")) == SYMBOL]
         print(f"POSTCHECK: btc_position_present={bool(btc_positions)}")
         print(f"POSTCHECK: btc_open_orders={len(btc_open)}")
-    
+
         # Persist the broker order identity/status in STMAA state and verify the
         # actual round-trip, not merely that a file exists.
         executor.state["btc_paper_e2e_order"] = {
@@ -210,7 +210,7 @@ def main() -> int:
                 "FAIL: BTC order state did not survive save/reload round-trip"
             )
         print("RESTART: persisted_state_round_trip=PASS")
-    
+
         if status != "filled" or filled_qty <= 0 or avg_price is None:
             raise SystemExit(
                 "FAIL: BTC order was not confirmed filled within 90 seconds. "
@@ -220,7 +220,7 @@ def main() -> int:
             raise SystemExit("FAIL: order filled but BTC position was not visible in postcheck")
         print("RESULT: BTC Paper order filled and position verified.")
         return 0
-    
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -20,12 +20,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.utils.sqlite_logger import start_run, log_event, write_snapshot
+from src.utils.monitoring_state import write_hub_state
 RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 
 import numpy as np
 from contextlib import nullcontext
 import pandas as pd
-import json
 import yfinance as yf
 import pandas_market_calendars as mcal
 
@@ -396,6 +396,7 @@ class PaperTradingBot:
         return result
 
     def update_hub_state(self, result: Dict):
+        """Persist the complete dashboard snapshot through the single atomic writer."""
         status = self.executor.get_account_status()
         if status.get("account_data_fresh") is not True:
             raise RuntimeError("Cannot persist hub state without a fresh broker account snapshot")
@@ -404,27 +405,36 @@ class PaperTradingBot:
         cash = float(status["cash"])
         if not all(np.isfinite(value) for value in (portfolio_value, equity, cash)):
             raise RuntimeError("Cannot persist hub state with invalid broker account values")
+
         # The monitoring curve tracks broker equity only; configured initial capital
         # is not a substitute for the account's actual starting equity.
         self.equity_curve.append(equity)
-
-        orders = result.get('orders', [])
+        metrics = result.get("metrics")
+        if not isinstance(metrics, dict):
+            metrics_provider = getattr(self.executor, "metrics", None)
+            get_all_metrics = getattr(metrics_provider, "get_all_metrics", None)
+            metrics = get_all_metrics() if callable(get_all_metrics) else {}
 
         hub_state = {
-            'timestamp': datetime.now().isoformat(),
-            'portfolio_value': portfolio_value,
-            'cash': cash,
-            'equity': equity,
-            'account_data_fresh': True,
-            'account_data_source': status.get("account_data_source"),
-            'account_snapshot_at': status.get("account_snapshot_at"),
-            'equity_curve_source': "verified_broker_equity",
-            'equity_curve': self.equity_curve[-120:],
-            'orders': orders,
-            'last_result': result,
+            "timestamp": result.get("timestamp") or datetime.now().isoformat(),
+            "mode": "paper" if getattr(self.executor, "paper_trading", True) else "live",
+            "portfolio_value": portfolio_value,
+            "cash": cash,
+            "equity": equity,
+            "account_data_fresh": True,
+            "account_data_source": status.get("account_data_source"),
+            "account_snapshot_at": status.get("account_snapshot_at"),
+            "equity_curve_source": "verified_broker_equity",
+            "equity_curve": self.equity_curve[-120:],
+            "orders": result.get("orders", []),
+            "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
+            "pre_execution_equity": result.get("pre_execution_equity"),
+            "metrics_equity": result.get("metrics_equity"),
+            "metrics_refresh_error": result.get("metrics_refresh_error"),
+            "metrics": metrics,
+            "last_result": result,
         }
-        Path('logs').mkdir(parents=True, exist_ok=True)
-        Path('logs/hub_state.json').write_text(json.dumps(hub_state, indent=2))
+        write_hub_state(hub_state)
 
     def run_loop(self, interval_seconds: int = 60):
         """Run loop trading continuo"""

@@ -20,7 +20,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.utils.sqlite_logger import start_run, log_event, write_snapshot
-from src.utils.monitoring_state import load_equity_curve, write_hub_state
+from src.utils.monitoring_state import (
+    SnapshotDurabilityError,
+    load_equity_curve,
+    write_hub_state,
+)
 RUN_ID = start_run(mode="paper", meta={"component": "trade"})
 
 import numpy as np
@@ -434,7 +438,13 @@ class PaperTradingBot:
             "metrics": metrics,
             "last_result": result,
         }
-        write_hub_state(hub_state)
+        try:
+            write_hub_state(hub_state)
+        except SnapshotDurabilityError:
+            # The snapshot is already visible after os.replace; keep memory aligned
+            # even though the directory entry's crash durability is uncertain.
+            self.equity_curve = equity_curve
+            raise
         self.equity_curve = equity_curve
 
     def run_loop(self, interval_seconds: int = 60):

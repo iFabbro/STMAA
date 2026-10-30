@@ -19,7 +19,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot
+from src.utils.sqlite_logger import end_run, start_run, log_event, write_snapshot
 from src.utils.monitoring_state import (
     SnapshotDurabilityError,
     load_equity_curve,
@@ -514,6 +514,7 @@ def main(argv=None):
 
     from src.utils.startup_config import load_startup_config, validate_broker_preflight
 
+    run_status = "failed"
     try:
         config = load_startup_config()
         # Keep validated settings explicit without printing secrets.
@@ -542,13 +543,17 @@ def main(argv=None):
         )
         if args.preflight_only:
             print("Preflight-only completato: nessun ciclo di trading avviato e nessun ordine richiesto")
+            run_status = "completed"
             return 0
 
         bot.run_loop(interval_seconds=300)
+        run_status = "completed"
         return 0
     except Exception as exc:
         print(f"Avvio bloccato dal preflight: {exc}")
         return 1
+    finally:
+        end_run(RUN_ID, status=run_status)
 
 
 if __name__ == "__main__":

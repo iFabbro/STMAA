@@ -1,4 +1,6 @@
 
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -279,13 +281,24 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
             # the risk overlay must re-anchor it to this verified broker equity.
             self.state = {"risk_peak_portfolio_value": 500000.0}
             self.saved = False
+            self.saved_under_lock = False
+            self.lock_depth = 0
             self.submitted_weights = None
+
+        @contextmanager
+        def execution_lock(self):
+            self.lock_depth += 1
+            try:
+                yield
+            finally:
+                self.lock_depth -= 1
 
         def get_account_status(self):
             return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True, "account_id": "account-A"}
 
         def _save_state(self):
             self.saved = True
+            self.saved_under_lock = self.lock_depth > 0
 
         def execute_weights(self, weights):
             self.submitted_weights = weights
@@ -308,6 +321,7 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
     assert risk.kwargs["peak_portfolio_value"] == pytest.approx(100000.0)
     assert executor.state["risk_peak_portfolio_value"] == pytest.approx(100000.0)
     assert executor.saved is True
+    assert executor.saved_under_lock is True
 
 
 def test_execute_trade_preserves_persisted_drawdown_peak(monkeypatch):

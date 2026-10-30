@@ -151,6 +151,13 @@ def test_load_equity_curve_returns_empty_when_snapshot_is_missing(tmp_path):
     assert monitoring_state.load_equity_curve(tmp_path / "missing.json") == []
 
 
+def test_load_equity_curve_handles_invalid_utf8_snapshot(tmp_path):
+    destination = tmp_path / "hub_state.json"
+    destination.write_bytes(bytes([0xFF, 0xFE, 0xFA]))
+
+    assert monitoring_state.load_equity_curve(destination) == []
+
+
 def test_dashboard_equity_curve_rejects_boolean_observations():
     assert hub._valid_curve([100.0, True]) == []
     assert hub._valid_curve([100.0, False]) == []
@@ -160,6 +167,6 @@ def test_dashboard_load_state_handles_invalid_utf8_snapshot(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     destination = tmp_path / "logs" / "hub_state.json"
     destination.parent.mkdir(parents=True)
-    destination.write_bytes(b"\\xff\\xfe\\xfa")
+    destination.write_bytes(bytes([0xFF, 0xFE, 0xFA]))
 
     assert hub.load_state() == {}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -9,6 +10,59 @@ from typing import Any, Dict, Optional
 from uuid import uuid4
 
 DB_PATH = Path("logs/stmaa.db")
+
+
+def _read_process_start_ticks(pid: int) -> Optional[str]:
+    """Read Linux /proc process start ticks; None means identity is unverifiable."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    # comm (field 2) can contain spaces and parentheses; split after its final ')'.
+    closing_paren = stat.rfind(")")
+    if closing_paren < 0:
+        return None
+    fields = stat[closing_paren + 1 :].strip().split()
+    # fields[0] is field 3 (state), fields[19] is field 22 (starttime).
+    if len(fields) <= 19 or fields[0] in {"Z", "X"}:
+        return None
+    return fields[19]
+
+
+def current_process_identity() -> tuple[int, Optional[str]]:
+    """Return PID and kernel start-time token, preventing PID-reuse confusion."""
+    pid = os.getpid()
+    return pid, _read_process_start_ticks(pid)
+
+
+def process_identity_is_alive(pid: int, start_ticks: str) -> Optional[bool]:
+    """True/False when /proc proves identity alive/dead; None when unverifiable."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0 or not isinstance(start_ticks, str) or not start_ticks:
+        return None
+
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return None
+
+    closing_paren = stat.rfind(")")
+    if closing_paren < 0:
+        return None
+    fields = stat[closing_paren + 1 :].strip().split()
+    if len(fields) <= 19:
+        return None
+    if fields[0] in {"Z", "X"}:
+        return False
+    return fields[19] == start_ticks
 
 
 def now_utc() -> str:
@@ -48,7 +102,9 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 branch TEXT,
                 commit_sha TEXT,
                 status TEXT NOT NULL,
-                meta TEXT NOT NULL
+                meta TEXT NOT NULL,
+                owner_pid INTEGER,
+                owner_start_ticks TEXT
             )
             """
         )
@@ -88,6 +144,15 @@ def init_db(db_path: Path = DB_PATH) -> None:
             )
             """
         )
+        # Migrate databases created before process ownership was recorded.
+        run_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        if "owner_pid" not in run_columns:
+            conn.execute("ALTER TABLE runs ADD COLUMN owner_pid INTEGER")
+        if "owner_start_ticks" not in run_columns:
+            conn.execute("ALTER TABLE runs ADD COLUMN owner_start_ticks TEXT")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_ts ON events(run_id, ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_events_source_type_ts ON events(source, event_type, ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_run_ts ON snapshots(run_id, ts)")
@@ -101,16 +166,63 @@ def start_run(
     db_path: Path = DB_PATH,
 ) -> str:
     init_db(db_path)
+    recover_orphaned_runs(db_path=db_path)
     run_id = str(uuid4())
+    owner_pid, owner_start_ticks = current_process_identity()
     with db_conn(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO runs (run_id, started_at, ended_at, mode, branch, commit_sha, status, meta)
-            VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+            INSERT INTO runs (
+                run_id, started_at, ended_at, mode, branch, commit_sha, status, meta,
+                owner_pid, owner_start_ticks
+            )
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (run_id, now_utc(), mode, branch, commit_sha, "running", json_dump(meta)),
+            (
+                run_id, now_utc(), mode, branch, commit_sha, "running", json_dump(meta),
+                owner_pid, owner_start_ticks,
+            ),
         )
     return run_id
+
+
+def recover_orphaned_runs(db_path: Path = DB_PATH) -> list[str]:
+    """Fail only runs whose recorded PID/start-time pair is provably dead.
+
+    Unknown or legacy ownership is deliberately left untouched: absence of proof
+    must not cause a live concurrent process to be marked as orphaned.
+    """
+    init_db(db_path)
+    recovered: list[str] = []
+    with db_conn(db_path) as conn:
+        # Serialize recovery against other starters/recovery attempts.
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            """
+            SELECT run_id, owner_pid, owner_start_ticks
+            FROM runs
+            WHERE status = 'running' AND ended_at IS NULL
+            """
+        ).fetchall()
+        for row in rows:
+            if row["owner_pid"] is None or row["owner_start_ticks"] is None:
+                continue
+            alive = process_identity_is_alive(
+                row["owner_pid"], row["owner_start_ticks"]
+            )
+            if alive is not False:
+                continue
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET ended_at = ?, status = 'failed'
+                WHERE run_id = ? AND status = 'running' AND ended_at IS NULL
+                """,
+                (now_utc(), row["run_id"]),
+            )
+            if cursor.rowcount == 1:
+                recovered.append(row["run_id"])
+    return recovered
 
 
 def end_run(run_id: str, status: str = "completed", db_path: Path = DB_PATH) -> None:

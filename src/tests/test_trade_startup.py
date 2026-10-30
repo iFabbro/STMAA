@@ -206,3 +206,46 @@ def test_invalid_account_snapshot_blocks_startup_without_loop_or_orders(monkeypa
 
     monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
     assert trade.main(["--preflight-only"]) == 1
+
+
+def test_preflight_only_finalizes_sqlite_run_as_completed(monkeypatch):
+    finalized = []
+
+    class FakeExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "account_data_fresh": True,
+                "account_id": "paper-account-123",
+                "equity": 10000.0,
+                "cash": 9000.0,
+                "buying_power": 18000.0,
+            }
+
+    class FakeBot:
+        def __init__(self, **_kwargs):
+            self.executor = FakeExecutor()
+
+    monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
+    monkeypatch.setattr(
+        trade, "end_run",
+        lambda run_id, status: finalized.append((run_id, status)),
+    )
+
+    assert trade.main(["--preflight-only"]) == 0
+    assert finalized == [(trade.RUN_ID, "completed")]
+
+
+def test_failed_startup_finalizes_sqlite_run_as_failed(monkeypatch):
+    finalized = []
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key-example")
+    monkeypatch.setenv("ALPACA_API_SECRET", "paper-secret-example")
+    monkeypatch.setenv("STMAA_TRADING_MODE", "live")
+    monkeypatch.setattr(
+        trade, "end_run",
+        lambda run_id, status: finalized.append((run_id, status)),
+    )
+
+    assert trade.main(["--preflight-only"]) == 1
+    assert finalized == [(trade.RUN_ID, "failed")]

@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import time
@@ -160,7 +161,7 @@ def test_start_run_persists_verifiable_process_identity(tmp_path):
 
     row = _run_row(database, run_id)
 
-    assert row["owner_pid"] == __import__("os").getpid()
+    assert row["owner_pid"] == os.getpid()
     assert row["owner_start_ticks"]
     assert sqlite_logger.process_identity_is_alive(
         row["owner_pid"], row["owner_start_ticks"]
@@ -242,11 +243,14 @@ def test_orphan_recovery_leaves_unverifiable_legacy_runs_untouched(tmp_path):
 
 
 def test_process_identity_mismatch_detects_pid_reuse(monkeypatch):
+    fields = ["S"] + ["0"] * 18 + ["new-start-token"]
+    fake_stat = "12345 (test process) " + " ".join(fields)
     monkeypatch.setattr(
-        sqlite_logger, "_read_process_start_ticks", lambda _pid: "new-start-token"
+        sqlite_logger.Path, "read_text", lambda *_args, **_kwargs: fake_stat
     )
 
     assert sqlite_logger.process_identity_is_alive(12345, "old-start-token") is False
+    assert sqlite_logger.process_identity_is_alive(12345, "new-start-token") is True
 
 
 def test_init_db_migrates_existing_runs_table(tmp_path):

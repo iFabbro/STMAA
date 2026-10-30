@@ -206,6 +206,7 @@ def test_execution_lock_is_reentrant_for_account_refresh(tmp_path):
 def test_account_refresh_waits_for_active_execution_lock(tmp_path):
     executor = _executor(tmp_path / "broker_state.json")
     refresh_entered = Event()
+    execution_entered = Event()
     release_execution = Event()
 
     def refresh():
@@ -216,17 +217,12 @@ def test_account_refresh_waits_for_active_execution_lock(tmp_path):
 
     def hold_execution():
         with executor.execution_lock():
+            execution_entered.set()
             assert release_execution.wait(timeout=5)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         execution_future = pool.submit(hold_execution)
-        # Ensure the first thread owns the execution lock before starting refresh.
-        import time
-        deadline = time.monotonic() + 5
-        while not (executor.state_file.with_name(
-            executor.state_file.name + ".execution.lock"
-        ).exists()) and time.monotonic() < deadline:
-            time.sleep(0.01)
+        assert execution_entered.wait(timeout=5)
         refresh_future = pool.submit(executor.get_account_status)
         assert not refresh_entered.wait(timeout=0.2)
         release_execution.set()

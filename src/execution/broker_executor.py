@@ -392,7 +392,7 @@ class BrokerExecutor:
             raise
 
     def _save_state(self):
-        """Atomically persist state and reject stale writers across processes."""
+        """Durably persist state and reject stale writers across processes."""
         if self._state_persistence_failed:
             raise RuntimeError("Broker state persistence previously failed; refusing further execution")
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -430,6 +430,18 @@ class BrokerExecutor:
                     state_file.flush()
                     os.fsync(state_file.fileno())
                 os.replace(temp_path, self.state_file)
+                # The file contents are durable after the temporary-file fsync,
+                # but the rename itself is not durable until its parent directory
+                # entry is synced. If this fails, keep the executor fail-closed:
+                # after os.replace the commit outcome is ambiguous across a crash.
+                directory_fd = os.open(
+                    self.state_file.parent,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
                 self.state["state_revision"] = next_revision
                 self._persisted_state_revision = next_revision
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

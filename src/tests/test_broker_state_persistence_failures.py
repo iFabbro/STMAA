@@ -3,6 +3,7 @@ import errno
 import json
 import multiprocessing
 import os
+import stat
 
 import pytest
 
@@ -74,6 +75,58 @@ def test_disk_full_during_fsync_preserves_previous_state(
     assert executor.state_file.read_bytes() == original
     assert not list(executor.state_file.parent.glob(f".{executor.state_file.name}.*.tmp"))
 
+
+
+def test_state_replace_fsyncs_parent_directory_after_file_fsync(
+    persistence_executor, monkeypatch
+):
+    executor = persistence_executor
+    real_fsync = broker_executor_module.os.fsync
+    synced_modes = []
+
+    def record_fsync(fd):
+        mode = os.fstat(fd).st_mode
+        synced_modes.append("directory" if stat.S_ISDIR(mode) else "file")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(broker_executor_module.os, "fsync", record_fsync)
+    executor.state["total_orders"] = 7
+
+    executor._save_state()
+
+    assert synced_modes == ["file", "directory"]
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted["total_orders"] == 7
+    assert persisted["state_revision"] == executor._persisted_state_revision
+
+
+def test_parent_directory_fsync_failure_fails_closed_after_replace(
+    persistence_executor, monkeypatch
+):
+    executor = persistence_executor
+    real_fsync = broker_executor_module.os.fsync
+    original_revision = executor._persisted_state_revision
+    executor.state["total_orders"] = 11
+
+    def fail_directory_fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(errno.EIO, "simulated directory fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(broker_executor_module.os, "fsync", fail_directory_fsync)
+
+    with pytest.raises(OSError, match="directory fsync failure"):
+        executor._save_state()
+
+    # os.replace already happened, so the disk may contain the new revision;
+    # the executor must nevertheless refuse to continue on an ambiguous commit.
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted["total_orders"] == 11
+    assert persisted["state_revision"] == original_revision + 1
+    assert executor._persisted_state_revision == original_revision
+    assert executor._state_persistence_failed is True
+    with pytest.raises(RuntimeError, match="persistence previously failed"):
+        executor._save_state()
 
 def test_permission_error_creating_temp_file_preserves_previous_state(
     persistence_executor, monkeypatch

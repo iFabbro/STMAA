@@ -11,6 +11,11 @@ HUB_STATE_PATH = Path("logs/hub_state.json")
 MAX_EQUITY_POINTS = 120
 
 
+class SnapshotDurabilityError(OSError):
+    """The snapshot was replaced, but directory durability could not be confirmed."""
+
+
+
 def load_equity_curve(path=None):
     """Load the last verified equity observations from the monitoring snapshot."""
     source = Path(path) if path is not None else HUB_STATE_PATH
@@ -67,11 +72,16 @@ def write_hub_state(state, path=None):
 
         directory_flag = getattr(os, "O_DIRECTORY", None)
         if directory_flag is not None:
-            directory_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
             try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+                directory_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError as exc:
+                raise SnapshotDurabilityError(
+                    "Monitoring snapshot was replaced, but directory fsync failed"
+                ) from exc
     finally:
         if temporary_path is not None:
             try:

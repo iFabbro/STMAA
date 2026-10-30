@@ -19,13 +19,13 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.utils.sqlite_logger import start_run, log_event, write_snapshot
+from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
 from src.utils.monitoring_state import (
     SnapshotDurabilityError,
     load_equity_curve,
     write_hub_state,
 )
-RUN_ID = start_run(mode="paper", meta={"component": "trade"})
+RUN_ID = None
 
 import numpy as np
 from contextlib import nullcontext
@@ -55,7 +55,6 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-log_event(RUN_ID, "trade", "startup", "trade.py started")
 
 class PaperTradingBot:
     """Bot trading per paper trading con Alpaca"""
@@ -500,6 +499,7 @@ class PaperTradingBot:
 
 
 def main(argv=None):
+    global RUN_ID
     parser = argparse.ArgumentParser(description="STMAA paper-trading entry point")
     parser.add_argument(
         "--preflight-only",
@@ -508,13 +508,16 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    print("=" * 70)
-    print("STMAA - Paper Trading Bot")
-    print("=" * 70)
-
-    from src.utils.startup_config import load_startup_config, validate_broker_preflight
-
+    RUN_ID = start_run(mode="paper", meta={"component": "trade"})
+    status = "failed"
     try:
+        log_event(RUN_ID, "trade", "startup", "trade.py started")
+        print("=" * 70)
+        print("STMAA - Paper Trading Bot")
+        print("=" * 70)
+
+        from src.utils.startup_config import load_startup_config, validate_broker_preflight
+
         config = load_startup_config()
         # Keep validated settings explicit without printing secrets.
         print("Configurazione valida: modalità paper")
@@ -542,13 +545,20 @@ def main(argv=None):
         )
         if args.preflight_only:
             print("Preflight-only completato: nessun ciclo di trading avviato e nessun ordine richiesto")
+            status = "completed"
             return 0
 
         bot.run_loop(interval_seconds=300)
+        status = "completed"
         return 0
     except Exception as exc:
         print(f"Avvio bloccato dal preflight: {exc}")
         return 1
+    finally:
+        run_id = RUN_ID
+        RUN_ID = None
+        if run_id is not None:
+            end_run(run_id, status=status)
 
 
 if __name__ == "__main__":

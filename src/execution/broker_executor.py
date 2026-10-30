@@ -4,6 +4,7 @@ import json
 import logging
 import tempfile
 import fcntl
+import time
 from contextlib import contextmanager
 import copy
 import uuid
@@ -167,6 +168,19 @@ class BrokerExecutor:
         self.paper_trading = paper_trading
         self.initial_capital = initial_capital
         self.logger = logging.getLogger(__name__)
+
+        try:
+            self.execution_lock_timeout_seconds = float(
+                os.getenv("STMAA_BROKER_EXECUTION_LOCK_TIMEOUT_SECONDS", "30")
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "STMAA_BROKER_EXECUTION_LOCK_TIMEOUT_SECONDS must be a finite positive number"
+            ) from exc
+        if not np.isfinite(self.execution_lock_timeout_seconds) or self.execution_lock_timeout_seconds <= 0:
+            raise ValueError(
+                "STMAA_BROKER_EXECUTION_LOCK_TIMEOUT_SECONDS must be a finite positive number"
+            )
 
         if not self.api_key or not self.api_secret:
             raise ValueError(
@@ -1602,12 +1616,26 @@ class BrokerExecutor:
             ) from exc
 
         with lock_file:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            except OSError as exc:
-                raise RuntimeError(
-                    "Unable to acquire broker execution lock; refusing execution"
-                ) from exc
+            timeout = getattr(self, "execution_lock_timeout_seconds", 30.0)
+            deadline = time.monotonic() + timeout
+            acquired = False
+            while not acquired:
+                try:
+                    fcntl.flock(
+                        lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                    )
+                    acquired = True
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RuntimeError(
+                            "Timed out acquiring broker execution lock; refusing execution"
+                        )
+                    time.sleep(min(0.05, remaining))
+                except OSError as exc:
+                    raise RuntimeError(
+                        "Unable to acquire broker execution lock; refusing execution"
+                    ) from exc
             try:
                 yield
             finally:

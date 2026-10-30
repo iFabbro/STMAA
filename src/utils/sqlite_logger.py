@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-DB_PATH = Path("logs/stmaa.db")
+# Keep audit history independent of the caller's current working directory.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+DB_PATH = REPOSITORY_ROOT / "logs" / "stmaa.db"
 
 
 def _read_process_start_ticks(pid: int) -> Optional[str]:
@@ -247,7 +249,6 @@ def end_run(run_id: str, status: str = "completed", db_path: Path = DB_PATH) -> 
             raise ValueError(
                 f"Run {run_id!r} does not exist or has already been finalized"
             )
-
 
 
 def _require_active_run(conn: sqlite3.Connection, run_id: str) -> None:

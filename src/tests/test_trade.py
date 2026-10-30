@@ -294,6 +294,7 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
                 self.lock_depth -= 1
 
         def get_account_status(self):
+            assert self.lock_depth > 0, "account snapshot must be read under execution lock"
             return {"portfolio_value": 100000.0, "cash": 50000.0, "equity": 100000.0, "account_data_fresh": True, "account_id": "account-A"}
 
         def _save_state(self):
@@ -301,6 +302,7 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
             self.saved_under_lock = self.lock_depth > 0
 
         def execute_weights(self, weights):
+            assert self.lock_depth > 0, "broker execution must remain under the same lock"
             self.submitted_weights = weights
             return {"orders": [], "portfolio_value": 100000.0, "timestamp": "2026-10-22", "metrics": {}}
 
@@ -311,7 +313,11 @@ def test_execute_trade_persists_actual_account_drawdown_peak(monkeypatch):
     bot.pipeline = SimpleNamespace(risk_module=risk, current_portfolio_value=500000.0)
     bot.executor = executor
     bot.tickers = ["AAPL"]
-    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    def read_vix_under_lock():
+        assert executor.lock_depth > 0, "risk inputs must be evaluated under execution lock"
+        return 12.0
+
+    monkeypatch.setattr(bot, "get_vix_value", read_vix_under_lock)
     monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
     monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
 

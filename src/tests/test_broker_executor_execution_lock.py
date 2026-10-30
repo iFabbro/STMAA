@@ -6,7 +6,7 @@ from threading import Event, Lock
 import pytest
 
 from src.execution import broker_executor
-from src.execution.broker_executor import BrokerExecutor
+from src.execution.broker_executor import BrokerExecutor, _canonicalize_state_file_path
 
 
 def _executor(state_file):
@@ -262,3 +262,25 @@ def test_invalid_execution_lock_timeout_is_rejected(monkeypatch):
 
     with pytest.raises(ValueError, match="finite positive number"):
         BrokerExecutor()
+
+
+
+def test_state_file_symlink_aliases_share_canonical_lock_path(tmp_path):
+    canonical_dir = tmp_path / "canonical"
+    canonical_dir.mkdir()
+    canonical_state = canonical_dir / "broker_state.json"
+
+    alias_dir = tmp_path / "alias"
+    alias_dir.mkdir()
+    alias_state = alias_dir / "broker_state.json"
+    alias_state.symlink_to(canonical_state)
+
+    canonicalized_target = _canonicalize_state_file_path(canonical_state)
+    canonicalized_alias = _canonicalize_state_file_path(alias_state)
+
+    assert canonicalized_alias == canonicalized_target
+    assert canonicalized_alias.with_name(
+        canonicalized_alias.name + ".execution.lock"
+    ) == canonicalized_target.with_name(
+        canonicalized_target.name + ".execution.lock"
+    )

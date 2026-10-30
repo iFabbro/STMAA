@@ -156,10 +156,15 @@ def render():
     clear_screen()
     print_header("STMAA TRADING HUB")
 
-    account_fresh = state.get("account_data_fresh") is True
-    system_status = "Account snapshot fresh" if account_fresh else "Account snapshot unavailable or stale"
+    # This flag describes the snapshot when it was captured, not its age now.
+    snapshot_verified_at_capture = state.get("account_data_fresh") is True
+    system_status = (
+        "Last snapshot verified at capture (historical)"
+        if snapshot_verified_at_capture
+        else "Last snapshot unavailable or stale at capture"
+    )
     mode = state.get("mode") or "unknown (not persisted)"
-    print(f"{Colors.TITLE}System:{Colors.ENDC} {system_status}")
+    print(f"{Colors.TITLE}Snapshot status:{Colors.ENDC} {system_status}")
     print(f"{Colors.TITLE}Mode:{Colors.ENDC} {mode}")
     print(f"{Colors.TITLE}Last update:{Colors.ENDC} {last_ts or 'n/a (no persisted timestamp)'}")
     print(f"{Colors.TITLE}Account snapshot:{Colors.ENDC} {state.get('account_snapshot_at') or 'n/a'}")

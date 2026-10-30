@@ -3555,3 +3555,48 @@ def test_unresolved_submission_keeps_intent_when_broker_order_identity_mismatche
 
     assert executor.state["order_submission_unresolved"]["AAPL"] == intent
     assert executor.state.get("order_submission_confirmed", {}) == {}
+
+@pytest.mark.parametrize(
+    "field",
+    ["cash", "portfolio_value", "buying_power", "equity"],
+)
+@pytest.mark.parametrize("invalid_value", [True, False])
+def test_account_status_rejects_boolean_financial_values(
+    alpaca_env, monkeypatch, tmp_path, field, invalid_value
+):
+    """Boolean values must never be accepted as verified broker money values."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv(
+        "STMAA_BROKER_STATE_FILE",
+        str(tmp_path / "broker_state.json"),
+    )
+    executor = BrokerExecutor(paper_trading=True)
+    account_values = {
+        "id": "account-boolean-test",
+        "status": "ACTIVE",
+        "trading_blocked": False,
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "daytrade_count": 0,
+    }
+    account_values[field] = invalid_value
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_account",
+        lambda: SimpleNamespace(**account_values),
+    )
+
+    snapshot = executor.get_account_status()
+
+    assert snapshot["account_data_fresh"] is False
+    assert snapshot["cash"] is None
+    assert snapshot["portfolio_value"] is None
+    assert snapshot["buying_power"] is None
+    assert snapshot["equity"] is None
+    assert executor.state["account_data_fresh"] is False
+    persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
+    assert persisted["account_data_fresh"] is False
+

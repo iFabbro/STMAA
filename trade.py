@@ -408,7 +408,7 @@ class PaperTradingBot:
 
         # The monitoring curve tracks broker equity only; configured initial capital
         # is not a substitute for the account's actual starting equity.
-        self.equity_curve.append(equity)
+        equity_curve = (self.equity_curve + [equity])[-120:]
         metrics = result.get("metrics")
         if not isinstance(metrics, dict):
             metrics_provider = getattr(self.executor, "metrics", None)
@@ -425,7 +425,7 @@ class PaperTradingBot:
             "account_data_source": status.get("account_data_source"),
             "account_snapshot_at": status.get("account_snapshot_at"),
             "equity_curve_source": "verified_broker_equity",
-            "equity_curve": self.equity_curve[-120:],
+            "equity_curve": equity_curve,
             "orders": result.get("orders", []),
             "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
             "pre_execution_equity": result.get("pre_execution_equity"),
@@ -435,6 +435,7 @@ class PaperTradingBot:
             "last_result": result,
         }
         write_hub_state(hub_state)
+        self.equity_curve = equity_curve
 
     def run_loop(self, interval_seconds: int = 60):
         """Run loop trading continuo"""

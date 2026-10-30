@@ -114,12 +114,24 @@ def start_run(
 
 
 def end_run(run_id: str, status: str = "completed", db_path: Path = DB_PATH) -> None:
+    """Finalize an active run exactly once with a terminal status."""
+    if status not in {"completed", "failed"}:
+        raise ValueError("Run status must be a terminal value: 'completed' or 'failed'")
+
     init_db(db_path)
     with db_conn(db_path) as conn:
-        conn.execute(
-            "UPDATE runs SET ended_at = ?, status = ? WHERE run_id = ?",
+        cursor = conn.execute(
+            """
+            UPDATE runs
+            SET ended_at = ?, status = ?
+            WHERE run_id = ? AND ended_at IS NULL AND status = 'running'
+            """,
             (now_utc(), status, run_id),
         )
+        if cursor.rowcount != 1:
+            raise ValueError(
+                f"Run {run_id!r} does not exist or has already been finalized"
+            )
 
 
 def log_event(

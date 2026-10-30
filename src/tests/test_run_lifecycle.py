@@ -280,3 +280,10 @@ def test_init_db_migrates_existing_runs_table(tmp_path):
             row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
         }
     assert {"owner_pid", "owner_start_ticks"} <= columns
+
+
+
+def test_process_identity_is_unknown_without_procfs(monkeypatch):
+    monkeypatch.setattr(sqlite_logger.Path, "is_dir", lambda _path: False)
+
+    assert sqlite_logger.process_identity_is_alive(12345, "start-token") is None

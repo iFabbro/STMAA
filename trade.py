@@ -222,178 +222,178 @@ class PaperTradingBot:
             return self._execute_trade_locked(weights)
 
     def _execute_trade_locked(self, weights: PortfolioWeights):
-            """Apply portfolio risk controls before submitting target weights."""
-            print("🔄 Esecuzione trade...")
-            risk_module = getattr(self.pipeline, "risk_module", None)
-            if risk_module is not None:
-                # Capture durable history before get_account_status refreshes the
-                # persisted account ID. A missing peak is only a valid first-run
-                # baseline when no prior account/execution history exists.
-                prior_state = getattr(self.executor, "state", None)
-                prior_state_has_account_history = isinstance(prior_state, dict) and any(
-                    (
-                        bool(prior_state.get("account_id")),
-                        bool(prior_state.get("last_execution_time")),
-                        bool(prior_state.get("total_orders")),
-                        bool(prior_state.get("equity_history")),
-                        bool(prior_state.get("order_submission_unresolved")),
-                        bool(prior_state.get("order_submission_confirmed")),
-                        bool(prior_state.get("emergency_liquidation_pending")),
-                        bool(prior_state.get("emergency_liquidation_unresolved")),
-                    )
+        """Apply portfolio risk controls before submitting target weights."""
+        print("🔄 Esecuzione trade...")
+        risk_module = getattr(self.pipeline, "risk_module", None)
+        if risk_module is not None:
+            # Capture durable history before get_account_status refreshes the
+            # persisted account ID. A missing peak is only a valid first-run
+            # baseline when no prior account/execution history exists.
+            prior_state = getattr(self.executor, "state", None)
+            prior_state_has_account_history = isinstance(prior_state, dict) and any(
+                (
+                    bool(prior_state.get("account_id")),
+                    bool(prior_state.get("last_execution_time")),
+                    bool(prior_state.get("total_orders")),
+                    bool(prior_state.get("equity_history")),
+                    bool(prior_state.get("order_submission_unresolved")),
+                    bool(prior_state.get("order_submission_confirmed")),
+                    bool(prior_state.get("emergency_liquidation_pending")),
+                    bool(prior_state.get("emergency_liquidation_unresolved")),
                 )
-                account = self.executor.get_account_status()
-                if account.get("account_data_fresh") is not True:
-                    raise RuntimeError("Cannot verify current broker account equity; refusing to submit target weights")
-                portfolio_value = float(account.get("equity", 0.0))
-                if not np.isfinite(portfolio_value) or portfolio_value <= 0:
-                    raise RuntimeError("Cannot obtain a valid positive broker equity")
+            )
+            account = self.executor.get_account_status()
+            if account.get("account_data_fresh") is not True:
+                raise RuntimeError("Cannot verify current broker account equity; refusing to submit target weights")
+            portfolio_value = float(account.get("equity", 0.0))
+            if not np.isfinite(portfolio_value) or portfolio_value <= 0:
+                raise RuntimeError("Cannot obtain a valid positive broker equity")
 
-                # Persist the high-water mark independently of configured initial capital.
-                # A first verified account snapshot establishes the baseline; later runs
-                # retain the historical peak and advance it only when a new high is reached.
-                execution_lock = getattr(self.executor, "execution_lock", None)
-                lock_context = execution_lock() if callable(execution_lock) else nullcontext()
-                with lock_context:
-                    executor_state = getattr(self.executor, "state", None)
-                    if isinstance(executor_state, dict):
-                        account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
-                        # Provenance must come from the current broker snapshot. A persisted
-                        # account ID is historical state and cannot fill a missing ID in this
-                        # response; otherwise a stale high-water mark could be trusted.
-                        account_id = account.get("account_id")
-                        if not isinstance(account_id, str) or not account_id.strip():
-                            raise RuntimeError(
-                                "Cannot verify current broker account identity; refusing to submit target weights"
-                            )
-                        account_id = account_id.strip()
-                        stored_peak = executor_state.get("risk_peak_portfolio_value")
-                        stored_peak_account_id = executor_state.get("risk_peak_account_id")
-                        provenance_matches = (
-                            executor_state.get("risk_peak_equity_source") == "alpaca_account"
-                            and executor_state.get("risk_peak_account_mode") == account_mode
-                            and bool(account_id)
-                            and bool(stored_peak_account_id)
-                            and account_id == stored_peak_account_id
+            # Persist the high-water mark independently of configured initial capital.
+            # A first verified account snapshot establishes the baseline; later runs
+            # retain the historical peak and advance it only when a new high is reached.
+            execution_lock = getattr(self.executor, "execution_lock", None)
+            lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+            with lock_context:
+                executor_state = getattr(self.executor, "state", None)
+                if isinstance(executor_state, dict):
+                    account_mode = "paper" if getattr(self.executor, "paper_trading", True) else "live"
+                    # Provenance must come from the current broker snapshot. A persisted
+                    # account ID is historical state and cannot fill a missing ID in this
+                    # response; otherwise a stale high-water mark could be trusted.
+                    account_id = account.get("account_id")
+                    if not isinstance(account_id, str) or not account_id.strip():
+                        raise RuntimeError(
+                            "Cannot verify current broker account identity; refusing to submit target weights"
                         )
-                        # Legacy peaks without matching provenance may have come from
-                        # configured initial capital; re-anchor to this verified snapshot.
-                        if stored_peak is None and prior_state_has_account_history:
-                            raise RuntimeError(
-                                "Cannot calculate drawdown: persisted risk peak is missing for existing broker state"
-                            )
-                        if stored_peak is None or not provenance_matches:
-                            stored_peak = portfolio_value
-                            # The overlay also keeps an in-memory high-water mark. Re-anchor
-                            # it whenever persisted provenance is incomplete or mismatched;
-                            # otherwise a stale peak can zero targets while this account's
-                            # circuit-breaker flag remains false.
-                            if hasattr(risk_module, "peak_portfolio_value"):
-                                risk_module.peak_portfolio_value = portfolio_value
-                        else:
-                            stored_peak = float(stored_peak)
-                            if not np.isfinite(stored_peak) or stored_peak <= 0:
-                                raise RuntimeError("Stored risk drawdown peak is invalid")
-                        peak_portfolio_value = max(stored_peak, portfolio_value)
-                        executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
-                        executor_state["risk_peak_equity_source"] = "alpaca_account"
-                        executor_state["risk_peak_account_mode"] = account_mode
-                        executor_state["risk_peak_account_id"] = account_id
-                        executor_state["peak_equity"] = peak_portfolio_value
-                        executor_state["peak_equity_source"] = "verified_account"
-                        executor_state["peak_equity_account_mode"] = account_mode
-                        executor_state["peak_equity_account_id"] = account_id
-                        save_state = getattr(self.executor, "_save_state", None)
-                        if callable(save_state):
-                            save_state()
-                    else:
-                        # Without persisted account identity there is no trustworthy
-                        # provenance for an in-memory peak; anchor to verified equity.
-                        peak_portfolio_value = portfolio_value
+                    account_id = account_id.strip()
+                    stored_peak = executor_state.get("risk_peak_portfolio_value")
+                    stored_peak_account_id = executor_state.get("risk_peak_account_id")
+                    provenance_matches = (
+                        executor_state.get("risk_peak_equity_source") == "alpaca_account"
+                        and executor_state.get("risk_peak_account_mode") == account_mode
+                        and bool(account_id)
+                        and bool(stored_peak_account_id)
+                        and account_id == stored_peak_account_id
+                    )
+                    # Legacy peaks without matching provenance may have come from
+                    # configured initial capital; re-anchor to this verified snapshot.
+                    if stored_peak is None and prior_state_has_account_history:
+                        raise RuntimeError(
+                            "Cannot calculate drawdown: persisted risk peak is missing for existing broker state"
+                        )
+                    if stored_peak is None or not provenance_matches:
+                        stored_peak = portfolio_value
+                        # The overlay also keeps an in-memory high-water mark. Re-anchor
+                        # it whenever persisted provenance is incomplete or mismatched;
+                        # otherwise a stale peak can zero targets while this account's
+                        # circuit-breaker flag remains false.
                         if hasattr(risk_module, "peak_portfolio_value"):
                             risk_module.peak_portfolio_value = portfolio_value
-
-
-                self.pipeline.current_portfolio_value = portfolio_value
-                drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)
-                circuit_breaker_triggered = drawdown >= float(
-                    getattr(risk_module, "max_drawdown_threshold", 1.0)
-                )
-                liquidate_on_breaker = getattr(self, "liquidate_on_drawdown", False)
-                # An explicitly configured emergency liquidation does not require a VIX
-                # signal: VIX gates new target decisions, not broker-side risk reduction.
-                # Ordinary execution remains fail-closed when VIX is missing or stale.
-                if circuit_breaker_triggered and liquidate_on_breaker:
-                    vix_value = None
-                    print("Drawdown circuit breaker: bypassing VIX gate for explicit emergency liquidation")
+                    else:
+                        stored_peak = float(stored_peak)
+                        if not np.isfinite(stored_peak) or stored_peak <= 0:
+                            raise RuntimeError("Stored risk drawdown peak is invalid")
+                    peak_portfolio_value = max(stored_peak, portfolio_value)
+                    executor_state["risk_peak_portfolio_value"] = peak_portfolio_value
+                    executor_state["risk_peak_equity_source"] = "alpaca_account"
+                    executor_state["risk_peak_account_mode"] = account_mode
+                    executor_state["risk_peak_account_id"] = account_id
+                    executor_state["peak_equity"] = peak_portfolio_value
+                    executor_state["peak_equity_source"] = "verified_account"
+                    executor_state["peak_equity_account_mode"] = account_mode
+                    executor_state["peak_equity_account_id"] = account_id
+                    save_state = getattr(self.executor, "_save_state", None)
+                    if callable(save_state):
+                        save_state()
                 else:
-                    vix_value = self.get_vix_value()
-                    print(f"📉 VIX latest completed-session close: {vix_value:.2f}")
-                risked_weights = risk_module.apply(
-                    None,
-                    weights.weights,
-                    weights.tickers,
-                    vix=vix_value,
-                    portfolio_value=portfolio_value,
-                    peak_portfolio_value=peak_portfolio_value,
-                )
-                weights = PortfolioWeights(
-                    weights=risked_weights,
-                    tickers=weights.tickers,
-                    timestamp=weights.timestamp,
-                    metadata={
-                        **(weights.metadata or {}),
-                        "portfolio_value": portfolio_value,
-                        "vix": vix_value,
-                        "risk_overlay_applied": True,
-                        "circuit_breaker_triggered": circuit_breaker_triggered,
-                        "liquidate_on_circuit_breaker": liquidate_on_breaker,
-                    },
-                )
-            if risk_module is not None and circuit_breaker_triggered and not liquidate_on_breaker:
-                # A zero target is interpreted as a close request by the executor.
-                # When emergency liquidation is not explicitly enabled, do not send
-                # any target weights to the broker at all.
-                print("Drawdown circuit breaker: skipping target execution; liquidation disabled")
-                result = {
-                    "orders": [],
-                    "portfolio_value": account.get("portfolio_value", portfolio_value),
-                    "equity": account.get("equity", portfolio_value),
-                    "account_data_fresh": True,
-                    "account_data_source": account.get("account_data_source", "alpaca_account"),
-                    "account_snapshot_at": account.get("account_snapshot_at"),
-                    "pre_execution_portfolio_value": account.get("portfolio_value", portfolio_value),
-                    "pre_execution_equity": account.get("equity", portfolio_value),
-                    "metrics_equity": None,
-                    "target_execution_skipped": True,
-                    "circuit_breaker_triggered": True,
-                    "liquidate_on_circuit_breaker": False,
-                }
+                    # Without persisted account identity there is no trustworthy
+                    # provenance for an in-memory peak; anchor to verified equity.
+                    peak_portfolio_value = portfolio_value
+                    if hasattr(risk_module, "peak_portfolio_value"):
+                        risk_module.peak_portfolio_value = portfolio_value
+
+
+            self.pipeline.current_portfolio_value = portfolio_value
+            drawdown = max(0.0, (peak_portfolio_value - portfolio_value) / peak_portfolio_value)
+            circuit_breaker_triggered = drawdown >= float(
+                getattr(risk_module, "max_drawdown_threshold", 1.0)
+            )
+            liquidate_on_breaker = getattr(self, "liquidate_on_drawdown", False)
+            # An explicitly configured emergency liquidation does not require a VIX
+            # signal: VIX gates new target decisions, not broker-side risk reduction.
+            # Ordinary execution remains fail-closed when VIX is missing or stale.
+            if circuit_breaker_triggered and liquidate_on_breaker:
+                vix_value = None
+                print("Drawdown circuit breaker: bypassing VIX gate for explicit emergency liquidation")
             else:
-                result = self.executor.execute_weights(weights)
-                result["target_execution_skipped"] = False
-            print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
-            for order in result['orders']:
-                print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")
-            write_snapshot(
-                RUN_ID,
-                "trade",
-                portfolio_value=result.get("portfolio_value"),
-                equity=result.get("equity"),
-                payload={
-                    "tickers": self.tickers,
-                    "rows": len(result),
-                    "account_data_source": "alpaca_account" if result.get("account_data_fresh") is True else None,
-                    "account_snapshot_at": result.get("account_snapshot_at"),
-                    "account_data_fresh": result.get("account_data_fresh", False),
-                    "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
-                    "pre_execution_equity": result.get("pre_execution_equity"),
-                    "metrics_equity": result.get("metrics_equity"),
-                    "metrics_refresh_error": result.get("metrics_refresh_error"),
+                vix_value = self.get_vix_value()
+                print(f"📉 VIX latest completed-session close: {vix_value:.2f}")
+            risked_weights = risk_module.apply(
+                None,
+                weights.weights,
+                weights.tickers,
+                vix=vix_value,
+                portfolio_value=portfolio_value,
+                peak_portfolio_value=peak_portfolio_value,
+            )
+            weights = PortfolioWeights(
+                weights=risked_weights,
+                tickers=weights.tickers,
+                timestamp=weights.timestamp,
+                metadata={
+                    **(weights.metadata or {}),
+                    "portfolio_value": portfolio_value,
+                    "vix": vix_value,
+                    "risk_overlay_applied": True,
+                    "circuit_breaker_triggered": circuit_breaker_triggered,
+                    "liquidate_on_circuit_breaker": liquidate_on_breaker,
                 },
             )
-            log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})
-            return result
+        if risk_module is not None and circuit_breaker_triggered and not liquidate_on_breaker:
+            # A zero target is interpreted as a close request by the executor.
+            # When emergency liquidation is not explicitly enabled, do not send
+            # any target weights to the broker at all.
+            print("Drawdown circuit breaker: skipping target execution; liquidation disabled")
+            result = {
+                "orders": [],
+                "portfolio_value": account.get("portfolio_value", portfolio_value),
+                "equity": account.get("equity", portfolio_value),
+                "account_data_fresh": True,
+                "account_data_source": account.get("account_data_source", "alpaca_account"),
+                "account_snapshot_at": account.get("account_snapshot_at"),
+                "pre_execution_portfolio_value": account.get("portfolio_value", portfolio_value),
+                "pre_execution_equity": account.get("equity", portfolio_value),
+                "metrics_equity": None,
+                "target_execution_skipped": True,
+                "circuit_breaker_triggered": True,
+                "liquidate_on_circuit_breaker": False,
+            }
+        else:
+            result = self.executor.execute_weights(weights)
+            result["target_execution_skipped"] = False
+        print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
+        for order in result['orders']:
+            print(f"  • {order['side']} {order['quantity']:.4f} {order['ticker']}")
+        write_snapshot(
+            RUN_ID,
+            "trade",
+            portfolio_value=result.get("portfolio_value"),
+            equity=result.get("equity"),
+            payload={
+                "tickers": self.tickers,
+                "rows": len(result),
+                "account_data_source": "alpaca_account" if result.get("account_data_fresh") is True else None,
+                "account_snapshot_at": result.get("account_snapshot_at"),
+                "account_data_fresh": result.get("account_data_fresh", False),
+                "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
+                "pre_execution_equity": result.get("pre_execution_equity"),
+                "metrics_equity": result.get("metrics_equity"),
+                "metrics_refresh_error": result.get("metrics_refresh_error"),
+            },
+        )
+        log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})
+        return result
 
     def update_hub_state(self, result: Dict):
         status = self.executor.get_account_status()

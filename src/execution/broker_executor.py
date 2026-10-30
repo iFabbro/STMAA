@@ -1582,6 +1582,27 @@ class BrokerExecutor:
             raise
 
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        """Serialize the complete broker execution cycle across threads and processes."""
+        lock_path = self.state_file.with_name(
+            self.state_file.name + ".execution.lock"
+        )
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(lock_path, "a+", encoding="utf-8") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    return self._execute_weights_locked(weights, min_notional)
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError as exc:
+            raise RuntimeError(
+                "Unable to acquire or release broker execution lock; refusing execution"
+            ) from exc
+
+    def _execute_weights_locked(
+        self, weights: PortfolioWeights, min_notional: float = 1.0
+    ) -> Dict:
+        """Run reconciliation, risk checks, and broker mutations under the execution lock."""
         self._reconcile_unresolved_submissions()
         self._refresh_confirmed_submission_statuses()
         self._reconcile_terminal_order_positions()

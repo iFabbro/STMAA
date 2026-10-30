@@ -502,11 +502,20 @@ class BrokerExecutor:
                     "Broker account trading_blocked flag is true or unavailable"
                 )
 
+            raw_financial_values = {
+                "cash": account.cash,
+                "portfolio_value": account.portfolio_value,
+                "buying_power": account.buying_power,
+                "equity": account.equity,
+            }
+            if any(isinstance(value, bool) for value in raw_financial_values.values()):
+                raise ValueError("Broker account returned boolean financial values")
+
             data = {
-                "cash": float(account.cash),
-                "portfolio_value": float(account.portfolio_value),
-                "buying_power": float(account.buying_power),
-                "equity": float(account.equity),
+                "cash": float(raw_financial_values["cash"]),
+                "portfolio_value": float(raw_financial_values["portfolio_value"]),
+                "buying_power": float(raw_financial_values["buying_power"]),
+                "equity": float(raw_financial_values["equity"]),
                 "daytrade_count": account.daytrade_count,
                 "status": account_status,
                 "trading_blocked": trading_blocked,

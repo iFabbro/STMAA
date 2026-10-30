@@ -128,9 +128,11 @@ def test_render_empty_or_invalid_equity_curve_is_safe(tmp_path, monkeypatch, cap
 
 
 
-def test_finite_number_rejects_booleans():
+def test_finite_number_rejects_booleans_and_numeric_strings():
     assert hub._finite_number(True) is None
     assert hub._finite_number(False) is None
+    assert hub._finite_number("12345.67") is None
+    assert hub._finite_number(12345.67) == 12345.67
 
 
 def test_render_rejects_boolean_financial_and_metric_values(

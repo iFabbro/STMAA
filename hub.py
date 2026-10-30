@@ -50,6 +50,8 @@ def load_state():
 
 
 def _finite_number(value):
+    if isinstance(value, bool):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):

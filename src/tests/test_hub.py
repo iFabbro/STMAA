@@ -125,3 +125,44 @@ def test_render_empty_or_invalid_equity_curve_is_safe(tmp_path, monkeypatch, cap
     assert "no valid persisted equity history" in out
     assert "n/a (insufficient persisted history)" in out
     assert "Account snapshot unavailable or stale" in out
+
+
+
+def test_finite_number_rejects_booleans():
+    assert hub._finite_number(True) is None
+    assert hub._finite_number(False) is None
+
+
+def test_render_rejects_boolean_financial_and_metric_values(
+    tmp_path, monkeypatch, capsys
+):
+    state_file = tmp_path / "boolean_state.json"
+    state_file.write_text(json.dumps({
+        "timestamp": "2026-10-30T12:00:00",
+        "account_data_fresh": True,
+        "mode": "paper",
+        "portfolio_value": True,
+        "cash": False,
+        "equity": True,
+        "equity_curve": [100000.0, 101000.0],
+        "orders": [],
+        "metrics": {
+            "max_drawdown": True,
+            "sharpe_ratio": False,
+            "sortino_ratio": True,
+            "calmar_ratio": False,
+            "exposure": True,
+            "total_return": False,
+            "annualized_return": True,
+        },
+    }))
+    _patch_render(monkeypatch, state_file)
+
+    hub.render()
+    out = capsys.readouterr().out
+
+    assert "$1.00" not in out
+    assert "$0.00" not in out
+    assert "n/a (not persisted)" in out
+    assert "Max Drawdown" in out
+    assert "Sharpe Ratio" in out

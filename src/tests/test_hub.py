@@ -159,7 +159,7 @@ def test_render_rejects_boolean_financial_and_metric_values(
     _patch_render(monkeypatch, state_file)
 
     hub.render()
-    out = re.sub(r"\\x1b\\[[0-9;]*m", "", capsys.readouterr().out)
+    out = capsys.readouterr().out
 
     assert "$1.00" not in out
     assert "$0.00" not in out

@@ -46,6 +46,9 @@ def process_identity_is_alive(pid: int, start_ticks: str) -> Optional[bool]:
         return None
     if pid <= 0 or not isinstance(start_ticks, str) or not start_ticks:
         return None
+    # Without procfs, a missing PID path is not evidence that the process died.
+    if not Path("/proc").is_dir():
+        return None
 
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")

@@ -124,7 +124,7 @@ def test_render_empty_or_invalid_equity_curve_is_safe(tmp_path, monkeypatch, cap
 
     assert "no valid persisted equity history" in out
     assert "n/a (insufficient persisted history)" in out
-    assert "Account snapshot unavailable or stale" in out
+    assert "Last snapshot unavailable or stale at capture" in out
 
 
 

@@ -4,6 +4,7 @@ import json
 import logging
 import tempfile
 import fcntl
+from contextlib import contextmanager
 import copy
 import uuid
 import numpy as np
@@ -1581,8 +1582,14 @@ class BrokerExecutor:
             self.state.update(previous_state)
             raise
 
-    def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
-        """Serialize the complete broker execution cycle across threads and processes."""
+    @contextmanager
+    def execution_lock(self):
+        """Serialize broker mutations sharing this executor state-file path.
+
+        This is an OS file lock: participating processes must use the same
+        state-file path on a filesystem that supports advisory flock locks.
+        It is not a distributed lock across independent hosts or filesystems.
+        """
         lock_path = self.state_file.with_name(
             self.state_file.name + ".execution.lock"
         )
@@ -1602,7 +1609,7 @@ class BrokerExecutor:
                     "Unable to acquire broker execution lock; refusing execution"
                 ) from exc
             try:
-                return self._execute_weights_locked(weights, min_notional)
+                yield
             finally:
                 try:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
@@ -1610,6 +1617,11 @@ class BrokerExecutor:
                     raise RuntimeError(
                         "Unable to release broker execution lock; execution state requires review"
                     ) from exc
+
+    def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
+        """Run the complete broker execution cycle under the shared OS lock."""
+        with self.execution_lock():
+            return self._execute_weights_locked(weights, min_notional)
 
     def _execute_weights_locked(
         self, weights: PortfolioWeights, min_notional: float = 1.0

@@ -852,3 +852,54 @@ def test_run_loop_does_not_submit_orders_when_market_data_features_are_invalid(
 
     assert generated_weights == []
     assert submitted_weights == []
+
+
+def test_execute_and_persist_cycle_serializes_execution_with_snapshot_update():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, RLock
+    from types import SimpleNamespace
+
+    shared_lock = RLock()
+    first_execution_entered = Event()
+    release_first_execution = Event()
+    second_execution_entered = Event()
+    events = []
+
+    def make_bot(name):
+        bot = PaperTradingBot.__new__(PaperTradingBot)
+        bot.executor = SimpleNamespace(execution_lock=lambda: shared_lock)
+
+        def execute_trade(weights):
+            events.append(f"{name}-execute")
+            if name == "first":
+                first_execution_entered.set()
+                assert release_first_execution.wait(timeout=5)
+            else:
+                second_execution_entered.set()
+            return {"cycle": name}
+
+        def update_hub_state(result):
+            events.append(f"{result['cycle']}-snapshot")
+
+        bot.execute_trade = execute_trade
+        bot.update_hub_state = update_hub_state
+        return bot
+
+    first = make_bot("first")
+    second = make_bot("second")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(first.execute_and_persist_cycle, object())
+        assert first_execution_entered.wait(timeout=5)
+        second_future = pool.submit(second.execute_and_persist_cycle, object())
+        assert not second_execution_entered.wait(timeout=0.2)
+        release_first_execution.set()
+        assert first_future.result(timeout=5) == {"cycle": "first"}
+        assert second_future.result(timeout=5) == {"cycle": "second"}
+
+    assert events == [
+        "first-execute",
+        "first-snapshot",
+        "second-execute",
+        "second-snapshot",
+    ]

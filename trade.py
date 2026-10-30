@@ -447,6 +447,15 @@ class PaperTradingBot:
             raise
         self.equity_curve = equity_curve
 
+    def execute_and_persist_cycle(self, weights: PortfolioWeights):
+        """Serialize broker execution and its matching dashboard snapshot as one cycle."""
+        execution_lock = getattr(self.executor, "execution_lock", None)
+        lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+        with lock_context:
+            result = self.execute_trade(weights)
+            self.update_hub_state(result)
+            return result
+
     def run_loop(self, interval_seconds: int = 60):
         """Run loop trading continuo"""
         print("\n" + "=" * 62)
@@ -467,8 +476,7 @@ class PaperTradingBot:
             try:
                 market_data = self.get_market_data()
                 weights = self.generate_weights(market_data)
-                result = self.execute_trade(weights)
-                self.update_hub_state(result)
+                self.execute_and_persist_cycle(weights)
 
                 status = self.executor.get_account_status()
                 if status.get("account_data_fresh") is not True:

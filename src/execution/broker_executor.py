@@ -2190,33 +2190,6 @@ class BrokerExecutor:
         if metrics_refresh_error is not None:
             result["metrics_refresh_error"] = metrics_refresh_error
 
-        try:
-            hub = Path("logs/hub_state.json")
-            hub.parent.mkdir(parents=True, exist_ok=True)
-            hub.write_text(
-                json.dumps(
-                    {
-                        "timestamp": result["timestamp"],
-                        "orders": orders_executed,
-                        "portfolio_value": result["portfolio_value"],
-                        "pre_execution_portfolio_value": broker_portfolio_value,
-                        "cash": post_account.get("cash") if post_snapshot_fresh else None,
-                        "equity": result["equity"],
-                        "pre_execution_equity": portfolio_value,
-                        "account_data_fresh": post_snapshot_fresh,
-                        "account_snapshot_at": result["account_snapshot_at"],
-                        "account_data_source": post_account.get("account_data_source") if post_snapshot_fresh else None,
-                        "metrics_equity": result["metrics_equity"],
-                        "metrics_refresh_error": metrics_refresh_error,
-                        "metrics": metrics,
-                    },
-                    indent=2,
-                    default=str,
-                )
-            )
-        except Exception as e:
-            self.logger.error(f"Hub state write failed: {e}")
-
         self.logger.info(f"✅ Eseguiti {len(orders_executed)} ordini")
         self.logger.info(
     f"📊 Metrics: DD={metrics.get('max_drawdown', 0.0):.2%}, "

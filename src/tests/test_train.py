@@ -5,7 +5,7 @@ import pytest
 from train import chronological_split, flatten_processed_data
 
 
-def test_flatten_processed_yfinance_columns_to_ppo_feature_contract():
+def test_flatten_processed_alpaca_field_ticker_columns_to_ppo_feature_contract():
     fields = ["Open", "High", "Low", "Close", "Volume", "RSI", "MACD", "BB_middle", "ATR"]
     tickers = ["AAA", "BBB"]
     columns = pd.MultiIndex.from_product([fields, tickers])

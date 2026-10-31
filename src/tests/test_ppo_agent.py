@@ -409,3 +409,53 @@ def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
     (tmp_path / "unsafe.zip.metadata.json").write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match="invalid artifact filename"):
         PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_model_restart_loads_manifest_generation(tmp_path, monkeypatch):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "restart.zip"
+    writer = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"restartable-model-generation")
+
+    writer.model = SavedModel()
+    writer.save()
+
+    loaded_model = object()
+    monkeypatch.setattr(ppo_agent.PPO, "load", lambda _path: loaded_model)
+    restarted = PPOAgent(tickers=["A"], model_path=str(model_path))
+    assert restarted.model is loaded_model
+
+
+def test_model_save_cleans_first_temp_file_if_second_temp_creation_fails(
+    tmp_path, monkeypatch
+):
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "staging-error.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    agent.model = object()
+    real_mkstemp = ppo_agent.tempfile.mkstemp
+    calls = 0
+
+    def fail_second_mkstemp(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated metadata staging failure")
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(ppo_agent.tempfile, "mkstemp", fail_second_mkstemp)
+    with pytest.raises(OSError, match="metadata staging failure"):
+        agent.save()
+
+    assert not list(tmp_path.glob(".*.zip"))
+    assert not list(tmp_path.glob(".*.tmp"))

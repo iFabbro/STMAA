@@ -18,7 +18,7 @@ def _hold_artifact_lock_until_terminated(model_path, acquired):
 
 def _acquire_artifact_lock_after_crash(model_path, result_queue):
     try:
-        with _artifact_lock(Path(model_path), timeout_seconds=2):
+        with _artifact_lock(Path(model_path), timeout_seconds=5):
             result_queue.put("acquired")
     except Exception as exc:  # pragma: no cover - reported to the parent process
         result_queue.put(f"error:{type(exc).__name__}:{exc}")
@@ -29,7 +29,7 @@ def _prune_artifacts_worker(model_path, ready, start, result_queue):
         tickers=["A"], model_path=model_path, load_existing_model=False
     )
     ready.set()
-    if not start.wait(timeout=5):
+    if not start.wait(timeout=30):
         result_queue.put(("error", "start barrier timed out"))
         return
     try:
@@ -45,7 +45,8 @@ def _prune_artifacts_worker(model_path, ready, start, result_queue):
 
 
 def test_ppo_artifact_lock_is_released_when_owner_process_is_terminated(tmp_path):
-    context = multiprocessing.get_context("fork")
+    # Spawn avoids inheriting PyTorch/OpenMP runtime state from the pytest process.
+    context = multiprocessing.get_context("spawn")
     model_path = tmp_path / "terminated-owner.zip"
     acquired = context.Event()
     result_queue = context.Queue()
@@ -56,9 +57,9 @@ def test_ppo_artifact_lock_is_released_when_owner_process_is_terminated(tmp_path
     )
     owner.start()
     try:
-        assert acquired.wait(timeout=5), "lock owner did not acquire the artifact lock"
+        assert acquired.wait(timeout=30), "lock owner did not acquire the artifact lock"
         owner.terminate()
-        owner.join(timeout=5)
+        owner.join(timeout=10)
         assert not owner.is_alive(), "terminated lock owner did not exit"
 
         waiter = context.Process(
@@ -66,20 +67,20 @@ def test_ppo_artifact_lock_is_released_when_owner_process_is_terminated(tmp_path
             args=(str(model_path), result_queue),
         )
         waiter.start()
-        waiter.join(timeout=5)
+        waiter.join(timeout=30)
         assert not waiter.is_alive(), "lock waiter did not finish after owner termination"
         assert waiter.exitcode == 0
-        assert result_queue.get(timeout=1) == "acquired"
+        assert result_queue.get(timeout=5) == "acquired"
     finally:
         if owner.is_alive():
             owner.terminate()
-            owner.join(timeout=2)
+            owner.join(timeout=5)
         result_queue.close()
         result_queue.join_thread()
 
 
 def test_concurrent_ppo_prune_processes_are_serialized_and_idempotent(tmp_path):
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     model_path = tmp_path / "concurrent-prune.zip"
     agent = PPOAgent(
         tickers=["A"], model_path=str(model_path), load_existing_model=False
@@ -103,7 +104,6 @@ def test_concurrent_ppo_prune_processes_are_serialized_and_idempotent(tmp_path):
     expected_removed = all_generations - {active_artifact}
     assert len(expected_removed) == 2
 
-    # Make the non-active generations unambiguously eligible for pruning.
     old = time.time() - 10
     for artifact in expected_removed:
         os.utime(artifact, (old, old))
@@ -122,15 +122,15 @@ def test_concurrent_ppo_prune_processes_are_serialized_and_idempotent(tmp_path):
     try:
         for worker in workers:
             worker.start()
-        assert all(event.wait(timeout=5) for event in ready_events)
+        assert all(event.wait(timeout=30) for event in ready_events)
         start.set()
 
         for worker in workers:
-            worker.join(timeout=10)
+            worker.join(timeout=30)
             assert not worker.is_alive(), "concurrent prune process did not finish"
             assert worker.exitcode == 0
 
-        outcomes = [result_queue.get(timeout=2) for _ in workers]
+        outcomes = [result_queue.get(timeout=5) for _ in workers]
         assert all(status == "success" for status, _ in outcomes), outcomes
         removed_paths = [
             Path(path)
@@ -148,6 +148,6 @@ def test_concurrent_ppo_prune_processes_are_serialized_and_idempotent(tmp_path):
         for worker in workers:
             if worker.is_alive():
                 worker.terminate()
-                worker.join(timeout=2)
+                worker.join(timeout=5)
         result_queue.close()
         result_queue.join_thread()

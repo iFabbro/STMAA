@@ -148,3 +148,53 @@ def test_daily_bars_fail_closed_when_recent_history_makes_latest_features_invali
 
     with pytest.raises(RuntimeError, match="invalid latest strategy features for AAPL"):
         feed.get_bars(["AAPL"], days=1)
+
+
+@pytest.mark.parametrize("invalid_field", ["Open", "High", "Low", "Close", "Volume"])
+def test_daily_bars_fail_closed_on_incomplete_historical_ohlcv(
+    feed, monkeypatch, invalid_field
+):
+    rows = _history("AAPL", 100.0)
+    row = list(rows[5])
+    field_index = {"Open": 2, "High": 3, "Low": 4, "Close": 5, "Volume": 6}[invalid_field]
+    row[field_index] = float("nan")
+    rows[5] = tuple(row)
+    snapshot = _bars(rows)
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="incomplete daily OHLCV bar"):
+        feed.get_bars(["AAPL"], days=1)
+
+
+def test_daily_bars_fail_closed_when_an_interior_nyse_session_is_absent(feed, monkeypatch):
+    rows = _history("AAPL", 100.0)
+    rows.pop(5)
+    snapshot = _bars(rows)
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="missing NYSE daily bars for AAPL"):
+        feed.get_bars(["AAPL"], days=1)
+
+
+def test_daily_bars_fail_closed_on_invalid_ohlcv_in_old_history(feed, monkeypatch):
+    rows = _history("AAPL", 100.0)
+    row = list(rows[5])
+    row[3] = row[2] - 1.0  # High below Open; final indicator row remains valid.
+    rows[5] = tuple(row)
+    snapshot = _bars(rows)
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid daily OHLCV values"):
+        feed.get_bars(["AAPL"], days=1)

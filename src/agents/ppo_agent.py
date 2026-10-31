@@ -606,6 +606,43 @@ class PPOAgent:
                 raise RuntimeError("Cannot prune PPO artifacts: active manifest is unreadable") from exc
             if not isinstance(manifest, dict):
                 raise RuntimeError("Cannot prune PPO artifacts: active manifest is invalid")
+            # Pruning must not discard recovery generations when the active
+            # manifest is structurally readable but cannot be loaded under the
+            # current model/data contract.
+            expected_state_dim = 1 + len(self.tickers) * 6
+            expected_parameters = {
+                "transaction_cost": self.transaction_cost,
+                "slippage": self.slippage,
+                "max_position_size": self.max_position_size,
+                "max_gross_exposure": self.max_gross_exposure,
+            }
+            manifest_contract_valid = (
+                manifest.get("contract_version") == MODEL_CONTRACT_VERSION
+                and manifest.get("tickers") == self.tickers
+                and type(manifest.get("state_dim")) is int
+                and manifest.get("state_dim") == expected_state_dim
+                and manifest.get("action_contract")
+                == "long_only_capped_target_weights_zero_floor"
+            )
+            try:
+                validate_market_data_contract(manifest.get("market_data_contract"))
+            except ValueError:
+                manifest_contract_valid = False
+            for key, expected in expected_parameters.items():
+                actual = manifest.get(key)
+                if (
+                    not isinstance(actual, (int, float))
+                    or isinstance(actual, bool)
+                    or not np.isfinite(actual)
+                    or not np.isclose(actual, expected, rtol=0, atol=1e-12)
+                ):
+                    manifest_contract_valid = False
+                    break
+            if not manifest_contract_valid:
+                raise RuntimeError(
+                    "Cannot prune PPO artifacts: active manifest is invalid"
+                )
+
             active_name = manifest.get("artifact_file")
             active_digest = manifest.get("model_sha256")
             expected_name = f"{model_path.stem}.{active_digest}{model_path.suffix or '.zip'}"

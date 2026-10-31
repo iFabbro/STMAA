@@ -685,7 +685,8 @@ class PPOAgent:
                     if now - candidate.stat().st_mtime < min_generation_age_seconds:
                         retained.add(candidate)
                 except OSError:
-                    continue
+                    # An unknown age must never make a generation eligible for deletion.
+                    retained.add(candidate)
             for candidate in generations:
                 if len(retained) >= retain_generations and candidate not in retained:
                     continue

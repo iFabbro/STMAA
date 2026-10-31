@@ -15,6 +15,20 @@ def alpaca_env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ALPACA_API_KEY", "test-key")
     monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    monkeypatch.setenv(
+        "STMAA_CONFIGURED_SYMBOLS",
+        "AAPL,GOOGL,MSFT,SPY,QQQ,TSLA,NVDA,AMZN,META,NFLX,IBM,BTCUSD,XYZ,BRK.B,A,B,C,T0,T1,T2,T3,T4,T5,T6,T7,T8,T9,T10",
+    )
+    # Broker-executor unit tests use a deterministic empty activity history.
+    # Dedicated corporate-action tests exercise the real reconciler.
+    monkeypatch.setattr(
+        BrokerExecutor,
+        "reconcile_corporate_actions",
+        lambda self, configured_symbols, positions=None: {
+            "new_activity_count": 0,
+            "blocked_symbols": [],
+        },
+    )
 
 
 def test_executor_creation_structure(alpaca_env):
@@ -81,6 +95,148 @@ class _FakeOrder:
         self.limit_price = limit_price
         self.notional = notional
         self.symbol = symbol
+
+
+def test_execute_weights_reconciles_corporate_actions_before_market_data(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(configured_symbols=["AAPL", "MSFT"])
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    positions = {"AAPL": {"qty": 2.0, "market_value": 200.0}}
+    monkeypatch.setattr(executor, "get_positions", lambda: positions)
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    observed = {}
+
+    def reject_reconciliation(symbols, positions=None):
+        observed["symbols"] = tuple(symbols)
+        observed["positions"] = positions
+        raise RuntimeError("corporate-action reconciliation unavailable")
+
+    monkeypatch.setattr(executor, "reconcile_corporate_actions", reject_reconciliation)
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: pytest.fail("Market data must not be read after reconciliation failure"),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: pytest.fail("No broker order may be submitted"),
+    )
+
+    with pytest.raises(RuntimeError, match="corporate-action reconciliation unavailable"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
+        )
+
+    assert observed["symbols"] == ("AAPL", "MSFT")
+    assert observed["positions"] is positions
+
+
+def test_execute_weights_fails_closed_without_configured_corporate_action_universe(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(configured_symbols=[])
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: pytest.fail("Market data must not be read without a configured universe"),
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: pytest.fail("No broker order may be submitted"),
+    )
+
+    with pytest.raises(RuntimeError, match="Configured corporate-action universe is unavailable"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
+        )
+
+
+def test_execute_weights_rejects_target_outside_configured_universe(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(configured_symbols=["AAPL"])
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: pytest.fail("Unconfigured targets must be rejected before market data"),
+    )
+
+    with pytest.raises(RuntimeError, match="outside the configured PPO universe.*MSFT"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["MSFT"])
+        )
+
+
+def test_execute_weights_rejects_unconfigured_existing_holding(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor(configured_symbols=["AAPL", "MSFT"])
+    monkeypatch.setattr(
+        executor,
+        "get_account_status",
+        lambda: {
+            "cash": 10000.0,
+            "portfolio_value": 10000.0,
+            "buying_power": 10000.0,
+            "equity": 10000.0,
+            "account_data_fresh": True,
+        },
+    )
+    monkeypatch.setattr(
+        executor,
+        "get_positions",
+        lambda: {"SPIN": {"qty": 5.0, "market_value": 500.0}},
+    )
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: pytest.fail("External holdings must be rejected before market data"),
+    )
+
+    with pytest.raises(RuntimeError, match="outside the configured PPO universe.*SPIN"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
+        )
 
 
 def test_reserved_notional_counts_accepted(alpaca_env):

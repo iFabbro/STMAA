@@ -2,6 +2,7 @@
 import fcntl
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -52,6 +53,34 @@ def _sha256_file(path: Path) -> str:
     finally:
         if fd is not None:
             os.close(fd)
+
+
+def _verified_artifact_buffer(path: Path, expected_digest: str) -> io.BytesIO:
+    """Return immutable verified model bytes for deserialization.
+
+    Hashing a path and then asking the model loader to reopen that path creates
+    a time-of-check/time-of-use window. Read once through an O_NOFOLLOW file
+    descriptor, verify those exact bytes, and deserialize from the in-memory
+    buffer so a later path replacement cannot change the loaded artifact.
+    """
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("O_NOFOLLOW is required for safe PPO artifact access")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("PPO model artifact must be a regular file")
+        with os.fdopen(fd, "rb") as artifact:
+            fd = None
+            payload = artifact.read()
+    finally:
+        if fd is not None:
+            os.close(fd)
+    actual_digest = hashlib.sha256(payload).hexdigest()
+    if not hmac.compare_digest(expected_digest, actual_digest):
+        raise ValueError("PPO model artifact SHA-256 mismatch; refusing to load")
+    return io.BytesIO(payload)
 
 
 def _read_json_manifest(path: Path):
@@ -796,7 +825,8 @@ class PPOAgent:
             raise ValueError("PPO model artifact must not be a symbolic link")
         if not artifact_path.is_file():
             raise FileNotFoundError(f"PPO model artifact not found: {artifact_path}")
-        actual_digest = _sha256_file(artifact_path)
-        if not hmac.compare_digest(expected_digest, actual_digest):
-            raise ValueError("PPO model artifact SHA-256 mismatch; refusing to load")
-        self.model = PPO.load(str(artifact_path))
+        # Validate and deserialize the same immutable byte sequence. Passing the
+        # path to PPO.load would reopen it after digest verification and permit a
+        # non-cooperating writer to replace the artifact in between.
+        with _verified_artifact_buffer(artifact_path, expected_digest) as artifact_file:
+            self.model = PPO.load(artifact_file)

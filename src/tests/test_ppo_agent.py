@@ -382,13 +382,14 @@ def test_model_save_interruption_before_manifest_replace_preserves_previous_gene
     class LoadedModel:
         pass
 
-    monkeypatch.setattr(
-        ppo_agent.PPO,
-        "load",
-        lambda path: captured.setdefault("path", path) or LoadedModel(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return LoadedModel()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     loaded.load()
-    assert Path(captured["path"]) == previous_artifact
+    assert captured["payload"] == b"first-model-generation"
+    assert previous_artifact.read_bytes() == captured["payload"]
 
 
 def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
@@ -468,6 +469,50 @@ def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
 
     with pytest.raises(ValueError, match="must not be a symbolic link"):
         PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+
+def test_model_load_deserializes_the_exact_bytes_that_passed_digest_verification(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import json
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "verified-buffer.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"verified-original-model")
+
+    agent.model = SavedModel()
+    agent.save()
+    metadata = json.loads(Path(str(model_path) + ".metadata.json").read_text())
+    artifact_path = tmp_path / metadata["artifact_file"]
+    expected_payload = artifact_path.read_bytes()
+    assert hashlib.sha256(expected_payload).hexdigest() == metadata["model_sha256"]
+
+    loaded = {}
+
+    def replace_path_then_load(artifact_buffer):
+        # Simulate an external writer replacing the path after verification but
+        # before the model loader consumes its input.
+        artifact_path.write_bytes(b"unverified-replacement-model")
+        loaded["payload"] = artifact_buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", replace_path_then_load)
+    restarted = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    restarted.load()
+
+    assert loaded["payload"] == expected_payload
+    assert artifact_path.read_bytes() == b"unverified-replacement-model"
 
 
 def test_model_restart_loads_manifest_generation(tmp_path, monkeypatch):
@@ -876,15 +921,17 @@ def test_ppo_save_publication_failures_before_manifest_replace_preserve_previous
     assert previous_artifact.read_bytes() == b"previous-generation"
 
     captured = {}
-    monkeypatch.setattr(
-        ppo_agent.PPO, "load",
-        lambda path: captured.setdefault("path", path) or object(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(
         tickers=["A"], model_path=str(model_path), load_existing_model=False
     )
     restarted.load()
-    assert Path(captured["path"]) == previous_artifact
+    assert captured["payload"] == b"previous-generation"
+    assert previous_artifact.read_bytes() == captured["payload"]
 
 
 def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
@@ -938,15 +985,17 @@ def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
     ).hexdigest()
 
     captured = {}
-    monkeypatch.setattr(
-        ppo_agent.PPO, "load",
-        lambda path: captured.setdefault("path", path) or object(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(
         tickers=["A"], model_path=str(model_path), load_existing_model=False
     )
     restarted.load()
-    assert Path(captured["path"]) == active_artifact
+    assert captured["payload"] == b"committed-generation"
+    assert active_artifact.read_bytes() == captured["payload"]
 
 
 

@@ -298,8 +298,10 @@ def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, mo
     agent.save(training_metadata={"seed": 42})
 
     metadata = json.loads((tmp_path / "saved.zip.metadata.json").read_text())
-    assert metadata["model_sha256"] == hashlib.sha256(model_path.read_bytes()).hexdigest()
+    artifact_path = tmp_path / metadata["artifact_file"]
+    assert metadata["model_sha256"] == hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     assert metadata["training"] == {"seed": 42}
+    assert not model_path.exists()
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.zip"))
 
@@ -326,3 +328,84 @@ def test_model_save_failure_preserves_existing_published_artifacts(tmp_path):
     assert json.loads(metadata_path.read_text()) == {"previous": True}
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.zip"))
+
+
+
+def test_model_save_interruption_before_manifest_replace_preserves_previous_generation(
+    tmp_path, monkeypatch
+):
+    import json
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "versioned.zip"
+    first = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class FirstModel:
+        def save(self, path):
+            Path(path).write_bytes(b"first-model-generation")
+
+    first.model = FirstModel()
+    first.save()
+    manifest_path = tmp_path / "versioned.zip.metadata.json"
+    previous_metadata = json.loads(manifest_path.read_text())
+    previous_artifact = tmp_path / previous_metadata["artifact_file"]
+    assert previous_artifact.is_file()
+
+    second = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class SecondModel:
+        def save(self, path):
+            Path(path).write_bytes(b"second-model-generation")
+
+    second.model = SecondModel()
+    real_replace = ppo_agent.os.replace
+
+    def fail_manifest_replace(source, destination):
+        if Path(destination) == manifest_path:
+            raise OSError("simulated interruption before manifest publication")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(ppo_agent.os, "replace", fail_manifest_replace)
+    with pytest.raises(OSError, match="simulated interruption"):
+        second.save()
+
+    # The active manifest remains unchanged and still resolves to the old,
+    # checksum-valid immutable generation; the new generation is only an orphan.
+    assert json.loads(manifest_path.read_text()) == previous_metadata
+    assert previous_artifact.read_bytes() == b"first-model-generation"
+    loaded = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+    captured = {}
+
+    class LoadedModel:
+        pass
+
+    monkeypatch.setattr(
+        ppo_agent.PPO,
+        "load",
+        lambda path: captured.setdefault("path", path) or LoadedModel(),
+    )
+    loaded.load()
+    assert Path(captured["path"]) == previous_artifact
+
+
+def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
+    import json
+
+    model_path = tmp_path / "unsafe.zip"
+    metadata = {
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": market_data_contract(),
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+        "model_sha256": "0" * 64,
+        "artifact_file": "../outside.zip",
+    }
+    (tmp_path / "unsafe.zip.metadata.json").write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="invalid artifact filename"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))

@@ -37,6 +37,16 @@ def _sha256_file(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+
+def _fsync_directory(path: Path) -> None:
+    """Persist directory-entry updates after atomic artifact publication."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
 MODEL_CONTRACT_VERSION = 5
 
 class StockTradingEnv(gym.Env):
@@ -295,7 +305,8 @@ class PPOAgent:
         self.env = None
         self.seed = seed
 
-        if load_existing_model and Path(self.model_path).exists():
+        metadata_path = Path(str(self.model_path) + ".metadata.json")
+        if load_existing_model and (Path(self.model_path).exists() or metadata_path.exists()):
             self.load()
             logger.info("PPOAgent loaded from %s", self.model_path)
         else:
@@ -435,9 +446,15 @@ class PPOAgent:
         model_temp_path = Path(model_temp_name)
         metadata_temp_path = Path(metadata_temp_name)
         try:
-            # Stage both artifacts before replacing either published file.
+            # Publish each model under an immutable content-addressed name. The
+            # metadata file is the sole atomic pointer to the active generation.
             self.model.save(str(model_temp_path))
+            with model_temp_path.open("rb") as model_file:
+                os.fsync(model_file.fileno())
             model_digest = _sha256_file(model_temp_path)
+            published_model_path = model_path.with_name(
+                f"{model_path.stem}.{model_digest}{model_path.suffix or '.zip'}"
+            )
             metadata = {
                 "contract_version": MODEL_CONTRACT_VERSION,
                 "tickers": self.tickers,
@@ -449,16 +466,19 @@ class PPOAgent:
                 "max_gross_exposure": self.max_gross_exposure,
                 "market_data_contract": market_data_contract(),
                 "model_sha256": model_digest,
+                "artifact_file": published_model_path.name,
                 "training": training_metadata or {},
             }
             with metadata_temp_path.open("w", encoding="utf-8") as metadata_file:
                 metadata_file.write(json.dumps(metadata, indent=2))
                 metadata_file.flush()
                 os.fsync(metadata_file.fileno())
-            # A crash between replacements leaves a digest mismatch, so load()
-            # rejects the mixed pair instead of accepting an unverified model.
-            os.replace(model_temp_path, model_path)
+            # If publication is interrupted before the metadata replace, the
+            # previous manifest still points to its intact immutable artifact.
+            os.replace(model_temp_path, published_model_path)
+            _fsync_directory(model_path.parent)
             os.replace(metadata_temp_path, metadata_path)
+            _fsync_directory(model_path.parent)
         finally:
             model_temp_path.unlink(missing_ok=True)
             metadata_temp_path.unlink(missing_ok=True)
@@ -466,9 +486,9 @@ class PPOAgent:
     def load(self):
         model_path = Path(self.model_path)
         metadata_path = Path(str(model_path) + ".metadata.json")
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
         if not metadata_path.exists():
+            if not model_path.exists():
+                raise FileNotFoundError(f"Model not found: {model_path}")
             raise ValueError(
                 "PPO model has no contract metadata; retrain it with the current action/state contract"
             )
@@ -498,7 +518,22 @@ class PPOAgent:
             or any(character not in "0123456789abcdef" for character in expected_digest)
         ):
             raise ValueError("PPO model metadata has no valid artifact SHA-256; retrain the model")
-        actual_digest = _sha256_file(model_path)
+        artifact_name = metadata.get("artifact_file")
+        if artifact_name is None:
+            # Backward compatibility for the immediately preceding fixed-path
+            # format, which already required a verified digest.
+            artifact_path = model_path
+        elif (
+            not isinstance(artifact_name, str)
+            or not artifact_name
+            or Path(artifact_name).name != artifact_name
+        ):
+            raise ValueError("PPO model metadata has an invalid artifact filename")
+        else:
+            artifact_path = model_path.parent / artifact_name
+        if not artifact_path.is_file():
+            raise FileNotFoundError(f"PPO model artifact not found: {artifact_path}")
+        actual_digest = _sha256_file(artifact_path)
         if not hmac.compare_digest(expected_digest, actual_digest):
             raise ValueError("PPO model artifact SHA-256 mismatch; refusing to load")
-        self.model = PPO.load(str(model_path))
+        self.model = PPO.load(str(artifact_path))

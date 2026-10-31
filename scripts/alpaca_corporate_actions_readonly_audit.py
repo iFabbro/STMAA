@@ -25,6 +25,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
 
 CORPORATE_ACTIONS_URL = "https://data.alpaca.markets/v1/corporate-actions"
+STOCK_BARS_URL = "https://data.alpaca.markets/v2/stocks/bars"
 EVENT_BUCKETS = {
     "split": ("forward_splits", "reverse_splits"),
     "dividend": ("cash_dividends",),
@@ -200,6 +201,74 @@ def fetch_daily_bars(
     return frame.loc[:, OHLCV_FIELDS].apply(pd.to_numeric, errors="coerce")
 
 
+
+def fetch_spin_off_daily_bars(
+    api_key: str,
+    api_secret: str,
+    symbol: str,
+    ex_date: date,
+) -> pd.DataFrame:
+    """Fetch spin-off-adjusted bars through REST, bypassing the stale SDK enum.
+
+    Alpaca's REST API accepts adjustment=spin-off, but the installed alpaca-py
+    StockBarsRequest enum does not yet expose that value. Keep this request on
+    the Market Data endpoint and preserve pagination and the configured feed.
+    """
+    start = datetime.combine(ex_date - timedelta(days=12), time.min, tzinfo=timezone.utc)
+    end = datetime.combine(ex_date + timedelta(days=4), time.max, tzinfo=timezone.utc)
+    bars: list[dict[str, Any]] = []
+    page_token = None
+    while True:
+        params = {
+            "symbols": symbol,
+            "timeframe": "1Day",
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "limit": "10000",
+            "feed": DATA_FEED,
+            "adjustment": "spin-off",
+            "sort": "asc",
+        }
+        if page_token:
+            params["page_token"] = page_token
+        payload = _get_json(STOCK_BARS_URL, params, api_key, api_secret)
+        grouped = payload.get("bars")
+        if not isinstance(grouped, dict):
+            raise RuntimeError("Alpaca stock-bars response has no bars object")
+        page_bars = grouped.get(symbol, [])
+        if not isinstance(page_bars, list):
+            raise RuntimeError(f"Alpaca spin-off bars are malformed for {symbol}")
+        bars.extend(page_bars)
+        page_token = payload.get("next_page_token")
+        if not page_token:
+            break
+
+    if not bars:
+        raise NoBarsAvailable(
+            f"No spin-off-adjusted daily bars returned for {symbol} around {ex_date}"
+        )
+    frame = pd.DataFrame(
+        [
+            {
+                "timestamp": bar.get("t"),
+                "open": bar.get("o"),
+                "high": bar.get("h"),
+                "low": bar.get("l"),
+                "close": bar.get("c"),
+                "volume": bar.get("v"),
+            }
+            for bar in bars
+        ]
+    )
+    if frame["timestamp"].isna().any():
+        raise RuntimeError(f"Alpaca spin-off response has bars without timestamps for {symbol}")
+    frame["session"] = pd.to_datetime(frame["timestamp"], utc=True).dt.date
+    frame = frame.set_index("session").sort_index()
+    missing = [field for field in OHLCV_FIELDS if field not in frame.columns]
+    if missing:
+        raise RuntimeError(f"Alpaca spin-off response missing fields for {symbol}: {missing}")
+    return frame.loc[:, OHLCV_FIELDS].apply(pd.to_numeric, errors="coerce")
+
 def validate_adjustment_effect(
     raw: pd.DataFrame,
     adjusted: pd.DataFrame,
@@ -328,8 +397,8 @@ def run_audit(
                 if not expected_no_spin_off_adjustment:
                     raise
 
-                spin_off_adjusted = fetch_daily_bars(
-                    client, symbol, ex_date, "spin-off"
+                spin_off_adjusted = fetch_spin_off_daily_bars(
+                    api_key, api_secret, symbol, ex_date
                 )
                 try:
                     validate_adjustment_effect(

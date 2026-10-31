@@ -500,6 +500,11 @@ class PPOAgent:
         market_data: pd.DataFrame,
         current_weights: Optional[np.ndarray] = None,
     ) -> np.ndarray:
+        if not isinstance(market_data, pd.DataFrame):
+            raise ValueError("market_data must be a DataFrame carrying the versioned market-data contract")
+        validate_market_data_contract(
+            market_data.attrs.get("market_data_contract")
+        )
         if current_weights is None:
             current_weights = np.zeros(len(self.tickers), dtype=float)
         else:

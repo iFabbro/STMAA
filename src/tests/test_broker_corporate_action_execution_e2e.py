@@ -91,7 +91,7 @@ def test_broker_execution_uses_real_corporate_action_reconciler_fail_closed(
         ),
     )
 
-    with pytest.raises(RuntimeError, match="Corporate-action"):
+    with pytest.raises(RuntimeError, match="(?i)corporate.action"):
         executor.execute_weights(
             PortfolioWeights(weights=np.array([0.5]), tickers=["AAPL"])
         )

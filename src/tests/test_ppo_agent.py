@@ -1542,7 +1542,6 @@ def test_ppo_prune_preserves_generation_when_grace_period_stat_fails(
     assert active_path.read_bytes() == b"active-generation"
 
 
-
 def test_verified_ppo_artifact_buffer_loads_real_stable_baselines_model(tmp_path):
     """Exercise the real SB3 deserializer with the verified in-memory artifact."""
     import hashlib

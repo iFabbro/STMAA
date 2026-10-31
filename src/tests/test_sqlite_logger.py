@@ -109,7 +109,6 @@ def test_events_and_snapshots_reject_terminal_runs(tmp_path):
     assert snapshot_count == 0
 
 
-
 def test_db_connection_rolls_back_on_keyboard_interrupt(tmp_path):
     database = tmp_path / "stmaa.db"
     with db_conn(database) as conn:
@@ -154,3 +153,58 @@ def test_db_connection_closes_when_foreign_key_setup_fails(tmp_path, monkeypatch
 
     assert connection.rolled_back
     assert connection.closed
+
+
+def test_db_connection_rolls_back_entire_transaction_on_sqlite_full(tmp_path, monkeypatch):
+    database = tmp_path / "stmaa.db"
+    with sqlite3.connect(database) as setup_conn:
+        setup_conn.execute("CREATE TABLE records (value TEXT NOT NULL)")
+
+    real_connect = sqlite3.connect
+
+    class FailingWriteConnection:
+        def __init__(self, connection):
+            self.connection = connection
+            self.row_factory = None
+            self.failed = False
+
+        def execute(self, statement, parameters=()):
+            if (
+                not self.failed
+                and statement.lstrip().upper().startswith("INSERT INTO RECORDS")
+                and parameters == ("trigger-full",)
+            ):
+                self.failed = True
+                error = sqlite3.OperationalError("database or disk is full")
+                error.sqlite_errorcode = sqlite3.SQLITE_FULL
+                raise error
+            return self.connection.execute(statement, parameters)
+
+        def commit(self):
+            return self.connection.commit()
+
+        def rollback(self):
+            return self.connection.rollback()
+
+        def close(self):
+            return self.connection.close()
+
+    monkeypatch.setattr(
+        sqlite_logger.sqlite3,
+        "connect",
+        lambda path: FailingWriteConnection(real_connect(path)),
+    )
+
+    with pytest.raises(sqlite3.OperationalError) as exc_info:
+        with db_conn(database) as conn:
+            conn.execute("INSERT INTO records (value) VALUES (?)", ("before-full",))
+            conn.execute("INSERT INTO records (value) VALUES (?)", ("trigger-full",))
+
+    assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_FULL
+
+    with real_connect(database) as verify_conn:
+        values = verify_conn.execute(
+            "SELECT value FROM records ORDER BY rowid"
+        ).fetchall()
+
+    assert values == []

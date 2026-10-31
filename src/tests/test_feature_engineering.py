@@ -69,6 +69,9 @@ def test_provider_adjusted_synthetic_corporate_actions_do_not_create_feature_jum
         adjusted_features[["RSI", "MACD", "BB_middle", "ATR"]],
         reference_features[["RSI", "MACD", "BB_middle", "ATR"]],
         check_freq=False,
+        check_exact=False,
+        rtol=1e-12,
+        atol=1e-12,
     )
     assert event in ("split", "dividend", "spin-off")
     assert np.isfinite(adjusted_features.iloc[-1][["RSI", "MACD", "BB_middle", "ATR"]].to_numpy(dtype=float)).all()

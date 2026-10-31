@@ -192,6 +192,18 @@ class CorporateActionReconciler:
                 raise RuntimeError(
                     f"Persisted corporate-action manual resolution has invalid {field}"
                 )
+        try:
+            timestamp = datetime.fromisoformat(
+                resolution["resolved_at"].replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                "Persisted corporate-action manual resolution has an invalid timestamp"
+            ) from exc
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise RuntimeError(
+                "Persisted corporate-action manual resolution timestamp must include a timezone"
+            )
         if resolution.get("activity_id") != activity_id:
             raise RuntimeError("Persisted corporate-action manual resolution ID does not match its key")
         return resolution
@@ -264,6 +276,13 @@ class CorporateActionReconciler:
             )
         if event.get("symbol") is not None:
             raise ValueError("Only activities with a missing symbol can use manual symbol resolution")
+        if event.get("activity_type") not in CORPORATE_ACTION_TYPES:
+            raise RuntimeError("Persisted unresolved activity has an invalid corporate-action type")
+        if (
+            event.get("activity_type") == "REO"
+            and str(event.get("activity_sub_type") or "").upper() == "REOC"
+        ):
+            raise ValueError("Cash-only reorganization activities do not require symbol resolution")
         if normalized_id in resolutions:
             raise RuntimeError("Corporate-action activity already has a manual resolution")
         if any(
@@ -354,8 +373,14 @@ class CorporateActionReconciler:
         active_event_ids = set(unresolved)
         for activity in ledger.values():
             symbol = activity.get("symbol")
-            if not symbol and activity["id"] in resolved_symbols:
-                symbol = resolved_symbols[activity["id"]]["symbol"]
+            resolution = resolved_symbols.get(activity["id"])
+            if resolution:
+                resolved_symbol = resolution["symbol"]
+                if symbol and symbol != resolved_symbol:
+                    raise RuntimeError(
+                        "Broker corporate-action symbol conflicts with persisted manual resolution"
+                    )
+                symbol = resolved_symbol
             cash_only_reorganization = (
                 activity.get("activity_type") == "REO"
                 and str(activity.get("activity_sub_type") or "").upper() == "REOC"

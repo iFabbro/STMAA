@@ -1308,7 +1308,7 @@ def test_ppo_prune_fsyncs_partial_deletions_before_reporting_unlink_error(
     monkeypatch.setattr(Path, "unlink", fail_second_unlink)
     monkeypatch.setattr(ppo_agent, "_fsync_directory", record_fsync)
 
-    with pytest.raises(RuntimeError, match="partial cleanup"):
+    with pytest.raises(RuntimeError, match="partially completed"):
         agent.prune_artifacts(
             retain_generations=1,
             dry_run=False,

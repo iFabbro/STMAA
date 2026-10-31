@@ -659,6 +659,9 @@ def test_execute_trade_fails_closed_when_account_value_is_stale(monkeypatch):
 )
 def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weights):
     class FakePPO:
+        max_position_size = 0.2
+        max_gross_exposure = 0.5
+
         def predict_weights(self, market_data, current_weights=None):
             return invalid_weights
 
@@ -674,8 +677,11 @@ def test_generate_weights_rejects_invalid_ppo_output(monkeypatch, invalid_weight
 
 def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):
     class FakePPO:
+        max_position_size = 0.2
+        max_gross_exposure = 0.5
+
         def predict_weights(self, market_data, current_weights=None):
-            return np.array([0.25, 0.75])
+            return np.array([0.2, 0.2])
 
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
@@ -686,16 +692,19 @@ def test_generate_weights_accepts_valid_ppo_target_weights(monkeypatch):
     weights = bot.generate_weights(pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]}))
 
     assert weights.tickers == ["AAPL", "MSFT"]
-    np.testing.assert_allclose(weights.weights, np.array([0.25, 0.75]))
+    np.testing.assert_allclose(weights.weights, np.array([0.2, 0.2]))
 
 
 def test_generate_weights_passes_current_holdings_to_ppo(monkeypatch):
     observed = {}
 
     class FakePPO:
+        max_position_size = 0.2
+        max_gross_exposure = 0.5
+
         def predict_weights(self, market_data, current_weights=None):
             observed["current_weights"] = np.asarray(current_weights, dtype=float)
-            return np.array([0.25, 0.75])
+            return np.array([0.2, 0.2])
 
     class CurrentPortfolioExecutor:
         def get_account_status(self):
@@ -722,7 +731,7 @@ def test_generate_weights_passes_current_holdings_to_ppo(monkeypatch):
     }))
 
     np.testing.assert_allclose(observed["current_weights"], np.array([0.25, 0.5]))
-    np.testing.assert_allclose(result.weights, np.array([0.25, 0.75]))
+    np.testing.assert_allclose(result.weights, np.array([0.2, 0.2]))
 
 
 def test_generate_weights_fails_closed_on_existing_short_position(monkeypatch):

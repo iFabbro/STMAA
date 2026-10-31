@@ -4,6 +4,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
 from src.data.alpaca_feed import AlpacaFeed
 
 
@@ -230,3 +232,76 @@ def test_daily_bars_fail_closed_on_invalid_ohlcv_in_old_history(feed, monkeypatc
 
     with pytest.raises(RuntimeError, match="invalid daily OHLCV values"):
         feed.get_bars(["AAPL"], days=1)
+
+@pytest.mark.parametrize(
+    "timeframe",
+    [
+        TimeFrame(1, TimeFrameUnit.Minute),
+        TimeFrame(1, TimeFrameUnit.Hour),
+    ],
+)
+def test_inference_rejects_non_daily_timeframes_before_broker_request(
+    feed, monkeypatch, timeframe
+):
+    def unexpected_request(_request):
+        pytest.fail("broker request must not be made for a non-contract timeframe")
+
+    monkeypatch.setattr(feed.client, "get_stock_bars", unexpected_request)
+
+    with pytest.raises(ValueError, match="inference contract requires timeframe=1Day"):
+        feed.get_bars(["AAPL"], days=1, timeframe=timeframe)
+
+
+@pytest.mark.parametrize("days", [0, -1, 1.5, "10", True, None])
+def test_inference_rejects_invalid_days_before_broker_request(feed, monkeypatch, days):
+    def unexpected_request(_request):
+        pytest.fail("broker request must not be made for invalid days")
+
+    monkeypatch.setattr(feed.client, "get_stock_bars", unexpected_request)
+
+    with pytest.raises(ValueError, match="days must be a positive integer"):
+        feed.get_bars(["AAPL"], days=days)
+
+
+@pytest.mark.parametrize(
+    "tickers",
+    [
+        [],
+        ["AAPL", "AAPL"],
+        [""],
+        ["   "],
+        ["AAPL", 123],
+    ],
+)
+def test_inference_rejects_invalid_tickers_before_broker_request(
+    feed, monkeypatch, tickers
+):
+    def unexpected_request(_request):
+        pytest.fail("broker request must not be made for invalid tickers")
+
+    monkeypatch.setattr(feed.client, "get_stock_bars", unexpected_request)
+
+    with pytest.raises(ValueError, match="tickers"):
+        feed.get_bars(tickers, days=1)
+
+
+def test_inference_request_uses_versioned_daily_data_contract(feed, monkeypatch):
+    from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+
+    snapshot = _bars(_history("AAPL", 100.0))
+    requests = []
+
+    def capture_request(request):
+        requests.append(request)
+        return type("Response", (), {"df": snapshot})()
+
+    monkeypatch.setattr(feed.client, "get_stock_bars", capture_request)
+
+    feed.get_bars(["AAPL"], days=1)
+
+    assert len(requests) == 1
+    assert requests[0].timeframe.amount == 1
+    assert requests[0].timeframe.unit == TimeFrameUnit.Day
+    assert requests[0].feed == DATA_FEED
+    assert requests[0].adjustment == DATA_ADJUSTMENT
+

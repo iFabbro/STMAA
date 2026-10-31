@@ -1,8 +1,17 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
+from src.utils import sqlite_logger
 from src.utils.sqlite_logger import db_conn, log_event, start_run, write_snapshot
+
+
+def test_default_sqlite_database_path_is_anchored_to_repository():
+    expected = Path(sqlite_logger.__file__).resolve().parents[2] / "logs" / "stmaa.db"
+
+    assert sqlite_logger.DB_PATH.is_absolute()
+    assert sqlite_logger.DB_PATH == expected
 
 
 def test_db_connection_enables_sqlite_foreign_key_enforcement(tmp_path):

@@ -91,7 +91,8 @@ def test_multi_ticker_cleaning_rejects_a_missing_symbol_bar(processor):
     a = _ohlcv(index)
     b = _ohlcv(index, offset=20)
     data = pd.concat({"AAA": a, "BBB": b}, axis=1)
-    data.loc[index[2], ("AAA", ["Open", "High", "Low", "Close", "Volume"])] = np.nan
+    for field in ("Open", "High", "Low", "Close", "Volume"):
+        data.loc[index[2], ("AAA", field)] = np.nan
 
     with pytest.raises(ValueError, match="Missing Open observation"):
         processor.clean_data(data)

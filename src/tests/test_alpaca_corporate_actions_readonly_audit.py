@@ -96,7 +96,7 @@ def test_run_audit_skips_uncovered_symbol_and_uses_next_candidate(monkeypatch):
     events = [
         {"_audit_type": "split", "symbol": "CLGCF", "ex_date": "2025-01-10", "id": "otc"},
         {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-03", "id": "covered"},
-        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10", "id": "div"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "div"},
         {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "spin"},
     ]
     monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)

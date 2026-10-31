@@ -7,6 +7,7 @@ import pytest
 
 import trade
 from trade import PaperTradingBot
+from src.utils import monitoring_state
 from src.strategy.weight_interface import PortfolioWeights
 from src.strategy.risk_overlay import RiskOverlayModule
 
@@ -465,6 +466,8 @@ def test_end_to_end_non_liquidating_breaker_persists_safe_hub_state(tmp_path, mo
             }
 
     monkeypatch.chdir(tmp_path)
+    snapshot_path = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", snapshot_path)
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.executor = SnapshotExecutor()
     bot.equity_curve = []
@@ -485,7 +488,7 @@ def test_end_to_end_non_liquidating_breaker_persists_safe_hub_state(tmp_path, mo
 
     bot.update_hub_state(result)
 
-    persisted = json.loads((tmp_path / "logs" / "hub_state.json").read_text())
+    persisted = json.loads(snapshot_path.read_text())
     assert persisted["account_data_fresh"] is True
     assert persisted["account_data_source"] == "alpaca_account"
     assert persisted["equity_curve_source"] == "verified_broker_equity"

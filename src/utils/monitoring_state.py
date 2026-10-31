@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 
 
-HUB_STATE_PATH = Path("logs/hub_state.json")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+HUB_STATE_PATH = REPOSITORY_ROOT / "logs" / "hub_state.json"
 MAX_EQUITY_POINTS = 120
 
 

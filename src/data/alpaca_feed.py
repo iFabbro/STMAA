@@ -24,7 +24,7 @@ try:
     from src.data.feature_engineering import calculate_features
 except ModuleNotFoundError:
     from data.market_data_contract import (
-        DATA_ADJUSTMENT, DATA_FEED, market_data_contract,
+        DATA_ADJUSTMENT, DATA_FEED, market_data_contract, market_data_fingerprint,
     )
     from data.feature_engineering import calculate_features
 

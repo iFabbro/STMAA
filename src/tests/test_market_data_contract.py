@@ -59,6 +59,8 @@ def test_contract_explicitly_covers_corporate_action_adjustment_classes(event):
         {"provider": "yfinance"},
         {"version": 0},
         {"corporate_actions": ["split", "dividend"]},
+        {"feature_version": 0},
+        {"feature_parameters": {"rsi_period": 10}},
     ],
 )
 def test_contract_rejects_pipeline_or_corporate_action_drift(mutation):

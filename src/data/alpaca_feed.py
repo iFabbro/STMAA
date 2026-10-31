@@ -133,7 +133,30 @@ class AlpacaFeed:
             start_date=first_date.isoformat(), end_date=latest_session.isoformat()
         )
         expected = {stamp.date() for stamp in schedule.index}
-        observed = {stamp.date() for stamp in ticker_bars.index}
+        observed_dates = [stamp.date() for stamp in ticker_bars.index]
+        observed = set(observed_dates)
+
+        # A daily feed must contain exactly one observation per exchange session.
+        # Exact timestamp duplicates are caught above; this also catches two bars
+        # stamped at different times on the same session date.
+        duplicate_sessions = sorted(
+            session_date
+            for session_date in observed
+            if observed_dates.count(session_date) > 1
+        )
+        if duplicate_sessions:
+            raise RuntimeError(
+                f"AlpacaFeed: multiple daily bars for {ticker} on "
+                f"{duplicate_sessions[0]}"
+            )
+
+        non_session_dates = sorted(observed - expected)
+        if non_session_dates:
+            raise RuntimeError(
+                f"AlpacaFeed: daily bars for {ticker} fall outside NYSE sessions: "
+                f"{non_session_dates[0]} ({len(non_session_dates)} non-session date(s))"
+            )
+
         missing_sessions = sorted(expected - observed)
         if missing_sessions:
             raise RuntimeError(

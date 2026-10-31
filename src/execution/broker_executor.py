@@ -1907,8 +1907,6 @@ class BrokerExecutor:
                 "manual corporate-action reconciliation is required before rebalancing: "
                 + ", ".join(sorted(unconfigured_positions))
             )
-        # A successful activity scan is required before PPO target execution.
-        self.reconcile_corporate_actions(weights.tickers, positions=positions)
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))

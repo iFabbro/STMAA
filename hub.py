@@ -14,9 +14,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
+from src.utils.monitoring_state import HUB_STATE_PATH
 
 RUN_ID = None
-HUB_STATE = Path("logs/hub_state.json")
+HUB_STATE = HUB_STATE_PATH
 
 
 class Colors:

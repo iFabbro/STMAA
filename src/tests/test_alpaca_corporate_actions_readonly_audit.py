@@ -3,10 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from scripts.alpaca_corporate_actions_readonly_audit import (
-    select_latest_event_per_type,
-    validate_adjustment_effect,
-)
+from scripts import alpaca_corporate_actions_readonly_audit as audit
 
 
 def _bars():
@@ -43,7 +40,7 @@ def test_real_provider_adjustment_dimensions_are_checked(
     adjusted.loc[pre_event, ["open", "high", "low", "close"]] *= price_factor
     adjusted.loc[pre_event, "volume"] *= volume_factor
 
-    result = validate_adjustment_effect(
+    result = audit.validate_adjustment_effect(
         raw, adjusted, event_type, date(2025, 1, 3)
     )
 
@@ -57,7 +54,7 @@ def test_adjustment_audit_rejects_unadjusted_provider_response():
     raw = _bars()
 
     with pytest.raises(AssertionError, match="did not adjust pre-event prices"):
-        validate_adjustment_effect(raw, raw.copy(), "dividend", date(2025, 1, 3))
+        audit.validate_adjustment_effect(raw, raw.copy(), "dividend", date(2025, 1, 3))
 
 
 def test_adjustment_audit_rejects_split_without_volume_adjustment():
@@ -67,44 +64,91 @@ def test_adjustment_audit_rejects_split_without_volume_adjustment():
     adjusted.loc[pre_event, ["open", "high", "low", "close"]] *= 0.5
 
     with pytest.raises(AssertionError, match="did not adjust pre-event volume"):
-        validate_adjustment_effect(raw, adjusted, "split", date(2025, 1, 3))
+        audit.validate_adjustment_effect(raw, adjusted, "split", date(2025, 1, 3))
 
 
 def test_adjustment_audit_rejects_missing_ex_date():
     raw = _bars().drop(index=date(2025, 1, 3))
 
     with pytest.raises(AssertionError, match="ex-date"):
-        validate_adjustment_effect(
-            raw, raw.copy(), "dividend", date(2025, 1, 3)
-        )
+        audit.validate_adjustment_effect(raw, raw.copy(), "dividend", date(2025, 1, 3))
 
 
-def test_event_selection_requires_latest_action_for_symbol():
+def test_event_selection_keeps_latest_independently_auditable_candidates():
     events = [
-        {
-            "_audit_type": "split",
-            "symbol": "AAA",
-            "ex_date": "2024-01-10",
-        },
-        {
-            "_audit_type": "dividend",
-            "symbol": "AAA",
-            "ex_date": "2024-02-10",
-        },
-        {
-            "_audit_type": "dividend",
-            "symbol": "BBB",
-            "ex_date": "2024-03-10",
-        },
-        {
-            "_audit_type": "spin_off",
-            "source_symbol": "CCC",
-            "ex_date": "2024-04-10",
-        },
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2024-01-10"},
+        {"_audit_type": "dividend", "symbol": "AAA", "ex_date": "2024-02-10"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10"},
     ]
 
-    selected = select_latest_event_per_type(events)
+    selected = audit.select_latest_event_per_type(events)
 
+    # AAA's split is not eligible because a later action exists for AAA.
     assert "split" not in selected
-    assert selected["dividend"]["symbol"] == "BBB"
-    assert selected["spin_off"]["source_symbol"] == "CCC"
+    assert [event["symbol"] for event in selected["dividend"]] == ["BBB", "AAA"]
+    assert selected["spin_off"][0]["source_symbol"] == "CCC"
+
+
+def test_run_audit_skips_uncovered_symbol_and_uses_next_candidate(monkeypatch):
+    events = [
+        {"_audit_type": "split", "symbol": "CLGCF", "ex_date": "2025-01-10", "id": "otc"},
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2024-01-10", "id": "covered"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10", "id": "div"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10", "id": "spin"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def fake_bars(_client, symbol, ex_date, adjustment):
+        if symbol == "CLGCF":
+            raise audit.NoBarsAvailable("no IEX raw bars for CLGCF")
+        raw = _bars()
+        if adjustment == "raw":
+            return raw
+        adjusted = raw.copy()
+        pre_event = adjusted.index < ex_date
+        adjusted.loc[pre_event, ["open", "high", "low", "close"]] *= 0.5
+        adjusted.loc[pre_event, "volume"] *= 2.0
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
+    monkeypatch.setattr(
+        audit,
+        "validate_adjustment_effect",
+        lambda raw, adjusted, event_type, ex_date: {
+            "event_type": event_type,
+            "ex_date": ex_date.isoformat(),
+            "price_adjustment_observed": True,
+        },
+    )
+
+    results = audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+    split_result = next(result for result in results if result["event_type"] == "split")
+
+    assert split_result["symbol"] == "AAA"
+    assert split_result["skipped_uncovered_candidates"] == [
+        {
+            "symbol": "CLGCF",
+            "ex_date": "2025-01-10",
+            "reason": "no IEX raw bars for CLGCF",
+        }
+    ]
+
+
+def test_run_audit_is_inconclusive_when_no_candidate_has_raw_bars(monkeypatch):
+    events = [
+        {"_audit_type": "split", "symbol": "CLGCF", "ex_date": "2025-01-10"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def no_bars(_client, symbol, ex_date, adjustment):
+        raise audit.NoBarsAvailable(f"no bars for {symbol}")
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", no_bars)
+
+    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has raw bars"):
+        audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")

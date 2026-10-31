@@ -254,3 +254,76 @@ def test_rate_limit_retry_fails_closed_after_max_attempts(monkeypatch):
 
     assert attempts == audit.RATE_LIMIT_MAX_ATTEMPTS
     assert len(delays) == audit.RATE_LIMIT_MAX_ATTEMPTS - 1
+
+
+
+def test_run_audit_skips_spin_off_without_provider_adjustment_and_uses_next(monkeypatch):
+    events = [
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-03", "id": "split"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "dividend"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "unadjusted"},
+        {"_audit_type": "spin_off", "source_symbol": "DDD", "ex_date": "2025-01-03", "id": "adjusted"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def fake_bars(_client, symbol, ex_date, adjustment):
+        raw = _bars()
+        if adjustment == "raw":
+            return raw
+        if symbol == "CCC":
+            return raw.copy()
+        adjusted = raw.copy()
+        pre_event = adjusted.index < ex_date
+        adjusted.loc[pre_event, [ "open", "high", "low", "close" ]] *= 0.98
+        if symbol == "AAA":
+            adjusted.loc[pre_event, "volume"] *= 2.0
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
+    results = audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+
+    spin_off = next(result for result in results if result["event_type"] == "spin_off")
+    assert spin_off["symbol"] == "DDD"
+    assert spin_off["skipped_uncovered_candidates"] == [
+        {
+            "symbol": "CCC",
+            "ex_date": "2025-01-03",
+            "reason": (
+                "Alpaca IEX returned no historical price adjustment "
+                "for this spin-off in either adjustment=all or "
+                "adjustment=spin-off; candidate is not auditable"
+            ),
+        }
+    ]
+
+
+def test_run_audit_fails_if_all_omits_spin_off_but_specific_mode_adjusts(monkeypatch):
+    events = [
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-03", "id": "split"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "dividend"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "spin"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def fake_bars(_client, symbol, ex_date, adjustment):
+        raw = _bars()
+        if adjustment == "raw":
+            return raw
+        if symbol == "CCC" and adjustment == "all":
+            return raw.copy()
+        adjusted = raw.copy()
+        pre_event = adjusted.index < ex_date
+        adjusted.loc[pre_event, [ "open", "high", "low", "close" ]] *= 0.98
+        if symbol == "AAA":
+            adjusted.loc[pre_event, "volume"] *= 2.0
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
+
+    with pytest.raises(
+        AssertionError,
+        match="adjustment=all omitted the spin-off adjustment even though adjustment=spin-off independently adjusted",
+    ):
+        audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")

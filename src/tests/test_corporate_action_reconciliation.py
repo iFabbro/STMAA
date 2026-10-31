@@ -535,3 +535,29 @@ def test_broker_executor_manual_resolution_uses_execution_lock_without_broker_ca
     assert record["symbol"] == "CHILD"
     assert executor.state["corporate_action_reconciliation"]["unresolved_activity_ids"] == []
     assert persisted == [True]
+
+
+def test_old_resolved_corporate_action_still_blocks_unconfigured_held_symbol():
+    record = {
+        "activity_id": "old-spin",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "2026-10-31T10:00:00+00:00",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "current-checkpoint",
+            "recent_events": {},
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"old-spin": record},
+            "manual_resolution_history": [record],
+        }
+    }
+    reconciler, _, _, _ = _reconciler(
+        [[_activity("current-checkpoint", symbol="AAA")]], state=state
+    )
+
+    with pytest.raises(RuntimeError, match="outside the configured PPO universe"):
+        reconciler.reconcile(["PARENT"], {"CHILD": {"qty": 1}})

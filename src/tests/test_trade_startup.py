@@ -111,6 +111,7 @@ def test_validated_limits_and_credentials_reach_real_bot_components(monkeypatch)
         "base_url": "https://paper-api.alpaca.markets",
         "paper_trading": True,
         "initial_capital": 10000.0,
+        "configured_symbols": ["AAPL"],
     }
     assert observed["feed"] == {
         "api_key": "paper-key-example",

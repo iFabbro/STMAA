@@ -1103,6 +1103,7 @@ def test_ppo_prune_rejects_non_object_manifest_without_deleting_artifacts(
     tmp_path, manifest_payload
 ):
     import hashlib
+    from pathlib import Path
 
     model_path = tmp_path / "non-object-manifest.zip"
     agent = PPOAgent(

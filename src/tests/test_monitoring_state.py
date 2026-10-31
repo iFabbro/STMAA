@@ -46,6 +46,9 @@ def test_trade_update_hub_state_persists_dashboard_fields_and_metrics(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", destination)
+    monkeypatch.setattr(hub, "HUB_STATE", destination)
 
     class AccountExecutor:
         paper_trading = True
@@ -133,6 +136,8 @@ def test_trade_update_hub_state_keeps_memory_aligned_after_directory_fsync_failu
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", destination)
 
     class AccountExecutor:
         paper_trading = True
@@ -173,6 +178,8 @@ def test_trade_update_hub_state_keeps_memory_aligned_after_directory_fsync_failu
 
 def test_trade_update_hub_state_fails_closed_on_stale_account(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", destination)
 
     class StaleExecutor:
         paper_trading = True
@@ -240,7 +247,18 @@ def test_dashboard_equity_curve_rejects_boolean_observations():
 def test_dashboard_load_state_handles_invalid_utf8_snapshot(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(hub, "HUB_STATE", destination)
+    destination = tmp_path / "logs" / "hub_state.json"
     destination.parent.mkdir(parents=True)
     destination.write_bytes(bytes([0xFF, 0xFE, 0xFA]))
 
     assert hub.load_state() == {}
+
+
+
+def test_default_dashboard_snapshot_path_is_anchored_to_repository():
+    expected = monitoring_state.Path(monitoring_state.__file__).resolve().parents[2] / "logs" / "hub_state.json"
+
+    assert monitoring_state.HUB_STATE_PATH.is_absolute()
+    assert monitoring_state.HUB_STATE_PATH == expected
+    assert hub.HUB_STATE == expected

@@ -201,7 +201,10 @@ class StockTradingEnv(gym.Env):
         prices = self._get_current_prices()
         equity = float(self.balance + np.dot(self.stocks, prices))
         weights = self.stocks * prices / equity if equity > 0 else np.zeros(self.n_assets)
-        state = np.asarray([self.balance, *market_features, *weights], dtype=np.float32)
+        state = np.asarray(
+            [self.balance / self.initial_capital, *market_features, *weights],
+            dtype=np.float32,
+        )
         if not np.isfinite(state).all():
             raise ValueError("Observation contains non-finite values")
         return state
@@ -233,6 +236,8 @@ class PPOAgent:
         slippage: float = 0.0005,
         max_position_size: float = 0.2,
         max_gross_exposure: float = 0.5,
+        load_existing_model: bool = True,
+        seed: Optional[int] = None,
     ):
         if not tickers or len(set(tickers)) != len(tickers):
             raise ValueError("tickers must be a non-empty list of unique symbols")
@@ -263,8 +268,9 @@ class PPOAgent:
         self.verbose = verbose
         self.model: Optional[PPO] = None
         self.env = None
+        self.seed = seed
 
-        if Path(self.model_path).exists():
+        if load_existing_model and Path(self.model_path).exists():
             self.load()
             logger.info("PPOAgent loaded from %s", self.model_path)
         else:
@@ -297,6 +303,7 @@ class PPOAgent:
                 "MlpPolicy", self.env, learning_rate=self.learning_rate,
                 n_steps=self.n_steps, batch_size=self.batch_size,
                 n_epochs=self.n_epochs, gamma=self.gamma, verbose=self.verbose,
+                seed=self.seed,
             )
         else:
             self.model.set_env(self.env)

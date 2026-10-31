@@ -459,3 +459,104 @@ def test_model_save_cleans_first_temp_file_if_second_temp_creation_fails(
 
     assert not list(tmp_path.glob(".*.zip"))
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+
+def test_ppo_artifact_retention_keeps_active_and_requested_generations(tmp_path):
+    import json
+    from pathlib import Path
+
+    model_path = tmp_path / "retained.zip"
+    agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    for payload in (b"generation-one", b"generation-two", b"generation-three"):
+        class SavedModel:
+            def save(self, path):
+                Path(path).write_bytes(payload)
+        agent.model = SavedModel()
+        agent.save()
+
+    manifest_path = tmp_path / "retained.zip.metadata.json"
+    active = tmp_path / json.loads(manifest_path.read_text())["artifact_file"]
+    preview = agent.prune_artifacts(retain_generations=2, dry_run=True)
+    assert len(preview) == 1
+    assert active.exists()
+    assert Path(preview[0]).exists()
+
+    removed = agent.prune_artifacts(retain_generations=2, dry_run=False)
+    assert removed == preview
+    assert active.exists()
+    assert not Path(removed[0]).exists()
+    assert len(list(tmp_path.glob("retained." + "[0-9a-f]" * 0 + "*.zip"))) >= 1
+
+
+def test_ppo_artifact_pruning_removes_only_stale_staging_files(tmp_path):
+    import os
+    import time
+    from pathlib import Path
+
+    model_path = tmp_path / "staging.zip"
+    agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+    stale_model_temp = tmp_path / ".staging.zip.abandoned.zip"
+    stale_metadata_temp = tmp_path / ".staging.zip.metadata.json.abandoned.tmp"
+    recent_temp = tmp_path / ".staging.zip.recent.zip"
+    for candidate in (stale_model_temp, stale_metadata_temp, recent_temp):
+        candidate.write_bytes(b"temporary")
+    old = time.time() - 7200
+    os.utime(stale_model_temp, (old, old))
+    os.utime(stale_metadata_temp, (old, old))
+
+    preview = agent.prune_artifacts(min_temp_age_seconds=3600, dry_run=True)
+    assert set(preview) == {str(stale_model_temp), str(stale_metadata_temp)}
+    assert stale_model_temp.exists() and stale_metadata_temp.exists()
+
+    removed = agent.prune_artifacts(min_temp_age_seconds=3600, dry_run=False)
+    assert set(removed) == set(preview)
+    assert not stale_model_temp.exists()
+    assert not stale_metadata_temp.exists()
+    assert recent_temp.exists()
+
+
+def test_ppo_artifact_pruning_fails_closed_on_invalid_active_manifest(tmp_path):
+    from pathlib import Path
+
+    model_path = tmp_path / "invalid-manifest.zip"
+    agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+    orphan = tmp_path / ("invalid-manifest." + "a" * 64 + ".zip")
+    orphan.write_bytes(b"orphan")
+    (tmp_path / "invalid-manifest.zip.metadata.json").write_text("{broken")
+
+    with pytest.raises(RuntimeError, match="active manifest is unreadable"):
+        agent.prune_artifacts(dry_run=False)
+    assert orphan.exists()
+
+
+def test_ppo_artifact_operations_fail_closed_when_lock_cannot_be_acquired(
+    tmp_path, monkeypatch
+):
+    from src.agents import ppo_agent
+
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(tmp_path / "locked.zip"), load_existing_model=False
+    )
+
+    def fail_lock(*_args, **_kwargs):
+        raise OSError("simulated flock failure")
+
+    monkeypatch.setattr(ppo_agent.fcntl, "flock", fail_lock)
+    with pytest.raises(RuntimeError, match="Unable to acquire PPO artifact lock"):
+        agent.prune_artifacts()

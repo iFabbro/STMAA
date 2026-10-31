@@ -8,9 +8,9 @@ on:
         required: false
         default: "2016-01-01"
       end_date:
-        description: "Latest corporate-action process date (YYYY-MM-DD)"
+        description: "Latest corporate-action process date (YYYY-MM-DD); blank means today"
         required: false
-        default: "2026-10-31"
+        default: ""
 
 permissions:
   contents: read
@@ -37,8 +37,12 @@ jobs:
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
         run: |
           set -euo pipefail
-          python scripts/alpaca_corporate_actions_readonly_audit.py \
-            --start-date "${{ inputs.start_date }}" \
-            --end-date "${{ inputs.end_date }}"
+          args=(--start-date "$START_DATE")
+          if [[ -n "$END_DATE" ]]; then
+            args+=(--end-date "$END_DATE")
+          fi
+          python scripts/alpaca_corporate_actions_readonly_audit.py "${args[@]}"

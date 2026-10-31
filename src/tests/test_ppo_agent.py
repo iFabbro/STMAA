@@ -162,10 +162,19 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
     model_path = tmp_path / "model.zip"
     model_path.write_bytes(b"placeholder")
     metadata = {
-        "contract_version": 4,
+        "contract_version": 5,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": {
+            "version": 1,
+            "provider": "alpaca",
+            "feed": "iex",
+            "timeframe": "1Day",
+            "adjustment": "all",
+            "features": ["Close", "RSI", "MACD", "BB_middle", "ATR"],
+            "corporate_actions": ["split", "dividend", "spin-off"],
+        },
         "transaction_cost": 0.001,
         "slippage": 0.0005,
         "max_position_size": 0.2,

@@ -11,9 +11,19 @@ from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-logger = logging.getLogger(__name__)
-MODEL_CONTRACT_VERSION = 4
+try:
+    from src.data.market_data_contract import (
+        market_data_contract,
+        validate_market_data_contract,
+    )
+except ModuleNotFoundError:
+    from data.market_data_contract import (
+        market_data_contract,
+        validate_market_data_contract,
+    )
 
+logger = logging.getLogger(__name__)
+MODEL_CONTRACT_VERSION = 5
 
 class StockTradingEnv(gym.Env):
     """Long-only target-weight environment with close-to-close accounting.
@@ -410,6 +420,7 @@ class PPOAgent:
             "slippage": self.slippage,
             "max_position_size": self.max_position_size,
             "max_gross_exposure": self.max_gross_exposure,
+            "market_data_contract": market_data_contract(),
             "training": training_metadata or {},
         }, indent=2))
 
@@ -426,6 +437,7 @@ class PPOAgent:
         expected_dim = 1 + len(self.tickers) * 6
         if metadata.get("contract_version") != MODEL_CONTRACT_VERSION:
             raise ValueError("PPO model contract version is incompatible; retrain the model")
+        validate_market_data_contract(metadata.get("market_data_contract"))
         if metadata.get("tickers") != self.tickers or metadata.get("state_dim") != expected_dim:
             raise ValueError("PPO model ticker/state contract is incompatible; retrain the model")
         if metadata.get("action_contract") != "long_only_capped_target_weights_zero_floor":

@@ -4,7 +4,11 @@ from typing import List
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+
+try:
+    from src.data.alpaca_feed import AlpacaFeed
+except ModuleNotFoundError:
+    from data.alpaca_feed import AlpacaFeed
 
 
 _OHLCV_FIELDS = {"Open", "High", "Low", "Close", "Volume"}
@@ -20,10 +24,10 @@ class DataProcessor:
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
     def download_data(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
-        """Download adjusted OHLCV data from Yahoo Finance."""
+        """Download contract-compliant adjusted OHLCV data from Alpaca."""
         if not tickers:
             raise ValueError("tickers must contain at least one symbol")
-        data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True)
+        data = AlpacaFeed().get_historical_ohlcv(tickers, start_date, end_date)
         if data.empty:
             raise ValueError("Market-data provider returned no rows")
         raw_file = self.raw_dir / f"raw_{start_date}_{end_date}.csv"

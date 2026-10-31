@@ -4,8 +4,8 @@ Sostituisce tutti i mock presenti in trade.py e hub.py.
 Compatibile con la pipeline DataProcessor esistente.
 Usa endpoint free-tier (15min delay).
 """
-import os
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -16,6 +16,11 @@ import pandas_market_calendars as mcal
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+try:
+    from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+except ModuleNotFoundError:
+    from data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
 
 _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
@@ -164,6 +169,86 @@ class AlpacaFeed:
                 f"{missing_sessions[0]} ({len(missing_sessions)} missing session(s))"
             )
 
+    def get_historical_ohlcv(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """Fetch contract-compliant adjusted daily OHLCV for model training.
+
+        end_date is exclusive, matching the training CLI and yfinance convention.
+        Unlike get_bars(), this method does not require the requested range to end
+        at the latest session; it validates every expected NYSE session in range.
+        """
+        if not tickers or len(set(tickers)) != len(tickers):
+            raise ValueError("tickers must contain unique symbols")
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+        if start.tzinfo is None:
+            start = start.tz_localize("UTC")
+        if end.tzinfo is None:
+            end = end.tz_localize("UTC")
+        if start >= end:
+            raise ValueError("start_date must be earlier than exclusive end_date")
+
+        request = StockBarsRequest(
+            symbol_or_symbols=tickers,
+            timeframe=_DAILY_TIMEFRAME,
+            start=start.to_pydatetime(),
+            end=end.to_pydatetime(),
+            limit=None,
+            feed=DATA_FEED,
+            adjustment=DATA_ADJUSTMENT,
+        )
+        response = self.client.get_stock_bars(request)
+        raw = response.df
+        if raw.empty:
+            raise RuntimeError("AlpacaFeed: no historical OHLCV bars returned")
+
+        frame = raw.reset_index()
+        frame.rename(columns={
+            "symbol": "Symbol", "timestamp": "Date", "open": "Open",
+            "high": "High", "low": "Low", "close": "Close", "volume": "Volume",
+        }, inplace=True)
+        frame["Date"] = pd.to_datetime(frame["Date"], utc=True).dt.tz_localize(None)
+        calendar = mcal.get_calendar("NYSE")
+        expected_schedule = calendar.schedule(
+            start_date=start.date().isoformat(),
+            end_date=(end - pd.Timedelta(days=1)).date().isoformat(),
+        )
+        expected = {stamp.date() for stamp in expected_schedule.index}
+        output = {}
+        for ticker in tickers:
+            ticker_frame = frame[frame["Symbol"] == ticker].sort_values("Date")
+            if ticker_frame.empty:
+                raise RuntimeError(f"AlpacaFeed: no historical bars returned for {ticker}")
+            observed_dates = ticker_frame["Date"].dt.date.tolist()
+            if len(observed_dates) != len(set(observed_dates)):
+                raise RuntimeError(f"AlpacaFeed: duplicate historical session for {ticker}")
+            observed = set(observed_dates)
+            if observed != expected:
+                missing = sorted(expected - observed)
+                unexpected = sorted(observed - expected)
+                raise RuntimeError(
+                    f"AlpacaFeed: historical session mismatch for {ticker}; "
+                    f"missing={missing[:3]}, unexpected={unexpected[:3]}"
+                )
+            values = ticker_frame.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+            values = values.apply(pd.to_numeric, errors="coerce")
+            numeric = values.to_numpy(dtype=float)
+            if not np.isfinite(numeric).all() or (values[["Open", "High", "Low", "Close"]] <= 0).any().any() or (values["Volume"] < 0).any():
+                raise RuntimeError(f"AlpacaFeed: invalid historical OHLCV values for {ticker}")
+            invalid_range = (
+                (values["High"] < values["Low"])
+                | (values["Low"] > values["Open"])
+                | (values["Low"] > values["Close"])
+                | (values["High"] < values["Open"])
+                | (values["High"] < values["Close"])
+            )
+            if invalid_range.any():
+                raise RuntimeError(f"AlpacaFeed: inconsistent historical OHLC prices for {ticker}")
+            for field in values.columns:
+                output[(field, ticker)] = values[field]
+        result = pd.DataFrame(output)
+        result.columns = pd.MultiIndex.from_tuples(result.columns, names=["field", "symbol"])
+        return result.sort_index()
+
     @staticmethod
     def _calculate_rsi(close: pd.Series) -> pd.Series:
         """Match DataProcessor semantics for zero-loss and flat RSI windows."""
@@ -199,8 +284,8 @@ class AlpacaFeed:
             start=start,
             end=end,
             limit=None,
-            feed='iex',  # Free tier: IEX data (15min delay)
-            adjustment='all',
+            feed=DATA_FEED,  # Versioned contract: IEX feed
+            adjustment=DATA_ADJUSTMENT,
         )
 
         logger.info(f"⬇️  Scaricamento bars per {tickers} (ultimi {days}gg)…")
@@ -404,8 +489,8 @@ class AlpacaFeed:
             timeframe=TimeFrame(1, TimeFrameUnit.Day),
             start=start,
             end=end,
-            feed='iex',
-            adjustment='all',
+            feed=DATA_FEED,
+            adjustment=DATA_ADJUSTMENT,
         )
         try:
             bars = self.client.get_stock_bars(request).df.reset_index()

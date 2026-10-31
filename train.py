@@ -19,6 +19,7 @@ from config import (
 )
 from agents.ppo_agent import PPOAgent
 from data.data_processor import DataProcessor
+from src.data.market_data_contract import market_data_contract
 
 
 DEFAULT_TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META"]
@@ -107,7 +108,7 @@ def chronological_split(
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Train STMAA PPO on historical adjusted OHLCV data and validate on a later holdout"
+        description="Train STMAA PPO on Alpaca contract-adjusted historical OHLCV data and validate on a later holdout"
     )
     parser.add_argument("--start-date", required=True, help="Inclusive history start, YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="Exclusive history end, YYYY-MM-DD")
@@ -146,7 +147,8 @@ def main(argv=None):
         verbose=1,
     )
     metadata = {
-        "data_source": "yfinance_adjusted_ohlcv",
+        "data_source": "alpaca_iex_adjusted_ohlcv",
+        "market_data_contract": market_data_contract(),
         "start_date": str(history.index.min()),
         "end_date": str(history.index.max()),
         "training_start": str(training.index.min()),

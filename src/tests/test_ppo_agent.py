@@ -36,7 +36,8 @@ def test_environment_observation_matches_declared_space():
 def test_target_weight_action_earns_next_close_to_close_return():
     data, tickers = market_data()
     env = StockTradingEnv(
-        data, tickers, initial_capital=1000.0, transaction_cost=0.0, lookback=0
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, lookback=0,
     )
     env.reset()
     _, reward, terminated, truncated, info = env.step(np.array([1.0]))
@@ -46,8 +47,8 @@ def test_target_weight_action_earns_next_close_to_close_return():
     assert truncated is False
 
     _, reward, terminated, _, info = env.step(np.array([1.0]))
-    assert info["total_asset"] == pytest.approx(1040.0)
-    assert reward == pytest.approx(0.0196078431372549)
+    assert info["total_asset"] == pytest.approx(1040.4)
+    assert reward == pytest.approx(0.02)
     assert terminated is True
 
 

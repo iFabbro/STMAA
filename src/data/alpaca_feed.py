@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
 
@@ -90,7 +91,7 @@ class AlpacaFeed:
             )
         numeric = values.to_numpy(dtype=float)
         finite_rows = pd.Series(
-            __import__("numpy").isfinite(numeric).all(axis=1), index=values.index
+            np.isfinite(numeric).all(axis=1), index=values.index
         )
         if not finite_rows.all():
             first_bad = finite_rows.index[~finite_rows][0].date()

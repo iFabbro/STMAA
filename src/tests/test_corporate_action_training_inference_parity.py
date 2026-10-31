@@ -134,7 +134,7 @@ def test_corporate_action_adjusted_history_has_training_inference_feature_parity
     )
 
     # The adjusted parent series must not inject an artificial ex-date price gap.
-    adjusted_close = adjusted_bars["close"].to_numpy(dtype=float)
+    adjusted_close = adjusted_bars["Close"].to_numpy(dtype=float)
     event_return = adjusted_close[event_index] / adjusted_close[event_index - 1] - 1.0
     assert abs(event_return) < 0.01
 
@@ -142,6 +142,6 @@ def test_corporate_action_adjusted_history_has_training_inference_feature_parity
     assert len(feed.client.requests) == 2
     for request in feed.client.requests:
         adjustment = getattr(request.adjustment, "value", request.adjustment)
-        feed = getattr(request.feed, "value", request.feed)
+        feed_value = getattr(request.feed, "value", request.feed)
         assert adjustment == "all"
-        assert feed == "iex"
+        assert feed_value == "iex"

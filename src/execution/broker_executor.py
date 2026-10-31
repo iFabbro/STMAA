@@ -1863,8 +1863,31 @@ class BrokerExecutor:
             }
 
         positions = self.get_positions()
-        # A missing symbol in the target vector means a zero target, so include
-        # existing holdings in the execution universe for explicit rebalancing.
+        # Corporate actions such as spin-offs can create broker positions outside
+        # the PPO universe. A missing target must not silently mean "sell": the
+        # strategy has no model, limits, or explicit policy for that new asset.
+        configured_symbols = set(weights.tickers)
+        unconfigured_positions = []
+        for symbol, position in positions.items():
+            try:
+                quantity = float(position.get("qty"))
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError(
+                    f"Cannot verify broker position universe for {symbol}; refusing rebalance"
+                ) from exc
+            if not np.isfinite(quantity):
+                raise RuntimeError(
+                    f"Cannot verify broker position universe for {symbol}; refusing rebalance"
+                )
+            if abs(quantity) > 1e-12 and symbol not in configured_symbols:
+                unconfigured_positions.append(symbol)
+        if unconfigured_positions:
+            raise RuntimeError(
+                "Broker positions exist outside the configured strategy universe; "
+                "refusing automatic liquidation or new exposure until manually reconciled: "
+                + ", ".join(sorted(unconfigured_positions))
+            )
+
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))
         prices = self._get_prices_from_bars(execution_tickers)
 

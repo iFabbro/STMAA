@@ -19,8 +19,10 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 try:
     from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+    from src.data.feature_engineering import calculate_features
 except ModuleNotFoundError:
     from data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+    from data.feature_engineering import calculate_features
 
 _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
@@ -250,15 +252,9 @@ class AlpacaFeed:
         return result.sort_index()
 
     @staticmethod
-    def _calculate_rsi(close: pd.Series) -> pd.Series:
-        """Match DataProcessor semantics for zero-loss and flat RSI windows."""
-        delta = close.diff()
-        gain = delta.clip(lower=0).rolling(14).mean()
-        loss = (-delta.clip(upper=0)).rolling(14).mean()
-        rs = gain / loss.replace(0, float("nan"))
-        rsi = 100 - (100 / (1 + rs))
-        fallback = gain.gt(0).map({True: 100.0, False: 50.0})
-        return rsi.where(loss.ne(0), fallback)
+    def _calculate_features(frame: pd.DataFrame) -> pd.DataFrame:
+        """Use the canonical versioned feature implementation for inference."""
+        return calculate_features(frame)
 
     def get_bars(
         self,
@@ -360,29 +356,9 @@ class AlpacaFeed:
 
             result[f"Close_{ticker}"] = sub["Close"]
 
-            # RSI 14: match the historical DataProcessor feature calculation.
-            result[f"RSI_{ticker}"] = self._calculate_rsi(sub["Close"]).reindex(result.index)
-
-            # MACD
-            exp1 = sub["Close"].ewm(span=12, adjust=False).mean()
-            exp2 = sub["Close"].ewm(span=26, adjust=False).mean()
-            result[f"MACD_{ticker}"] = (exp1 - exp2).reindex(result.index)
-
-            # BB middle (SMA 20)
-            result[f"BB_middle_{ticker}"] = (
-                sub["Close"].rolling(20).mean().reindex(result.index)
-            )
-
-            # ATR
-            tr = pd.concat(
-                [
-                    sub["High"] - sub["Low"],
-                    (sub["High"] - sub["Close"].shift(1)).abs(),
-                    (sub["Low"] - sub["Close"].shift(1)).abs(),
-                ],
-                axis=1,
-            ).max(axis=1)
-            result[f"ATR_{ticker}"] = tr.rolling(14).mean().reindex(result.index)
+            indicators = self._calculate_features(sub)
+            for feature in ("RSI", "MACD", "BB_middle", "ATR"):
+                result[f"{feature}_{ticker}"] = indicators[feature].reindex(result.index)
 
         result.sort_index(inplace=True)
         result = result.tail(days)

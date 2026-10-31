@@ -1,0 +1,44 @@
+name: STMAA Alpaca Corporate Actions Read-Only Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Earliest corporate-action process date (YYYY-MM-DD)"
+        required: false
+        default: "2016-01-01"
+      end_date:
+        description: "Latest corporate-action process date (YYYY-MM-DD)"
+        required: false
+        default: "2026-10-31"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stmaa-alpaca-corporate-actions-readonly-audit
+  cancel-in-progress: false
+
+jobs:
+  corporate-actions-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compare raw and fully adjusted historical bars
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          python scripts/alpaca_corporate_actions_readonly_audit.py \
+            --start-date "${{ inputs.start_date }}" \
+            --end-date "${{ inputs.end_date }}"

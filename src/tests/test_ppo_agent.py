@@ -581,7 +581,6 @@ def _artifact_lock_process_worker(model_path, timeout_seconds, result_queue):
 
 
 def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_path):
-    from pathlib import Path
     from src.agents.ppo_agent import _artifact_lock
 
     model_path = tmp_path / "concurrent.zip"

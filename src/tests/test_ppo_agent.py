@@ -1096,3 +1096,51 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
     assert not initial_artifact.exists()
     result_queue.close()
     result_queue.join_thread()
+
+
+def test_ppo_prune_preserves_future_dated_generations_and_staging_files(tmp_path):
+    """Clock skew must never make a future-dated artifact eligible for deletion."""
+    import hashlib
+    import json
+    import os
+    import time
+    from pathlib import Path
+
+    model_path = tmp_path / "clock-skew.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+
+    future = time.time() + 24 * 60 * 60
+    orphan_payload = b"future-dated-orphan-generation"
+    orphan_digest = hashlib.sha256(orphan_payload).hexdigest()
+    orphan_path = tmp_path / f"clock-skew.{orphan_digest}.zip"
+    orphan_path.write_bytes(orphan_payload)
+    os.utime(orphan_path, (future, future))
+
+    staging_path = tmp_path / ".clock-skew.zip.future-staging.zip"
+    staging_path.write_bytes(b"future-dated-staging")
+    os.utime(staging_path, (future, future))
+
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    active_path = tmp_path / json.loads(manifest_path.read_text())["artifact_file"]
+
+    removed = agent.prune_artifacts(
+        retain_generations=1,
+        dry_run=False,
+        min_temp_age_seconds=3600,
+        min_generation_age_seconds=3600,
+    )
+
+    assert str(orphan_path) not in removed
+    assert str(staging_path) not in removed
+    assert orphan_path.read_bytes() == orphan_payload
+    assert staging_path.read_bytes() == b"future-dated-staging"
+    assert active_path.is_file()

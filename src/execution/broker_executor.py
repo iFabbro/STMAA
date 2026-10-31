@@ -170,7 +170,31 @@ class BrokerExecutor:
         base_url: str = "https://paper-api.alpaca.markets",
         paper_trading: bool = True,
         initial_capital: float = 500000.0,
+        configured_symbols: Optional[List[str]] = None,
     ):
+        # The executor owns the final safety boundary. Standalone callers may
+        # provide the configured model universe explicitly or through the
+        # deployment environment; target weights are never a trusted substitute.
+        if configured_symbols is None:
+            environment_symbols = os.getenv("STMAA_CONFIGURED_SYMBOLS")
+            if environment_symbols is not None:
+                configured_symbols = environment_symbols.split(",")
+        if configured_symbols is None:
+            self.configured_symbols = None
+        else:
+            if isinstance(configured_symbols, str):
+                configured_symbols = configured_symbols.split(",")
+            if not isinstance(configured_symbols, (list, tuple, set)):
+                raise ValueError("Configured corporate-action universe must be a sequence of symbols")
+            normalized_symbols = []
+            for symbol in configured_symbols:
+                if not isinstance(symbol, str) or not symbol.strip():
+                    raise ValueError("Configured corporate-action universe contains an invalid symbol")
+                normalized_symbols.append(symbol.strip().upper())
+            if len(normalized_symbols) != len(set(normalized_symbols)):
+                raise ValueError("Configured corporate-action universe contains duplicate symbols")
+            self.configured_symbols = tuple(normalized_symbols)
+
         self.api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self.api_secret = api_secret or os.getenv("ALPACA_API_SECRET", "")
         self.base_url = base_url
@@ -1909,10 +1933,18 @@ class BrokerExecutor:
             }
 
         positions = self.get_positions()
-        # Corporate-action universe validation belongs to PPO inference, where
-        # the full configured model universe is available. Do not reject ordinary
-        # executor-level partial target vectors here: existing holdings omitted
-        # from a vector are intentionally included below for explicit rebalancing.
+        # Enforce corporate-action reconciliation at the broker execution
+        # boundary, not only in PPO inference. This protects direct executor
+        # callers while retaining partial target vectors: the configured model
+        # universe is supplied separately from the requested target symbols.
+        if not self.configured_symbols:
+            raise RuntimeError(
+                "Configured corporate-action universe is unavailable; refusing broker execution"
+            )
+        self.reconcile_corporate_actions(
+            self.configured_symbols,
+            positions=positions,
+        )
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))

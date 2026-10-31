@@ -1,4 +1,4 @@
-"""Daily strategy inputs must be complete and aligned to the latest completed session."""
+""""Daily strategy inputs must be complete and aligned to the latest completed session."""
 from datetime import date
 
 import pandas as pd
@@ -118,11 +118,10 @@ def test_daily_bars_fail_closed_on_invalid_latest_ohlcv(feed, monkeypatch, ohlcv
         feed.get_bars(["AAPL"], days=1)
 
 
-def test_daily_bars_fail_closed_when_latest_strategy_indicator_is_undefined(
-    feed, monkeypatch
-):
-    # Flat closes make RSI undefined (zero gains and zero losses), despite
-    # a fresh, valid OHLCV bar. Such features must not reach PPO inference.
+def test_daily_bars_use_neutral_rsi_for_flat_price_history(feed, monkeypatch):
+    # Match DataProcessor: a flat lookback has a defined neutral RSI of 50.
+    # It is a valid feature, not missing data, and must reach PPO consistently
+    # with the historical training pipeline.
     snapshot = _bars(_history("AAPL", 100.0, flat=True))
     monkeypatch.setattr(
         feed.client,
@@ -130,8 +129,9 @@ def test_daily_bars_fail_closed_when_latest_strategy_indicator_is_undefined(
         lambda request: type("Response", (), {"df": snapshot})(),
     )
 
-    with pytest.raises(RuntimeError, match="invalid latest strategy features for AAPL: RSI_AAPL"):
-        feed.get_bars(["AAPL"], days=1)
+    result = feed.get_bars(["AAPL"], days=1)
+
+    assert result["RSI_AAPL"].iloc[-1] == pytest.approx(50.0)
 
 
 def test_daily_bars_fail_closed_when_recent_history_makes_latest_features_invalid(

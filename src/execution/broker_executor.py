@@ -20,6 +20,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
+from src.execution.corporate_action_reconciler import CorporateActionReconciler
 from src.utils.metrics import PortfolioMetrics
 
 RISK_LIMITS = {
@@ -252,6 +253,7 @@ class BrokerExecutor:
             "emergency_liquidation_unresolved": {},
             "order_submission_unresolved": {},
             "order_submission_confirmed": {},
+            "corporate_action_reconciliation": {},
         }
         self._load_state()
         self._restore_metrics_history()
@@ -480,6 +482,23 @@ class BrokerExecutor:
                 except OSError:
                     self.logger.exception("Unable to remove temporary broker state file %s", temp_path)
             raise
+
+    def reconcile_corporate_actions(self, configured_symbols, positions=None) -> Dict:
+        """Read Alpaca corporate-action activities and reconcile them with holdings.
+
+        TradingClient's REST transport targets the retail Trading API account
+        endpoint (/v2/account/activities). This is deliberately read-only.
+        """
+        if positions is None:
+            positions = self.get_positions()
+        reconciler = CorporateActionReconciler(
+            activity_page_reader=lambda params: self.trading_client.get(
+                "/account/activities", params
+            ),
+            state=self.state,
+            persist=self._save_state,
+        )
+        return reconciler.reconcile(configured_symbols, positions)
 
     def get_account_status(self) -> Dict:
         """Refresh and persist account data under the shared broker execution lock."""
@@ -1863,6 +1882,10 @@ class BrokerExecutor:
             }
 
         positions = self.get_positions()
+        # Corporate-action universe validation belongs to PPO inference, where
+        # the full configured model universe is available. Do not reject ordinary
+        # executor-level partial target vectors here: existing holdings omitted
+        # from a vector are intentionally included below for explicit rebalancing.
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))

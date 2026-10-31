@@ -44,6 +44,11 @@ class DummyExecutor:
     def get_positions(self):
         return {}
 
+    def reconcile_corporate_actions(self, configured_symbols, positions=None):
+        # Unit-test executor: production reconciliation is exercised separately
+        # through BrokerExecutor's read-only endpoint integration tests.
+        return {"new_activity_count": 0, "blocked_symbols": []}
+
 
 class DummyFeed:
     def __init__(self, *args, **kwargs):
@@ -720,6 +725,9 @@ def test_generate_weights_passes_current_holdings_to_ppo(monkeypatch):
                 "MSFT": {"market_value": 5000.0},
             }
 
+        def reconcile_corporate_actions(self, configured_symbols, positions=None):
+            return {"new_activity_count": 0, "blocked_symbols": []}
+
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
     bot.ppo_agent = FakePPO()
@@ -744,7 +752,10 @@ def test_generate_weights_fails_closed_on_existing_short_position(monkeypatch):
             return {"portfolio_value": 10000.0, "equity": 10000.0, "account_data_fresh": True}
 
         def get_positions(self):
-            return {"AAPL": {"market_value": -100.0}}
+            return {"AAPL": {"market_value": -100.0, "qty": -1.0}}
+
+        def reconcile_corporate_actions(self, configured_symbols, positions=None):
+            return {"new_activity_count": 0, "blocked_symbols": []}
 
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]
@@ -1011,6 +1022,9 @@ def test_generate_weights_blocks_unconfigured_corporate_action_position(monkeypa
                 "AAPL": {"market_value": 1000.0, "qty": 10.0},
                 "SPIN": {"market_value": 500.0, "qty": 5.0},
             }
+
+        def reconcile_corporate_actions(self, configured_symbols, positions=None):
+            return {"new_activity_count": 0, "blocked_symbols": []}
 
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.tickers = ["AAPL", "MSFT"]

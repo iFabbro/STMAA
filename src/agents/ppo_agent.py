@@ -578,17 +578,22 @@ class PPOAgent:
         retain_generations: int = 3,
         dry_run: bool = True,
         min_temp_age_seconds: float = 3600.0,
+        min_generation_age_seconds: float = 3600.0,
     ) -> List[str]:
         """List or remove unreferenced PPO generations and stale staging files.
 
         Maintenance is explicit and dry-run by default. The same process-shared
         lock protects readers, publishers, and pruning; an invalid active manifest
         aborts cleanup rather than risking deletion of the only recoverable model.
+        Recently published immutable generations are protected by a grace period,
+        including valid orphan artifacts left by an interrupted manifest publication.
         """
         if not isinstance(retain_generations, int) or isinstance(retain_generations, bool) or retain_generations < 1:
             raise ValueError("retain_generations must be a positive integer")
         if not np.isfinite(min_temp_age_seconds) or min_temp_age_seconds < 0:
             raise ValueError("min_temp_age_seconds must be finite and non-negative")
+        if not np.isfinite(min_generation_age_seconds) or min_generation_age_seconds < 0:
+            raise ValueError("min_generation_age_seconds must be finite and non-negative")
 
         model_path = Path(self.model_path)
         with _artifact_lock(model_path):
@@ -628,19 +633,35 @@ class PPOAgent:
                     except OSError:
                         continue
             generations.sort(key=lambda item: item.stat().st_mtime_ns, reverse=True)
+            now = time.time()
             retained = {active_path}
+            # A generation can be fully published while the previous manifest is
+            # still active (for example, after a crash before manifest replacement).
+            # Keep every recent valid generation through the recovery grace period,
+            # even when retain_generations is set to one.
             for candidate in generations:
-                if len(retained) >= retain_generations:
-                    break
+                if candidate == active_path:
+                    continue
+                try:
+                    if now - candidate.stat().st_mtime < min_generation_age_seconds:
+                        retained.add(candidate)
+                except OSError:
+                    continue
+            for candidate in generations:
+                if len(retained) >= retain_generations and candidate not in retained:
+                    continue
                 retained.add(candidate)
             remove = [item for item in generations if item not in retained]
 
-            now = time.time()
             temp_candidates = list(model_path.parent.glob(f".{model_path.name}.*.zip"))
             temp_candidates += list(model_path.parent.glob(f".{manifest_path.name}.*.tmp"))
             for candidate in temp_candidates:
                 try:
-                    if candidate.is_file() and now - candidate.stat().st_mtime >= min_temp_age_seconds:
+                    if (
+                        not candidate.is_symlink()
+                        and candidate.is_file()
+                        and now - candidate.stat().st_mtime >= min_temp_age_seconds
+                    ):
                         remove.append(candidate)
                 except OSError:
                     continue

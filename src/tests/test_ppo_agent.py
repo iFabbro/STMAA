@@ -1247,3 +1247,104 @@ def test_ppo_prune_rejects_incompatible_manifest_without_deleting_recovery_gener
 
     assert recovery_path.read_bytes() == recovery_payload
     assert manifest_path.exists()
+
+
+def _create_old_ppo_prune_generations(tmp_path, model_path, agent):
+    import hashlib
+    import json
+    import os
+    import time
+    from pathlib import Path
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+    manifest = json.loads(Path(str(model_path) + ".metadata.json").read_text())
+    active_path = tmp_path / manifest["artifact_file"]
+
+    old_generations = []
+    for index in range(2):
+        payload = f"old-orphan-generation-{index}".encode()
+        digest = hashlib.sha256(payload).hexdigest()
+        artifact = tmp_path / f"{model_path.stem}.{digest}{model_path.suffix}"
+        artifact.write_bytes(payload)
+        old = time.time() - 7200 - index
+        os.utime(artifact, (old, old))
+        old_generations.append(artifact)
+    return active_path, old_generations
+
+
+def test_ppo_prune_fsyncs_partial_deletions_before_reporting_unlink_error(
+    tmp_path, monkeypatch
+):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "partial-unlink.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    active_path, generations = _create_old_ppo_prune_generations(
+        tmp_path, model_path, agent
+    )
+    generations.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    real_unlink = Path.unlink
+    unlink_calls = []
+    fsync_calls = []
+
+    def fail_second_unlink(path, *args, **kwargs):
+        if path in generations:
+            unlink_calls.append(path)
+            if len(unlink_calls) == 2:
+                raise OSError("simulated disk unlink failure")
+        return real_unlink(path, *args, **kwargs)
+
+    def record_fsync(path):
+        fsync_calls.append(path)
+
+    monkeypatch.setattr(Path, "unlink", fail_second_unlink)
+    monkeypatch.setattr(ppo_agent, "_fsync_directory", record_fsync)
+
+    with pytest.raises(RuntimeError, match="partial cleanup"):
+        agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+
+    assert len(unlink_calls) == 2
+    assert not generations[0].exists()
+    assert generations[1].exists()
+    assert active_path.read_bytes() == b"active-generation"
+    assert fsync_calls == [tmp_path]
+
+
+def test_ppo_prune_reports_directory_fsync_failure_after_cleanup(tmp_path, monkeypatch):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "fsync-failure.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    active_path, generations = _create_old_ppo_prune_generations(
+        tmp_path, model_path, agent
+    )
+
+    def fail_fsync(_path):
+        raise OSError("simulated directory fsync failure")
+
+    monkeypatch.setattr(ppo_agent, "_fsync_directory", fail_fsync)
+
+    with pytest.raises(RuntimeError, match="directory fsync failed"):
+        agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+
+    assert all(not path.exists() for path in generations)
+    assert active_path.read_bytes() == b"active-generation"

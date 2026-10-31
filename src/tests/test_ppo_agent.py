@@ -626,6 +626,7 @@ def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_pat
 def test_all_public_ppo_artifact_operations_fail_closed_without_lock(
     tmp_path, monkeypatch, operation
 ):
+    from pathlib import Path
     from src.agents import ppo_agent
 
     model_path = tmp_path / f"{operation}.zip"

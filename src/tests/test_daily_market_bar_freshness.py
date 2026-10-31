@@ -184,6 +184,38 @@ def test_daily_bars_fail_closed_when_an_interior_nyse_session_is_absent(feed, mo
         feed.get_bars(["AAPL"], days=1)
 
 
+def test_daily_bars_fail_closed_on_multiple_bars_for_one_nyse_session(feed, monkeypatch):
+    rows = _history("AAPL", 100.0)
+    duplicate = list(rows[10])
+    duplicate[1] = "2026-10-14 12:00:00"
+    rows.insert(11, tuple(duplicate))
+    snapshot = _bars(rows)
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="multiple daily bars for AAPL"):
+        feed.get_bars(["AAPL"], days=1)
+
+
+def test_daily_bars_fail_closed_on_observation_outside_nyse_session(feed, monkeypatch):
+    rows = _history("AAPL", 100.0)
+    non_session = list(rows[10])
+    non_session[1] = "2026-10-17"  # Saturday between valid NYSE sessions.
+    rows.insert(11, tuple(non_session))
+    snapshot = _bars(rows)
+    monkeypatch.setattr(
+        feed.client,
+        "get_stock_bars",
+        lambda request: type("Response", (), {"df": snapshot})(),
+    )
+
+    with pytest.raises(RuntimeError, match="outside NYSE sessions"):
+        feed.get_bars(["AAPL"], days=1)
+
+
 def test_daily_bars_fail_closed_on_invalid_ohlcv_in_old_history(feed, monkeypatch):
     rows = _history("AAPL", 100.0)
     row = list(rows[5])

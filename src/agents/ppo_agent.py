@@ -1,6 +1,10 @@
 """PPO agent with a consistent target-weight action contract."""
+import hashlib
+import hmac
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,6 +27,16 @@ except ModuleNotFoundError:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def _sha256_file(path: Path) -> str:
+    """Return a streaming SHA-256 digest for a model artifact."""
+    digest = hashlib.sha256()
+    with path.open("rb") as artifact:
+        for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 MODEL_CONTRACT_VERSION = 5
 
 class StockTradingEnv(gym.Env):
@@ -409,20 +423,44 @@ class PPOAgent:
             raise RuntimeError("Cannot save PPO model before training")
         model_path = Path(self.model_path)
         model_path.parent.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(model_path))
         metadata_path = Path(str(model_path) + ".metadata.json")
-        metadata_path.write_text(json.dumps({
-            "contract_version": MODEL_CONTRACT_VERSION,
-            "tickers": self.tickers,
-            "state_dim": 1 + len(self.tickers) * 6,
-            "action_contract": "long_only_capped_target_weights_zero_floor",
-            "transaction_cost": self.transaction_cost,
-            "slippage": self.slippage,
-            "max_position_size": self.max_position_size,
-            "max_gross_exposure": self.max_gross_exposure,
-            "market_data_contract": market_data_contract(),
-            "training": training_metadata or {},
-        }, indent=2))
+        model_fd, model_temp_name = tempfile.mkstemp(
+            prefix=f".{model_path.name}.", suffix=".zip", dir=model_path.parent
+        )
+        os.close(model_fd)
+        metadata_fd, metadata_temp_name = tempfile.mkstemp(
+            prefix=f".{metadata_path.name}.", suffix=".tmp", dir=model_path.parent
+        )
+        model_temp_path = Path(model_temp_name)
+        metadata_temp_path = Path(metadata_temp_name)
+        try:
+            # Stage both artifacts before replacing either published file.
+            self.model.save(str(model_temp_path))
+            model_digest = _sha256_file(model_temp_path)
+            metadata = {
+                "contract_version": MODEL_CONTRACT_VERSION,
+                "tickers": self.tickers,
+                "state_dim": 1 + len(self.tickers) * 6,
+                "action_contract": "long_only_capped_target_weights_zero_floor",
+                "transaction_cost": self.transaction_cost,
+                "slippage": self.slippage,
+                "max_position_size": self.max_position_size,
+                "max_gross_exposure": self.max_gross_exposure,
+                "market_data_contract": market_data_contract(),
+                "model_sha256": model_digest,
+                "training": training_metadata or {},
+            }
+            with os.fdopen(metadata_fd, "w", encoding="utf-8") as metadata_file:
+                metadata_file.write(json.dumps(metadata, indent=2))
+                metadata_file.flush()
+                os.fsync(metadata_file.fileno())
+            # A crash between replacements leaves a digest mismatch, so load()
+            # rejects the mixed pair instead of accepting an unverified model.
+            os.replace(model_temp_path, model_path)
+            os.replace(metadata_temp_path, metadata_path)
+        finally:
+            model_temp_path.unlink(missing_ok=True)
+            metadata_temp_path.unlink(missing_ok=True)
 
     def load(self):
         model_path = Path(self.model_path)
@@ -452,4 +490,14 @@ class PPOAgent:
             actual = metadata.get(key)
             if not isinstance(actual, (int, float)) or not np.isclose(actual, expected, rtol=0, atol=1e-12):
                 raise ValueError(f"PPO model {key} is incompatible; retrain the model")
+        expected_digest = metadata.get("model_sha256")
+        if (
+            not isinstance(expected_digest, str)
+            or len(expected_digest) != 64
+            or any(character not in "0123456789abcdef" for character in expected_digest)
+        ):
+            raise ValueError("PPO model metadata has no valid artifact SHA-256; retrain the model")
+        actual_digest = _sha256_file(model_path)
+        if not hmac.compare_digest(expected_digest, actual_digest):
+            raise ValueError("PPO model artifact SHA-256 mismatch; refusing to load")
         self.model = PPO.load(str(model_path))

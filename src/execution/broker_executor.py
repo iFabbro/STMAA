@@ -1882,31 +1882,10 @@ class BrokerExecutor:
             }
 
         positions = self.get_positions()
-        # A missing symbol in the target vector must never become an implicit
-        # zero target for an existing broker holding (including spin-off shares).
-        configured_symbols = set(weights.tickers)
-        unconfigured_positions = []
-        for symbol, position in positions.items():
-            if symbol in configured_symbols:
-                continue
-            try:
-                quantity = float(position.get("qty"))
-            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
-                raise RuntimeError(
-                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
-                ) from exc
-            if not np.isfinite(quantity):
-                raise RuntimeError(
-                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
-                )
-            if abs(quantity) > 1e-12:
-                unconfigured_positions.append(symbol)
-        if unconfigured_positions:
-            raise RuntimeError(
-                "Broker holds positions outside the configured target universe; "
-                "manual corporate-action reconciliation is required before rebalancing: "
-                + ", ".join(sorted(unconfigured_positions))
-            )
+        # Corporate-action universe validation belongs to PPO inference, where
+        # the full configured model universe is available. Do not reject ordinary
+        # executor-level partial target vectors here: existing holdings omitted
+        # from a vector are intentionally included below for explicit rebalancing.
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))

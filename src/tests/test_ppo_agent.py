@@ -487,7 +487,7 @@ def test_ppo_artifact_retention_keeps_active_and_requested_generations(tmp_path)
     assert removed == preview
     assert active.exists()
     assert not Path(removed[0]).exists()
-    assert len(list(tmp_path.glob("retained." + "[0-9a-f]" * 0 + "*.zip"))) >= 1
+    assert len(list(tmp_path.glob("retained.*.zip"))) == 2
 
 
 def test_ppo_artifact_pruning_removes_only_stale_staging_files(tmp_path):

@@ -11,11 +11,19 @@ from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+try:
+    from src.data.market_data_contract import (
+        market_data_contract,
+        validate_market_data_contract,
+    )
+except ModuleNotFoundError:
+    from data.market_data_contract import (
+        market_data_contract,
+        validate_market_data_contract,
+    )
+
 logger = logging.getLogger(__name__)
-from src.data.market_data_contract import market_data_contract, validate_market_data_contract
-
 MODEL_CONTRACT_VERSION = 5
-
 
 class StockTradingEnv(gym.Env):
     """Long-only target-weight environment with close-to-close accounting.

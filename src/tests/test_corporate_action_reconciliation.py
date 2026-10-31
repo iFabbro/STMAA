@@ -496,7 +496,9 @@ def test_manual_resolution_map_and_history_mismatch_fails_closed():
             "manual_resolution_history": [],
         }
     }
-    reconciler, updated, _, persisted = _reconciler([[]], state=state)
+    reconciler, updated, _, persisted = _reconciler(
+        [[_activity("spin-no-symbol", symbol=None)]], state=state
+    )
 
     with pytest.raises(RuntimeError, match="map and audit history disagree"):
         reconciler.reconcile(["AAA"], {"AAA": {"qty": 1}})

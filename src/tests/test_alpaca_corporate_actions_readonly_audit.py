@@ -95,9 +95,9 @@ def test_event_selection_keeps_latest_independently_auditable_candidates():
 def test_run_audit_skips_uncovered_symbol_and_uses_next_candidate(monkeypatch):
     events = [
         {"_audit_type": "split", "symbol": "CLGCF", "ex_date": "2025-01-10", "id": "otc"},
-        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2024-01-10", "id": "covered"},
-        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10", "id": "div"},
-        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10", "id": "spin"},
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-03", "id": "covered"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "div"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "spin"},
     ]
     monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
     monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
@@ -152,7 +152,66 @@ def test_run_audit_is_inconclusive_when_no_candidate_has_raw_bars(monkeypatch):
 
     monkeypatch.setattr(audit, "fetch_daily_bars", no_bars)
 
-    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has raw bars"):
+    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has auditable raw ex-date coverage"):
+        audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+
+
+
+def test_run_audit_skips_candidate_without_ex_date_bar_and_uses_next(monkeypatch):
+    events = [
+        {"_audit_type": "dividend", "symbol": "AAA", "ex_date": "2025-01-03", "id": "no-session"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "covered"},
+        {"_audit_type": "split", "symbol": "DDD", "ex_date": "2025-01-03", "id": "split"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "spin"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def fake_bars(_client, symbol, ex_date, adjustment):
+        raw = _bars()
+        if symbol == "AAA":
+            return raw.drop(index=ex_date)
+        if adjustment == "raw":
+            return raw
+        adjusted = raw.copy()
+        pre_event = adjusted.index < ex_date
+        adjusted.loc[pre_event, ["open", "high", "low", "close"]] *= 0.99
+        if symbol == "DDD":
+            adjusted.loc[pre_event, "volume"] *= 2.0
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
+    results = audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+
+    dividend = next(result for result in results if result["event_type"] == "dividend")
+    assert dividend["symbol"] == "BBB"
+    assert dividend["skipped_uncovered_candidates"] == [
+        {
+            "symbol": "AAA",
+            "ex_date": "2025-01-03",
+            "reason": (
+                "No raw daily bar on ex-date 2025-01-03; "
+                "event boundary cannot be verified on this feed"
+            ),
+        }
+    ]
+
+
+def test_run_audit_is_inconclusive_when_all_candidates_lack_ex_date_bar(monkeypatch):
+    events = [
+        {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-10"},
+        {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2024-03-10"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10"},
+    ]
+    monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
+    monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
+
+    def bars_without_event_session(_client, _symbol, ex_date, _adjustment):
+        return _bars().drop(index=ex_date if ex_date in _bars().index else date(2025, 1, 3))
+
+    monkeypatch.setattr(audit, "fetch_daily_bars", bars_without_event_session)
+
+    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has auditable raw ex-date coverage"):
         audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
 
 

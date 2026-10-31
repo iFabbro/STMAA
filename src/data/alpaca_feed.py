@@ -85,18 +85,26 @@ class AlpacaFeed:
         values = ticker_bars.loc[:, fields].apply(pd.to_numeric, errors="coerce")
         invalid_rows = ~values.notna().all(axis=1)
         if invalid_rows.any():
-            first_bad = values.index[invalid_rows][0].date()
+            first_bad_index = values.index[invalid_rows][0]
+            if first_bad_index == values.index[-1]:
+                raise RuntimeError(
+                    f"AlpacaFeed: invalid latest daily OHLCV values for {ticker}"
+                )
             raise RuntimeError(
-                f"AlpacaFeed: incomplete daily OHLCV bar for {ticker} at {first_bad}"
+                f"AlpacaFeed: incomplete daily OHLCV bar for {ticker} at {first_bad_index.date()}"
             )
         numeric = values.to_numpy(dtype=float)
         finite_rows = pd.Series(
             np.isfinite(numeric).all(axis=1), index=values.index
         )
         if not finite_rows.all():
-            first_bad = finite_rows.index[~finite_rows][0].date()
+            first_bad_index = finite_rows.index[~finite_rows][0]
+            if first_bad_index == values.index[-1]:
+                raise RuntimeError(
+                    f"AlpacaFeed: invalid latest daily OHLCV values for {ticker}"
+                )
             raise RuntimeError(
-                f"AlpacaFeed: non-finite daily OHLCV bar for {ticker} at {first_bad}"
+                f"AlpacaFeed: non-finite daily OHLCV bar for {ticker} at {first_bad_index.date()}"
             )
         prices = values[["Open", "High", "Low", "Close"]]
         invalid_prices = (prices <= 0).any(axis=1)
@@ -110,9 +118,13 @@ class AlpacaFeed:
         )
         invalid = invalid_prices | invalid_volume | invalid_range
         if invalid.any():
-            first_bad = invalid.index[invalid][0].date()
+            first_bad_index = invalid.index[invalid][0]
+            if first_bad_index == values.index[-1]:
+                raise RuntimeError(
+                    f"AlpacaFeed: invalid latest daily OHLCV values for {ticker}"
+                )
             raise RuntimeError(
-                f"AlpacaFeed: invalid daily OHLCV values for {ticker} at {first_bad}"
+                f"AlpacaFeed: invalid daily OHLCV values for {ticker} at {first_bad_index.date()}"
             )
 
         calendar = mcal.get_calendar("NYSE")
@@ -203,13 +215,13 @@ class AlpacaFeed:
                 raise RuntimeError(f"AlpacaFeed: no market bars received for {ticker}")
             if timeframe == _DAILY_TIMEFRAME:
                 expected_session = self._latest_completed_nyse_session_date(end)
-                self._validate_daily_history(ticker, ticker_bars, expected_session)
                 latest_date = ticker_bars.index[-1].date()
                 if latest_date != expected_session:
                     raise RuntimeError(
                         f"AlpacaFeed: stale daily bars for {ticker}; "
                         f"latest observation {latest_date}, expected {expected_session}"
                     )
+                self._validate_daily_history(ticker, ticker_bars, expected_session)
                 latest = ticker_bars.iloc[-1]
                 try:
                     close = float(latest["Close"])

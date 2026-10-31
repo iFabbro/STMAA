@@ -752,7 +752,7 @@ def test_generate_weights_fails_closed_on_existing_short_position(monkeypatch):
             return {"portfolio_value": 10000.0, "equity": 10000.0, "account_data_fresh": True}
 
         def get_positions(self):
-            return {"AAPL": {"market_value": -100.0}}
+            return {"AAPL": {"market_value": -100.0, "qty": -1.0}}
 
         def reconcile_corporate_actions(self, configured_symbols, positions=None):
             return {"new_activity_count": 0, "blocked_symbols": []}

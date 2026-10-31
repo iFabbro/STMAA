@@ -100,7 +100,7 @@ python -m pytest src/tests tests -q
 
 ### Addestramento PPO (ricerca, non paper execution)
 
-Il training usa barre storiche OHLCV aggiustate scaricate da Yahoo Finance, calcola gli indicatori causali e divide i dati cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
+Il training usa lo stesso contratto versionato dell'inferenza: barre OHLCV giornaliere Alpaca IEX con `adjustment=all`, inclusi gli aggiustamenti provider per split, dividendi e spin-off. Le feature (RSI, MACD, BB_middle e ATR) sono calcolate da un'unica implementazione condivisa e parametrizzata; il contratto registra versione, formule, parametri, warm-up e convenzioni sui dati mancanti. I dati sono divisi cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
 
 ```bash
 PYTHONPATH=. python train.py \

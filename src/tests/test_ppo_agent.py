@@ -469,11 +469,15 @@ def test_ppo_artifact_retention_keeps_active_and_requested_generations(tmp_path)
     model_path = tmp_path / "retained.zip"
     agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
 
+    class SavedModel:
+        def __init__(self, content):
+            self.content = content
+
+        def save(self, path):
+            Path(path).write_bytes(self.content)
+
     for payload in (b"generation-one", b"generation-two", b"generation-three"):
-        class SavedModel:
-            def save(self, path):
-                Path(path).write_bytes(payload)
-        agent.model = SavedModel()
+        agent.model = SavedModel(payload)
         agent.save()
 
     manifest_path = tmp_path / "retained.zip.metadata.json"

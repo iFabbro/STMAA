@@ -281,6 +281,16 @@ def test_run_audit_skips_spin_off_without_provider_adjustment_and_uses_next(monk
         return adjusted
 
     monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
+
+    def fake_spin_off_bars(_key, _secret, symbol, ex_date):
+        raw = _bars()
+        if symbol == "CCC":
+            return raw.copy()
+        adjusted = raw.copy()
+        adjusted.loc[adjusted.index < ex_date, ["open", "high", "low", "close"]] *= 0.98
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_spin_off_daily_bars", fake_spin_off_bars)
     results = audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
 
     spin_off = next(result for result in results if result["event_type"] == "spin_off")
@@ -322,8 +332,46 @@ def test_run_audit_fails_if_all_omits_spin_off_but_specific_mode_adjusts(monkeyp
 
     monkeypatch.setattr(audit, "fetch_daily_bars", fake_bars)
 
+    def adjusted_spin_off_bars(_key, _secret, _symbol, ex_date):
+        adjusted = _bars().copy()
+        adjusted.loc[adjusted.index < ex_date, ["open", "high", "low", "close"]] *= 0.98
+        return adjusted
+
+    monkeypatch.setattr(audit, "fetch_spin_off_daily_bars", adjusted_spin_off_bars)
+
     with pytest.raises(
         AssertionError,
         match="adjustment=all omitted the spin-off adjustment even though adjustment=spin-off independently adjusted",
     ):
         audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+
+
+
+def test_fetch_spin_off_daily_bars_uses_rest_adjustment_and_paginates(monkeypatch):
+    requests = []
+
+    def fake_get_json(url, params, api_key, api_secret):
+        requests.append((url, dict(params), api_key, api_secret))
+        if len(requests) == 1:
+            return {
+                "bars": {"CCC": [{"t": "2025-01-02T00:00:00Z", "o": 100, "h": 102, "l": 99, "c": 101, "v": 1000}]},
+                "next_page_token": "next-page",
+            }
+        return {
+            "bars": {"CCC": [{"t": "2025-01-03T00:00:00Z", "o": 101, "h": 103, "l": 100, "c": 102, "v": 1100}]},
+            "next_page_token": None,
+        }
+
+    monkeypatch.setattr(audit, "_get_json", fake_get_json)
+    result = audit.fetch_spin_off_daily_bars(
+        "key", "secret", "CCC", date(2025, 1, 3)
+    )
+
+    assert list(result.index) == [date(2025, 1, 2), date(2025, 1, 3)]
+    assert result.loc[date(2025, 1, 2), "close"] == 101
+    assert len(requests) == 2
+    assert all(url == audit.STOCK_BARS_URL for url, *_ in requests)
+    assert all(params["adjustment"] == "spin-off" for _, params, *_ in requests)
+    assert all(params["feed"] == audit.DATA_FEED for _, params, *_ in requests)
+    assert requests[1][1]["page_token"] == "next-page"
+    assert all(key == "key" and secret == "secret" for _, _, key, secret in requests)

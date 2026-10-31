@@ -146,7 +146,7 @@ def test_daily_bars_fail_closed_when_recent_history_makes_latest_features_invali
         lambda request: type("Response", (), {"df": snapshot})(),
     )
 
-    with pytest.raises(RuntimeError, match="invalid latest strategy features for AAPL"):
+    with pytest.raises(RuntimeError, match="incomplete daily OHLCV bar for AAPL"):
         feed.get_bars(["AAPL"], days=1)
 
 

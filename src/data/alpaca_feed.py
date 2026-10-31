@@ -396,7 +396,12 @@ class AlpacaFeed:
                     + ", ".join(missing_features)
                 )
 
-        logger.info(f"✅ Bars pronte: {len(result)} righe, {len(tickers)} tickers")
+        # Carry the exact feature/provider contract with the in-memory frame.
+        # PPO inference rejects untagged or incompatible frames before prediction.
+        from src.data.market_data_contract import market_data_contract
+
+        result.attrs["market_data_contract"] = market_data_contract()
+        logger.info(f"Bars pronte: {len(result)} righe, {len(tickers)} tickers")
         return result
 
     # ------------------------------------------------------------------

@@ -26,7 +26,9 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
         data["MACD_B"] = np.zeros(size)
         data["BB_middle_B"] = np.asarray(prices_b, dtype=float)
         data["ATR_B"] = np.ones(size)
-    return pd.DataFrame(data), tickers
+    frame = pd.DataFrame(data)
+    frame.attrs["market_data_contract"] = market_data_contract()
+    return frame, tickers
 
 
 def test_environment_observation_matches_declared_space():
@@ -1574,3 +1576,23 @@ def test_verified_ppo_artifact_buffer_loads_real_stable_baselines_model(tmp_path
     action, _ = loaded.predict(observation, deterministic=True)
     assert action.shape == env.action_space.shape
     assert np.isfinite(action).all()
+
+def test_prediction_rejects_market_data_without_versioned_contract():
+    data, tickers = market_data()
+    data.attrs.pop("market_data_contract")
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    agent.model = object()
+    with pytest.raises(ValueError, match="market-data contract"):
+        agent.predict_weights(data)
+
+
+def test_prediction_rejects_market_data_with_incompatible_contract():
+    data, tickers = market_data()
+    incompatible = market_data_contract()
+    incompatible["adjustment"] = "raw"
+    data.attrs["market_data_contract"] = incompatible
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    agent.model = object()
+    with pytest.raises(ValueError, match="market-data contract"):
+        agent.predict_weights(data)
+

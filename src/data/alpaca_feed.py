@@ -17,7 +17,14 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
-from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+try:
+    from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+except ModuleNotFoundError:
+    from data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+
+_DAILY_TIMEFRAME
 
 _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 

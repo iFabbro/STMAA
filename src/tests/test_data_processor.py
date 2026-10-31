@@ -167,7 +167,7 @@ def test_alpaca_rsi_matches_historical_processor_on_zero_loss_windows(prices, ex
         "Low": close - 1.0,
     })
     expected = DataProcessor._indicators(frame)["RSI"]
-    actual = AlpacaFeed._calculate_rsi(close)
+    actual = AlpacaFeed._calculate_features(frame)["RSI"]
 
     np.testing.assert_allclose(actual.to_numpy(), expected.to_numpy(), equal_nan=True)
     assert actual.iloc[-1] == pytest.approx(expected_value)

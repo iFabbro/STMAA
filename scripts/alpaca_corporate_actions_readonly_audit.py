@@ -290,8 +290,23 @@ def run_audit(
                 })
                 continue
 
-            # Once raw data exists, missing adjusted data is a real audit
-            # failure/inconclusive condition, not a reason to silently skip.
+            # Some valid corporate actions have no IEX trade/bar on the exact
+            # ex-date (for example, illiquid symbols). Without that session the
+            # event boundary cannot be validated reliably. Record it as
+            # unverifiable and try another independent candidate; never PASS it.
+            if ex_date not in raw.index:
+                skipped_candidates.setdefault(event_type, []).append({
+                    "symbol": symbol,
+                    "ex_date": ex_date.isoformat(),
+                    "reason": (
+                        f"No raw daily bar on ex-date {ex_date}; "
+                        "event boundary cannot be verified on this feed"
+                    ),
+                })
+                continue
+
+            # Once the raw event session exists, missing adjusted data or a
+            # quantitative mismatch remains a hard failure, not a skip.
             adjusted = fetch_daily_bars(client, symbol, ex_date, DATA_ADJUSTMENT)
             result = validate_adjustment_effect(raw, adjusted, event_type, ex_date)
             result.update({

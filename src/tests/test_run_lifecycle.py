@@ -47,6 +47,40 @@ def test_trade_main_finalizes_failed_preflight_run(monkeypatch):
     assert trade.RUN_ID is None
 
 
+def test_trade_main_finalizes_successful_preflight_run(monkeypatch):
+    finalized = []
+    monkeypatch.setattr(trade, "start_run", lambda **_kwargs: "trade-run")
+    monkeypatch.setattr(
+        trade, "end_run", lambda run_id, status: finalized.append((run_id, status))
+    )
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key-example")
+    monkeypatch.setenv("ALPACA_API_SECRET", "paper-secret-example")
+    monkeypatch.delenv("STMAA_TRADING_MODE", raising=False)
+
+    class FakeExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "account_data_fresh": True,
+                "account_id": "paper-account-123",
+                "equity": 10000.0,
+                "cash": 9000.0,
+                "buying_power": 18000.0,
+            }
+
+    class FakeBot:
+        def __init__(self, **_kwargs):
+            self.executor = FakeExecutor()
+
+    monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
+
+    assert trade.main(["--preflight-only"]) == 0
+    assert finalized == [("trade-run", "completed")]
+    assert trade.RUN_ID is None
+
+
 def test_hub_main_finalizes_graceful_shutdown(monkeypatch):
     finalized = []
     monkeypatch.setattr(hub, "start_run", lambda **_kwargs: "hub-run")
@@ -82,7 +116,6 @@ def test_hub_main_marks_unexpected_failure(monkeypatch):
 
     assert finalized == [("hub-run", "failed")]
     assert hub.RUN_ID is None
-
 
 
 def test_end_run_rejects_non_terminal_status_without_mutating_run(tmp_path):
@@ -128,7 +161,6 @@ def test_end_run_cannot_overwrite_terminal_run_state(tmp_path):
 
     assert final["ended_at"] == original["ended_at"]
     assert final["status"] == "completed"
-
 
 
 def _spawn_sleeping_process():
@@ -280,7 +312,6 @@ def test_init_db_migrates_existing_runs_table(tmp_path):
             row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
         }
     assert {"owner_pid", "owner_start_ticks"} <= columns
-
 
 
 def test_process_identity_is_unknown_without_procfs(monkeypatch):

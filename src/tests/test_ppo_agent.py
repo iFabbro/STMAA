@@ -720,3 +720,91 @@ def test_ppo_artifact_lock_rejects_symlinked_lock_file(tmp_path):
 
     assert lock_path.is_symlink()
     assert external_target.read_text() == "must remain untouched"
+
+
+
+def test_ppo_load_rejects_symlinked_metadata_manifest(tmp_path, monkeypatch):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "manifest-link.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"manifest-link-model")
+
+    agent.model = SavedModel()
+    agent.save()
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    external_manifest = tmp_path / "external-metadata.json"
+    external_manifest.write_bytes(manifest_path.read_bytes())
+    manifest_path.unlink()
+    manifest_path.symlink_to(external_manifest)
+
+    monkeypatch.setattr(
+        ppo_agent.PPO, "load",
+        lambda _path: pytest.fail("PPO.load must not run for a symlinked manifest"),
+    )
+    with pytest.raises((OSError, ValueError)):
+        PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_ppo_prune_rejects_symlinked_manifest_without_deleting_artifacts(tmp_path):
+    from pathlib import Path
+
+    model_path = tmp_path / "prune-manifest-link.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"prune-manifest-link-model")
+
+    agent.model = SavedModel()
+    agent.save()
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    external_manifest = tmp_path / "external-prune-metadata.json"
+    external_manifest.write_bytes(manifest_path.read_bytes())
+    manifest_path.unlink()
+    manifest_path.symlink_to(external_manifest)
+
+    with pytest.raises(RuntimeError, match="active manifest is unreadable"):
+        agent.prune_artifacts(dry_run=False)
+
+    assert manifest_path.is_symlink()
+    assert external_manifest.exists()
+    assert list(tmp_path.glob("prune-manifest-link.*.zip"))
+
+
+def test_ppo_prune_rejects_symlinked_active_generation(tmp_path):
+    import json
+    from pathlib import Path
+
+    model_path = tmp_path / "prune-artifact-link.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"prune-artifact-link-model")
+
+    agent.model = SavedModel()
+    agent.save()
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    manifest = json.loads(manifest_path.read_text())
+    active_path = tmp_path / manifest["artifact_file"]
+    external_artifact = tmp_path / "external-active-model.zip"
+    external_artifact.write_bytes(active_path.read_bytes())
+    active_path.unlink()
+    active_path.symlink_to(external_artifact)
+
+    with pytest.raises(RuntimeError, match="active generation is missing or corrupt"):
+        agent.prune_artifacts(dry_run=False)
+
+    assert active_path.is_symlink()
+    assert external_artifact.exists()

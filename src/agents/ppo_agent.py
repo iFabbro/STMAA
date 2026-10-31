@@ -24,11 +24,13 @@ try:
     from src.data.market_data_contract import (
         market_data_contract,
         validate_market_data_contract,
+        validate_market_data_fingerprint,
     )
 except ModuleNotFoundError:
     from data.market_data_contract import (
         market_data_contract,
         validate_market_data_contract,
+        validate_market_data_fingerprint,
     )
 
 logger = logging.getLogger(__name__)
@@ -504,6 +506,9 @@ class PPOAgent:
             raise ValueError("market_data must be a DataFrame carrying the versioned market-data contract")
         validate_market_data_contract(
             market_data.attrs.get("market_data_contract")
+        )
+        validate_market_data_fingerprint(
+            market_data, market_data.attrs.get("market_data_fingerprint")
         )
         if current_weights is None:
             current_weights = np.zeros(len(self.tickers), dtype=float)

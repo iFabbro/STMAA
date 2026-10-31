@@ -19,7 +19,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 try:
     from src.data.market_data_contract import (
-        DATA_ADJUSTMENT, DATA_FEED, market_data_contract,
+        DATA_ADJUSTMENT, DATA_FEED, market_data_contract, market_data_fingerprint,
     )
     from src.data.feature_engineering import calculate_features
 except ModuleNotFoundError:
@@ -403,6 +403,7 @@ class AlpacaFeed:
         # Carry the exact feature/provider contract with the in-memory frame.
         # PPO inference rejects untagged or incompatible frames before prediction.
         result.attrs["market_data_contract"] = market_data_contract()
+        result.attrs["market_data_fingerprint"] = market_data_fingerprint(result)
         logger.info(f"Bars pronte: {len(result)} righe, {len(tickers)} tickers")
         return result
 

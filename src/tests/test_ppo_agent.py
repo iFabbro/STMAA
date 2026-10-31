@@ -6,7 +6,7 @@ import pytest
 
 from src.agents.ppo_agent import PPOAgent, StockTradingEnv
 from src.backtest.backtest_engine import ExecutionConsistentBacktest
-from src.data.market_data_contract import market_data_contract
+from src.data.market_data_contract import market_data_contract, market_data_fingerprint
 
 
 def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
@@ -28,6 +28,7 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
         data["ATR_B"] = np.ones(size)
     frame = pd.DataFrame(data)
     frame.attrs["market_data_contract"] = market_data_contract()
+    frame.attrs["market_data_fingerprint"] = market_data_fingerprint(frame)
     return frame, tickers
 
 
@@ -1596,3 +1597,28 @@ def test_prediction_rejects_market_data_with_incompatible_contract():
     with pytest.raises(ValueError, match="market-data contract"):
         agent.predict_weights(data)
 
+
+
+
+@pytest.mark.parametrize("mutation", ["value", "column_order", "index"])
+def test_prediction_rejects_market_data_mutated_after_ingestion(mutation):
+    data, tickers = market_data()
+    if mutation == "value":
+        data.loc[data.index[-1], "Close_A"] += 1.0
+    elif mutation == "column_order":
+        data = data.loc[:, list(reversed(data.columns))]
+    else:
+        data.index = pd.date_range("2020-01-01", periods=len(data), freq="D")
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    agent.model = object()
+    with pytest.raises(ValueError, match="changed after ingestion"):
+        agent.predict_weights(data)
+
+
+def test_prediction_rejects_market_data_without_fingerprint():
+    data, tickers = market_data()
+    data.attrs.pop("market_data_fingerprint")
+    agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")
+    agent.model = object()
+    with pytest.raises(ValueError, match="fingerprint"):
+        agent.predict_weights(data)

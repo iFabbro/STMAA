@@ -285,7 +285,6 @@ def test_model_load_rejects_artifact_digest_mismatch_before_deserialization(tmp_
 def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, monkeypatch):
     import hashlib
     import json
-    from src.agents import ppo_agent
 
     model_path = tmp_path / "saved.zip"
     agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)

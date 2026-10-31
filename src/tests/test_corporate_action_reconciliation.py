@@ -188,3 +188,43 @@ def test_restart_uses_persisted_checkpoint_and_event_ledger():
     assert requests[0]["direction"] == "desc"
     assert updated["corporate_action_reconciliation"]["last_activity_id"] == "latest"
     assert updated["corporate_action_reconciliation"]["blocked_symbols"] == ["CHILD"]
+
+
+def test_cash_only_reorganization_without_symbol_does_not_block():
+    pages = [[_activity("reo-cash", activity_type="REO", symbol=None, activity_sub_type="REOC")]]
+    reconciler, state, _, _ = _reconciler(pages)
+
+    result = reconciler.reconcile(["AAA"], {"AAA": {"qty": 1}})
+
+    assert result["new_activity_count"] == 1
+    assert state["corporate_action_reconciliation"]["unresolved_activity_ids"] == []
+
+
+def test_broker_executor_uses_read_only_trading_api_activities_endpoint():
+    from src.execution.broker_executor import BrokerExecutor
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, path, params):
+            self.calls.append((path, dict(params)))
+            return [_activity("spin-1", symbol="AAA")]
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.trading_client = FakeTradingClient()
+    executor.state = {}
+    persisted = []
+    executor._save_state = lambda: persisted.append(True)
+
+    result = executor.reconcile_corporate_actions(
+        ["AAA"], positions={"AAA": {"qty": 1}}
+    )
+
+    assert result["new_activity_count"] == 1
+    assert executor.trading_client.calls[0][0] == "/account/activities"
+    assert executor.trading_client.calls[0][1]["direction"] == "desc"
+    assert executor.trading_client.calls[0][1]["activity_types"] == (
+        "MA,NC,REO,REORG,SC,SPIN,SPLIT"
+    )
+    assert persisted == [True]

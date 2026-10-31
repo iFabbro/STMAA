@@ -4,6 +4,7 @@ import pytest
 
 from src.agents.ppo_agent import PPOAgent, StockTradingEnv
 from src.backtest.backtest_engine import ExecutionConsistentBacktest
+from src.data.market_data_contract import market_data_contract
 
 
 def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
@@ -166,15 +167,7 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
-        "market_data_contract": {
-            "version": 1,
-            "provider": "alpaca",
-            "feed": "iex",
-            "timeframe": "1Day",
-            "adjustment": "all",
-            "features": ["Close", "RSI", "MACD", "BB_middle", "ATR"],
-            "corporate_actions": ["split", "dividend", "spin-off"],
-        },
+        "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
         "max_position_size": 0.2,
@@ -213,3 +206,26 @@ def test_ppo_environment_execution_costs_match_backtest_engine():
     )
 
     assert info["total_asset"] == pytest.approx(result["final_value"])
+
+
+
+def test_model_rejects_previous_market_data_contract_version(tmp_path):
+    import json
+
+    model_path = tmp_path / "old-contract.zip"
+    model_path.write_bytes(b"placeholder")
+    previous_contract = market_data_contract()
+    previous_contract["version"] = 1
+    (tmp_path / "old-contract.zip.metadata.json").write_text(json.dumps({
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": previous_contract,
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+    }))
+    with pytest.raises(ValueError, match="market-data contract"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))

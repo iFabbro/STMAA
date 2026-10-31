@@ -19,7 +19,7 @@ class StockTradingEnv(gym.Env):
     """Long-only target-weight environment with close-to-close accounting.
 
     Actions are allocation scores in [-1, 1]. They are transformed into
-    non-negative target weights summing to one, matching PPOAgent.predict_weights.
+    long-only target weights bounded by per-position and gross-exposure caps.
     An action at close t is executed at close t and earns the return to close t+1.
     """
 
@@ -274,7 +274,7 @@ class PPOAgent:
             self.load()
             logger.info("PPOAgent loaded from %s", self.model_path)
         else:
-            logger.info("No compatible PPO v2 model found; inference will fail closed until a model is trained or loaded")
+            logger.info("PPO model not loaded; inference will fail closed until a compatible model is trained or loaded")
 
     def train(
         self,

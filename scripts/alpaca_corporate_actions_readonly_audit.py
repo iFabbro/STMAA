@@ -29,8 +29,12 @@ EVENT_BUCKETS = {
     "spin_off": ("spin_offs",),
 }
 EVENT_TYPES = "forward_split,reverse_split,cash_dividend,spin_off"
-PRICE_FIELDS = ("open", "high", "low", "close")
-OHLCV_FIELDS = (*PRICE_FIELDS, "volume")
+OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
+MAX_CANDIDATES_PER_TYPE = 25
+
+
+class NoBarsAvailable(RuntimeError):
+    """The selected feed returned no bars for this symbol/date window."""
 
 
 def _get_json(url: str, params: dict[str, str], api_key: str, api_secret: str) -> dict[str, Any]:
@@ -87,8 +91,13 @@ def _event_symbol(event: dict[str, Any]) -> str | None:
 
 def select_latest_event_per_type(
     events: list[dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """Select an event only when it is the latest known action for that symbol."""
+) -> dict[str, list[dict[str, Any]]]:
+    """Return newest independently auditable events, retaining fallback candidates.
+
+    An event is eligible only if it is the latest known action for its source
+    symbol in the fetched corporate-action set. Multiple symbols are retained
+    so an OTC/uncovered symbol does not prevent auditing that event class.
+    """
     latest_by_symbol: dict[str, date] = {}
     for event in events:
         symbol = _event_symbol(event)
@@ -98,7 +107,7 @@ def select_latest_event_per_type(
         parsed = date.fromisoformat(ex_date)
         latest_by_symbol[symbol] = max(parsed, latest_by_symbol.get(symbol, date.min))
 
-    selected: dict[str, dict[str, Any]] = {}
+    selected: dict[str, list[dict[str, Any]]] = {}
     for event_type in EVENT_BUCKETS:
         candidates = [
             event for event in events
@@ -107,8 +116,9 @@ def select_latest_event_per_type(
             and event.get("ex_date")
             and date.fromisoformat(event["ex_date"]) == latest_by_symbol.get(_event_symbol(event))
         ]
+        candidates.sort(key=lambda item: item["ex_date"], reverse=True)
         if candidates:
-            selected[event_type] = max(candidates, key=lambda item: item["ex_date"])
+            selected[event_type] = candidates[:MAX_CANDIDATES_PER_TYPE]
     return selected
 
 
@@ -131,10 +141,12 @@ def fetch_daily_bars(
     )
     response = client.get_stock_bars(request)
     if response.df.empty:
-        raise RuntimeError(f"No {adjustment} daily bars returned for {symbol} around {ex_date}")
+        raise NoBarsAvailable(f"No {adjustment} daily bars returned for {symbol} around {ex_date}")
     frame = response.df.reset_index()
     if "symbol" in frame.columns:
         frame = frame[frame["symbol"] == symbol]
+    if frame.empty:
+        raise NoBarsAvailable(f"No {adjustment} daily bars returned for {symbol} around {ex_date}")
     if "timestamp" not in frame.columns:
         raise RuntimeError(f"Alpaca {adjustment} response has no timestamp column for {symbol}")
     frame["session"] = pd.to_datetime(frame["timestamp"], utc=True).dt.date
@@ -208,8 +220,8 @@ def run_audit(
     end_date: str,
 ) -> list[dict[str, Any]]:
     events = fetch_corporate_actions(api_key, api_secret, start_date, end_date)
-    selected = select_latest_event_per_type(events)
-    missing_types = sorted(set(EVENT_BUCKETS) - set(selected))
+    candidates_by_type = select_latest_event_per_type(events)
+    missing_types = sorted(set(EVENT_BUCKETS) - set(candidates_by_type))
     if missing_types:
         raise RuntimeError(
             "INCONCLUSIVE: no latest complete Alpaca event available for "
@@ -219,20 +231,49 @@ def run_audit(
 
     client = StockHistoricalDataClient(api_key=api_key, secret_key=api_secret)
     results = []
-    for event_type, event in selected.items():
-        symbol = _event_symbol(event)
-        ex_date = date.fromisoformat(event["ex_date"])
-        raw = fetch_daily_bars(client, symbol, ex_date, "raw")
-        adjusted = fetch_daily_bars(client, symbol, ex_date, DATA_ADJUSTMENT)
-        result = validate_adjustment_effect(raw, adjusted, event_type, ex_date)
-        result.update({
-            "symbol": symbol,
-            "corporate_action_id": event.get("id"),
-            "process_date": event.get("process_date"),
-            "feed": DATA_FEED,
-            "adjustment": DATA_ADJUSTMENT,
-        })
+    skipped_candidates: dict[str, list[dict[str, str]]] = {}
+    for event_type, candidates in candidates_by_type.items():
+        result = None
+        for event in candidates:
+            symbol = _event_symbol(event)
+            ex_date = date.fromisoformat(event["ex_date"])
+            try:
+                raw = fetch_daily_bars(client, symbol, ex_date, "raw")
+            except NoBarsAvailable as exc:
+                skipped_candidates.setdefault(event_type, []).append({
+                    "symbol": symbol,
+                    "ex_date": ex_date.isoformat(),
+                    "reason": str(exc),
+                })
+                continue
+
+            # Once raw data exists, missing adjusted data is a real audit
+            # failure/inconclusive condition, not a reason to silently skip.
+            adjusted = fetch_daily_bars(client, symbol, ex_date, DATA_ADJUSTMENT)
+            result = validate_adjustment_effect(raw, adjusted, event_type, ex_date)
+            result.update({
+                "symbol": symbol,
+                "corporate_action_id": event.get("id"),
+                "process_date": event.get("process_date"),
+                "feed": DATA_FEED,
+                "adjustment": DATA_ADJUSTMENT,
+            })
+            break
+
+        if result is None:
+            skipped = skipped_candidates.get(event_type, [])
+            raise RuntimeError(
+                f"INCONCLUSIVE: no {event_type} candidate has raw bars on feed "
+                f"{DATA_FEED}; checked {len(skipped)} candidate(s): "
+                + json.dumps(skipped, sort_keys=True)
+            )
         results.append(result)
+
+    if skipped_candidates:
+        for result in results:
+            result["skipped_uncovered_candidates"] = skipped_candidates.get(
+                result["event_type"], []
+            )
     return results
 
 

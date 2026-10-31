@@ -5,7 +5,7 @@ underlying REST transport. It never mutates broker state or submits orders.
 """
 from datetime import datetime, timezone
 import math
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List
 
 
 CORPORATE_ACTION_TYPES = frozenset({

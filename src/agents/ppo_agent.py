@@ -604,6 +604,8 @@ class PPOAgent:
                 manifest = _read_json_manifest(manifest_path)
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 raise RuntimeError("Cannot prune PPO artifacts: active manifest is unreadable") from exc
+            if not isinstance(manifest, dict):
+                raise RuntimeError("Cannot prune PPO artifacts: active manifest is invalid")
             active_name = manifest.get("artifact_file")
             active_digest = manifest.get("model_sha256")
             expected_name = f"{model_path.stem}.{active_digest}{model_path.suffix or '.zip'}"

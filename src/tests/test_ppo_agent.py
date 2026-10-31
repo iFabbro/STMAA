@@ -1017,10 +1017,11 @@ def _ppo_save_with_blocking_model_process(model_path, started, release, result_q
         result_queue.put(f"save:error:{exc}")
 
 
-def _ppo_prune_process(model_path, result_queue):
+def _ppo_prune_process(model_path, started, result_queue):
     agent = PPOAgent(
         tickers=["A"], model_path=model_path, load_existing_model=False
     )
+    started.set()
     try:
         removed = agent.prune_artifacts(
             retain_generations=1,
@@ -1054,6 +1055,7 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
     context = multiprocessing.get_context("fork")
     started = context.Event()
     release = context.Event()
+    prune_started = context.Event()
     result_queue = context.Queue()
     saver = context.Process(
         target=_ppo_save_with_blocking_model_process,
@@ -1065,9 +1067,10 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
         assert started.wait(timeout=5), "save process did not enter model publication"
         pruner = context.Process(
             target=_ppo_prune_process,
-            args=(str(model_path), result_queue),
+            args=(str(model_path), prune_started, result_queue),
         )
         pruner.start()
+        assert prune_started.wait(timeout=5), "prune process did not start"
         pruner.join(timeout=0.25)
         assert pruner.is_alive(), "prune must wait while save owns the artifact lock"
     finally:

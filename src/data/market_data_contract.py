@@ -4,7 +4,12 @@ Provider-adjusted Alpaca IEX daily OHLCV is the sole input contract. Changes to
 provider semantics, feature formulas, parameters, or warm-up policy require a
 contract bump and model retraining/revalidation.
 """
+import hashlib
+import hmac
+import json
 from typing import Any
+
+import pandas as pd
 
 DATA_CONTRACT_VERSION = 2
 DATA_PROVIDER = "alpaca"
@@ -65,4 +70,47 @@ def validate_market_data_contract(metadata: Any) -> None:
         raise ValueError(
             "Model market-data contract is missing or incompatible; retrain with "
             "the current Alpaca IEX daily adjustment and feature contract"
+        )
+
+
+
+def market_data_fingerprint(frame: pd.DataFrame) -> str:
+    """Fingerprint the exact inference frame, including schema, order, index and values."""
+    if not isinstance(frame, pd.DataFrame):
+        raise ValueError("Market-data fingerprint requires a DataFrame")
+    if not frame.columns.is_unique or not all(isinstance(column, str) for column in frame.columns):
+        raise ValueError("Market-data columns must be unique strings")
+    metadata = {
+        "columns": list(frame.columns),
+        "dtypes": [str(dtype) for dtype in frame.dtypes],
+        "shape": list(frame.shape),
+        "index_dtype": str(frame.index.dtype),
+        "index_name": frame.index.name,
+    }
+    digest = hashlib.sha256()
+    digest.update(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    try:
+        row_hashes = pd.util.hash_pandas_object(
+            frame, index=True, categorize=True
+        ).to_numpy(dtype="uint64", copy=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Market-data frame cannot be fingerprinted safely") from exc
+    digest.update(row_hashes.tobytes())
+    return digest.hexdigest()
+
+
+def validate_market_data_fingerprint(frame: pd.DataFrame, metadata: Any) -> None:
+    """Reject frames changed after ingestion even when pandas preserved attrs."""
+    if (
+        not isinstance(metadata, str)
+        or len(metadata) != 64
+        or any(character not in "0123456789abcdef" for character in metadata)
+    ):
+        raise ValueError(
+            "Market-data fingerprint is missing or invalid; reacquire market data"
+        )
+    actual = market_data_fingerprint(frame)
+    if not hmac.compare_digest(metadata, actual):
+        raise ValueError(
+            "Market-data frame changed after ingestion; reacquire market data before PPO inference"
         )

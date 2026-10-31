@@ -619,3 +619,29 @@ def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_pat
     assert result_queue.get(timeout=1) == "acquired"
     result_queue.close()
     result_queue.join_thread()
+
+
+
+@pytest.mark.parametrize("operation", ["save", "load", "prune_artifacts"])
+def test_all_public_ppo_artifact_operations_fail_closed_without_lock(
+    tmp_path, monkeypatch, operation
+):
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / f"{operation}.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    if operation == "save":
+        class SavedModel:
+            def save(self, path):
+                Path(path).write_bytes(b"model")
+
+        agent.model = SavedModel()
+
+    def fail_lock(*_args, **_kwargs):
+        raise OSError("simulated flock failure")
+
+    monkeypatch.setattr(ppo_agent.fcntl, "flock", fail_lock)
+    with pytest.raises(RuntimeError, match="Unable to acquire PPO artifact lock"):
+        getattr(agent, operation)()

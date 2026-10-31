@@ -1,4 +1,6 @@
 from datetime import date
+from io import BytesIO
+from urllib.error import HTTPError
 
 import pandas as pd
 import pytest
@@ -152,3 +154,44 @@ def test_run_audit_is_inconclusive_when_no_candidate_has_raw_bars(monkeypatch):
 
     with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has raw bars"):
         audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
+
+
+
+def test_rate_limit_retry_honors_retry_after_and_recovers(monkeypatch):
+    delays = []
+    monkeypatch.setattr(audit.time_module, "sleep", delays.append)
+    attempts = 0
+
+    def operation():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise HTTPError(
+                "https://data.alpaca.markets", 429, "Too Many Requests",
+                {"Retry-After": "0"}, BytesIO(b"rate limited"),
+            )
+        return {"ok": True}
+
+    assert audit._call_with_rate_limit_retry(operation, "test request") == {"ok": True}
+    assert attempts == 2
+    assert delays == [0.0]
+
+
+def test_rate_limit_retry_fails_closed_after_max_attempts(monkeypatch):
+    delays = []
+    monkeypatch.setattr(audit.time_module, "sleep", delays.append)
+    attempts = 0
+
+    def operation():
+        nonlocal attempts
+        attempts += 1
+        raise HTTPError(
+            "https://data.alpaca.markets", 429, "Too Many Requests",
+            {}, BytesIO(b"rate limited"),
+        )
+
+    with pytest.raises(RuntimeError, match="rate limit persisted"):
+        audit._call_with_rate_limit_retry(operation, "test request")
+
+    assert attempts == audit.RATE_LIMIT_MAX_ATTEMPTS
+    assert len(delays) == audit.RATE_LIMIT_MAX_ATTEMPTS - 1

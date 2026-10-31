@@ -69,6 +69,65 @@ class AlpacaFeed:
             raise RuntimeError("AlpacaFeed: no completed NYSE session available")
         return completed.index[-1].date()
 
+    @classmethod
+    def _validate_daily_history(cls, ticker: str, ticker_bars: pd.DataFrame, latest_session):
+        """Reject incomplete or invalid daily bars across the full indicator history."""
+        if ticker_bars.index.has_duplicates:
+            raise RuntimeError(f"AlpacaFeed: duplicate daily bars for {ticker}")
+
+        fields = ("Open", "High", "Low", "Close", "Volume")
+        missing_fields = [field for field in fields if field not in ticker_bars.columns]
+        if missing_fields:
+            raise RuntimeError(
+                f"AlpacaFeed: missing daily OHLCV fields for {ticker}: {', '.join(missing_fields)}"
+            )
+        values = ticker_bars.loc[:, fields].apply(pd.to_numeric, errors="coerce")
+        invalid_rows = ~values.notna().all(axis=1)
+        if invalid_rows.any():
+            first_bad = values.index[invalid_rows][0].date()
+            raise RuntimeError(
+                f"AlpacaFeed: incomplete daily OHLCV bar for {ticker} at {first_bad}"
+            )
+        numeric = values.to_numpy(dtype=float)
+        finite_rows = pd.Series(
+            __import__("numpy").isfinite(numeric).all(axis=1), index=values.index
+        )
+        if not finite_rows.all():
+            first_bad = finite_rows.index[~finite_rows][0].date()
+            raise RuntimeError(
+                f"AlpacaFeed: non-finite daily OHLCV bar for {ticker} at {first_bad}"
+            )
+        prices = values[["Open", "High", "Low", "Close"]]
+        invalid_prices = (prices <= 0).any(axis=1)
+        invalid_volume = values["Volume"] < 0
+        invalid_range = (
+            (values["High"] < values["Low"])
+            | (values["Low"] > values["Open"])
+            | (values["Low"] > values["Close"])
+            | (values["High"] < values["Open"])
+            | (values["High"] < values["Close"])
+        )
+        invalid = invalid_prices | invalid_volume | invalid_range
+        if invalid.any():
+            first_bad = invalid.index[invalid][0].date()
+            raise RuntimeError(
+                f"AlpacaFeed: invalid daily OHLCV values for {ticker} at {first_bad}"
+            )
+
+        calendar = mcal.get_calendar("NYSE")
+        first_date = ticker_bars.index[0].date()
+        schedule = calendar.schedule(
+            start_date=first_date.isoformat(), end_date=latest_session.isoformat()
+        )
+        expected = {stamp.date() for stamp in schedule.index}
+        observed = {stamp.date() for stamp in ticker_bars.index}
+        missing_sessions = sorted(expected - observed)
+        if missing_sessions:
+            raise RuntimeError(
+                f"AlpacaFeed: missing NYSE daily bars for {ticker}: "
+                f"{missing_sessions[0]} ({len(missing_sessions)} missing session(s))"
+            )
+
     @staticmethod
     def _calculate_rsi(close: pd.Series) -> pd.Series:
         """Match DataProcessor semantics for zero-loss and flat RSI windows."""
@@ -143,6 +202,7 @@ class AlpacaFeed:
                 raise RuntimeError(f"AlpacaFeed: no market bars received for {ticker}")
             if timeframe == _DAILY_TIMEFRAME:
                 expected_session = self._latest_completed_nyse_session_date(end)
+                self._validate_daily_history(ticker, ticker_bars, expected_session)
                 latest_date = ticker_bars.index[-1].date()
                 if latest_date != expected_session:
                     raise RuntimeError(

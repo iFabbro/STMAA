@@ -183,7 +183,7 @@ class CorporateActionReconciler:
             raise RuntimeError("Persisted corporate-action manual resolution is malformed")
         symbol = resolution.get("symbol")
         if not isinstance(symbol, str) or not re.fullmatch(
-            r"[A-Z0-9][A-Z0-9.\\-]{0,31}", symbol
+            r"[A-Z0-9][A-Z0-9.-]{0,31}", symbol
         ):
             raise RuntimeError("Persisted corporate-action manual resolution has an invalid symbol")
         for field, maximum in (("evidence", 512), ("actor", 128), ("reason", 1000), ("resolved_at", 64)):
@@ -217,7 +217,7 @@ class CorporateActionReconciler:
         """
         normalized_id = self._required_text(activity_id, "activity_id", 256)
         normalized_symbol = self._required_text(symbol, "symbol", 32).upper()
-        if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\\-]{0,31}", normalized_symbol):
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,31}", normalized_symbol):
             raise ValueError("Manual corporate-action resolution requires a valid ticker symbol")
         evidence_ref = self._required_text(evidence, "evidence", 512)
         operator = self._required_text(actor, "actor", 128)
@@ -239,6 +239,22 @@ class CorporateActionReconciler:
             or not isinstance(history, list)
         ):
             raise RuntimeError("Persisted corporate-action manual-resolution state is malformed")
+        history_by_id = {}
+        for record in history:
+            if not isinstance(record, dict):
+                raise RuntimeError("Persisted corporate-action manual-resolution history is malformed")
+            record_id = record.get("activity_id")
+            if not isinstance(record_id, str) or not record_id or record_id in history_by_id:
+                raise RuntimeError("Persisted corporate-action manual-resolution history has invalid IDs")
+            history_by_id[record_id] = self._validate_manual_resolution(record, record_id)
+        if set(history_by_id) != set(resolutions):
+            raise RuntimeError("Corporate-action manual-resolution map and audit history disagree")
+        for resolved_id, record in resolutions.items():
+            self._validate_manual_resolution(record, resolved_id)
+            if history_by_id.get(resolved_id) != record:
+                raise RuntimeError("Corporate-action manual-resolution evidence is inconsistent")
+        if set(unresolved).intersection(resolutions):
+            raise RuntimeError("Corporate-action activity is both unresolved and manually resolved")
         if normalized_id not in unresolved:
             raise ValueError("Corporate-action activity is not currently unresolved")
         event = events.get(normalized_id)
@@ -352,6 +368,14 @@ class CorporateActionReconciler:
             if symbol in held and symbol not in configured:
                 blocked_symbols.add(symbol)
                 active_event_ids.add(activity["id"])
+
+        # Keep resolved corporate-action mappings safety-relevant even after their
+        # source events age out of the bounded recent-event ledger.
+        for activity_id, resolution in resolved_symbols.items():
+            symbol = resolution["symbol"]
+            if symbol in held and symbol not in configured:
+                blocked_symbols.add(symbol)
+                active_event_ids.add(activity_id)
 
         # Retain the 500 newest known events plus any still-active blockers.
         retained_ids = set(list(ledger.keys())[:500]) | active_event_ids

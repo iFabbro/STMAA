@@ -249,7 +249,11 @@ def test_model_load_rejects_missing_artifact_digest_before_deserialization(tmp_p
         "max_gross_exposure": 0.5,
     }
     (tmp_path / "missing-digest.zip.metadata.json").write_text(json.dumps(metadata))
-    monkeypatch.setattr(ppo_agent.PPO, "load", lambda *_args, **_kwargs: pytest.fail("must not deserialize"))
+    monkeypatch.setattr(
+        ppo_agent.PPO,
+        "load",
+        lambda *_args, **_kwargs: pytest.fail("must not deserialize"),
+    )
     with pytest.raises(ValueError, match="no valid artifact SHA-256"):
         PPOAgent(tickers=["A"], model_path=str(model_path))
 

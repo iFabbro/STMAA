@@ -133,6 +133,33 @@ class PaperTradingBot:
         positions = self.executor.get_positions()
         if not isinstance(positions, dict):
             raise RuntimeError("Cannot verify current broker positions for PPO inference")
+        # The bot's configured ticker list is the actual PPO universe. Corporate
+        # actions can create broker holdings that the model cannot observe.
+        # Validate them here rather than confusing a missing model symbol with
+        # an intentional zero target in the executor's partial rebalance vector.
+        unconfigured_positions = []
+        configured_symbols = set(self.tickers)
+        for symbol, position in positions.items():
+            if symbol in configured_symbols:
+                continue
+            try:
+                quantity = float(position.get("qty"))
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError(
+                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
+                ) from exc
+            if not np.isfinite(quantity):
+                raise RuntimeError(
+                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
+                )
+            if abs(quantity) > 1e-12:
+                unconfigured_positions.append(symbol)
+        if unconfigured_positions:
+            raise RuntimeError(
+                "Broker holds positions outside the configured PPO universe; "
+                "manual corporate-action reconciliation is required before inference: "
+                + ", ".join(sorted(unconfigured_positions))
+            )
         current_weights = []
         for ticker in self.tickers:
             position = positions.get(ticker, {})

@@ -1941,10 +1941,41 @@ class BrokerExecutor:
             raise RuntimeError(
                 "Configured corporate-action universe is unavailable; refusing broker execution"
             )
+        configured_universe = set(self.configured_symbols)
+        unconfigured_targets = sorted(set(weights.tickers) - configured_universe)
+        if unconfigured_targets:
+            raise RuntimeError(
+                "Target weights contain symbols outside the configured PPO universe; "
+                "refusing broker execution: " + ", ".join(unconfigured_targets)
+            )
         self.reconcile_corporate_actions(
             self.configured_symbols,
             positions=positions,
         )
+        # Direct executor callers must receive the same held-symbol protection
+        # as PPO inference. Do not silently interpret an external holding as a
+        # zero target merely because it is absent from a partial target vector.
+        unconfigured_positions = []
+        for symbol, position in positions.items():
+            if str(symbol).strip().upper() in configured_universe:
+                continue
+            try:
+                quantity = float(position.get("qty"))
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError(
+                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
+                ) from exc
+            if not np.isfinite(quantity):
+                raise RuntimeError(
+                    f"Cannot verify broker position quantity for unconfigured symbol {symbol}"
+                )
+            if abs(quantity) > 1e-12:
+                unconfigured_positions.append(str(symbol).strip().upper())
+        if unconfigured_positions:
+            raise RuntimeError(
+                "Broker holds positions outside the configured PPO universe; "
+                "refusing execution: " + ", ".join(sorted(unconfigured_positions))
+            )
         # A missing symbol in the target vector means a zero target, so include
         # existing holdings in the execution universe for explicit rebalancing.
         execution_tickers = list(dict.fromkeys([*weights.tickers, *positions.keys()]))

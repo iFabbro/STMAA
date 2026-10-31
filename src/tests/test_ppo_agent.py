@@ -382,13 +382,14 @@ def test_model_save_interruption_before_manifest_replace_preserves_previous_gene
     class LoadedModel:
         pass
 
-    monkeypatch.setattr(
-        ppo_agent.PPO,
-        "load",
-        lambda path: captured.setdefault("path", path) or LoadedModel(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return LoadedModel()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     loaded.load()
-    assert Path(captured["path"]) == previous_artifact
+    assert captured["payload"] == b"first-model-generation"
+    assert previous_artifact.read_bytes() == captured["payload"]
 
 
 def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
@@ -920,15 +921,17 @@ def test_ppo_save_publication_failures_before_manifest_replace_preserve_previous
     assert previous_artifact.read_bytes() == b"previous-generation"
 
     captured = {}
-    monkeypatch.setattr(
-        ppo_agent.PPO, "load",
-        lambda path: captured.setdefault("path", path) or object(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(
         tickers=["A"], model_path=str(model_path), load_existing_model=False
     )
     restarted.load()
-    assert Path(captured["path"]) == previous_artifact
+    assert captured["payload"] == b"previous-generation"
+    assert previous_artifact.read_bytes() == captured["payload"]
 
 
 def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
@@ -982,15 +985,17 @@ def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
     ).hexdigest()
 
     captured = {}
-    monkeypatch.setattr(
-        ppo_agent.PPO, "load",
-        lambda path: captured.setdefault("path", path) or object(),
-    )
+    def load_verified_buffer(buffer):
+        captured["payload"] = buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(
         tickers=["A"], model_path=str(model_path), load_existing_model=False
     )
     restarted.load()
-    assert Path(captured["path"]) == active_artifact
+    assert captured["payload"] == b"committed-generation"
+    assert active_artifact.read_bytes() == captured["payload"]
 
 
 

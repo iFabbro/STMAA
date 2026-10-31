@@ -69,6 +69,17 @@ class AlpacaFeed:
             raise RuntimeError("AlpacaFeed: no completed NYSE session available")
         return completed.index[-1].date()
 
+    @staticmethod
+    def _calculate_rsi(close: pd.Series) -> pd.Series:
+        """Match DataProcessor semantics for zero-loss and flat RSI windows."""
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, float("nan"))
+        rsi = 100 - (100 / (1 + rs))
+        fallback = gain.gt(0).map({True: 100.0, False: 50.0})
+        return rsi.where(loss.ne(0), fallback)
+
     def get_bars(
         self,
         tickers: List[str],
@@ -168,12 +179,8 @@ class AlpacaFeed:
 
             result[f"Close_{ticker}"] = sub["Close"]
 
-            # RSI 14
-            delta = sub["Close"].diff()
-            gain = delta.where(delta > 0, 0.0).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-            rs = gain / loss
-            result[f"RSI_{ticker}"] = (100 - 100 / (1 + rs)).reindex(result.index)
+            # RSI 14: match the historical DataProcessor feature calculation.
+            result[f"RSI_{ticker}"] = self._calculate_rsi(sub["Close"]).reindex(result.index)
 
             # MACD
             exp1 = sub["Close"].ewm(span=12, adjust=False).mean()

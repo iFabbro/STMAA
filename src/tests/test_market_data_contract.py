@@ -22,6 +22,12 @@ def test_training_and_inference_share_one_alpaca_adjustment_contract():
         "adjustment": "all",
         "features": ["Close", "RSI", "MACD", "BB_middle", "ATR"],
         "feature_version": 1,
+        "feature_formulas": {
+            "RSI": "rolling_sma_gain_loss; zero_loss_gain_only_100_flat_50",
+            "MACD": "ema_12_minus_ema_26_adjust_false",
+            "BB_middle": "rolling_sma_20",
+            "ATR": "rolling_sma_14_of_true_range",
+        },
         "feature_parameters": {
             "rsi_period": 14, "rsi_gain_only": 100.0, "rsi_flat": 50.0,
             "macd_fast": 12, "macd_slow": 26, "macd_signal": 9,

@@ -39,6 +39,7 @@ jobs:
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
           args=(--start-date "$START_DATE")

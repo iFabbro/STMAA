@@ -262,21 +262,27 @@ class AlpacaFeed:
         days: int = 100,
         timeframe: TimeFrame = _DAILY_TIMEFRAME,
     ) -> pd.DataFrame:
-        """Scarica barre OHLCV giornaliere per `days` giorni.
+        """Scarica barre OHLCV giornaliere conformi al contratto di inferenza."""
+        if timeframe != _DAILY_TIMEFRAME:
+            raise ValueError(
+                "AlpacaFeed inference contract requires timeframe=1Day; "
+                "other timeframes require a versioned contract change and model retraining"
+            )
+        if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
+            raise ValueError("days must be a positive integer")
+        if not isinstance(tickers, (list, tuple)) or not tickers:
+            raise ValueError("tickers must be a non-empty sequence of unique symbols")
+        if any(not isinstance(ticker, str) or not ticker.strip() for ticker in tickers):
+            raise ValueError("tickers must contain non-empty symbol strings")
+        if len(set(tickers)) != len(tickers):
+            raise ValueError("tickers must contain unique symbols")
 
-        Usa adjust='all' per bypassare limiti SIP free-tier.
-        
-        Returns
-        -------
-        DataFrame con colonne flat: Close_AAPL, RSI_AAPL, MACD_AAPL, …
-        Compatibile con generate_weights() in trade.py.
-        """
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=days + 60)  # buffer per indicatori
 
         request = StockBarsRequest(
             symbol_or_symbols=tickers,
-            timeframe=timeframe,
+            timeframe=_DAILY_TIMEFRAME,
             start=start,
             end=end,
             limit=None,

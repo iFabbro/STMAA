@@ -1,10 +1,13 @@
 """PPO agent with a consistent target-weight action contract."""
+import fcntl
 import hashlib
 import hmac
 import json
 import logging
 import os
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Optional
 
@@ -36,6 +39,38 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+
+@contextmanager
+def _artifact_lock(model_path: Path, timeout_seconds: float = 30.0):
+    """Serialize PPO artifact readers, writers, and maintenance across processes."""
+    lock_path = model_path.parent.resolve() / f".{model_path.name}.artifact.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = lock_path.open("a+", encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError("Unable to open PPO artifact lock; refusing artifact operation") from exc
+    with lock_file:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Timed out acquiring PPO artifact lock; refusing artifact operation") from exc
+                time.sleep(min(0.05, remaining))
+            except OSError as exc:
+                raise RuntimeError("Unable to acquire PPO artifact lock; refusing artifact operation") from exc
+        try:
+            yield
+        finally:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError as exc:
+                raise RuntimeError("Unable to release PPO artifact lock; artifact state requires review") from exc
 
 
 def _fsync_directory(path: Path) -> None:
@@ -430,6 +465,10 @@ class PPOAgent:
         )
 
     def save(self, training_metadata: Optional[dict] = None):
+        with _artifact_lock(Path(self.model_path)):
+            return self._save_locked(training_metadata=training_metadata)
+
+    def _save_locked(self, training_metadata: Optional[dict] = None):
         if self.model is None:
             raise RuntimeError("Cannot save PPO model before training")
         model_path = Path(self.model_path)
@@ -488,6 +527,89 @@ class PPOAgent:
                 metadata_temp_path.unlink(missing_ok=True)
 
     def load(self):
+        with _artifact_lock(Path(self.model_path)):
+            return self._load_locked()
+
+    def prune_artifacts(
+        self,
+        retain_generations: int = 3,
+        dry_run: bool = True,
+        min_temp_age_seconds: float = 3600.0,
+    ) -> List[str]:
+        """List or remove unreferenced PPO generations and stale staging files.
+
+        Maintenance is explicit and dry-run by default. The same process-shared
+        lock protects readers, publishers, and pruning; an invalid active manifest
+        aborts cleanup rather than risking deletion of the only recoverable model.
+        """
+        if not isinstance(retain_generations, int) or isinstance(retain_generations, bool) or retain_generations < 1:
+            raise ValueError("retain_generations must be a positive integer")
+        if not np.isfinite(min_temp_age_seconds) or min_temp_age_seconds < 0:
+            raise ValueError("min_temp_age_seconds must be finite and non-negative")
+
+        model_path = Path(self.model_path)
+        with _artifact_lock(model_path):
+            manifest_path = Path(str(model_path) + ".metadata.json")
+            if not manifest_path.is_file():
+                return []
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError("Cannot prune PPO artifacts: active manifest is unreadable") from exc
+            active_name = manifest.get("artifact_file")
+            active_digest = manifest.get("model_sha256")
+            expected_name = f"{model_path.stem}.{active_digest}{model_path.suffix or '.zip'}"
+            if (
+                not isinstance(active_digest, str)
+                or len(active_digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in active_digest)
+                or active_name != expected_name
+            ):
+                raise RuntimeError("Cannot prune PPO artifacts: active manifest is invalid")
+            active_path = model_path.parent / active_name
+            if not active_path.is_file() or not hmac.compare_digest(_sha256_file(active_path), active_digest):
+                raise RuntimeError("Cannot prune PPO artifacts: active generation is missing or corrupt")
+
+            import re
+            pattern = re.compile(
+                rf"^{re.escape(model_path.stem)}\.([0-9a-f]{{64}}){re.escape(model_path.suffix or '.zip')}$"
+            )
+            generations = []
+            for candidate in model_path.parent.iterdir():
+                match = pattern.fullmatch(candidate.name)
+                if match and candidate.is_file():
+                    digest = match.group(1)
+                    try:
+                        if hmac.compare_digest(_sha256_file(candidate), digest):
+                            generations.append(candidate)
+                    except OSError:
+                        continue
+            generations.sort(key=lambda item: item.stat().st_mtime_ns, reverse=True)
+            retained = {active_path}
+            for candidate in generations:
+                if len(retained) >= retain_generations:
+                    break
+                retained.add(candidate)
+            remove = [item for item in generations if item not in retained]
+
+            now = time.time()
+            temp_candidates = list(model_path.parent.glob(f".{model_path.name}.*.zip"))
+            temp_candidates += list(model_path.parent.glob(f".{manifest_path.name}.*.tmp"))
+            for candidate in temp_candidates:
+                try:
+                    if candidate.is_file() and now - candidate.stat().st_mtime >= min_temp_age_seconds:
+                        remove.append(candidate)
+                except OSError:
+                    continue
+            # De-duplicate while preserving deterministic output order.
+            remove = list(dict.fromkeys(remove))
+            if not dry_run and remove:
+                for candidate in remove:
+                    candidate.unlink(missing_ok=True)
+                _fsync_directory(model_path.parent)
+            return [str(candidate) for candidate in remove]
+
+    def _load_locked(self):
         model_path = Path(self.model_path)
         metadata_path = Path(str(model_path) + ".metadata.json")
         if not metadata_path.exists():

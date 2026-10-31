@@ -118,11 +118,15 @@ def test_split_and_dividend_adjusted_ohlcv_are_preserved_in_training_and_inferen
         atol=0.0,
     )
     split_position = 30
-    assert expected_volume[split_position - 1] == 2.0 * (100_000.0 + (split_position - 1) * 100.0)
-    assert expected_volume[split_position] == 100_000.0 + split_position * 100.0
+    assert expected_volume[split_position - 1] == 2.0 * (
+        100_000.0 + (split_position - 1) * 100.0
+    )
+    assert expected_volume[split_position] == (
+        100_000.0 + split_position * 100.0
+    )
 
-    # Cash-dividend adjustment is price-only: the fixture's adjusted prices
-    # are passed through unchanged and its volume series is not dividend-scaled.
+    # Cash-dividend adjustment is price-only: adjusted prices are passed
+    # through unchanged and volume is not dividend-scaled.
     np.testing.assert_allclose(
         historical[("Close", "AAA")].to_numpy(dtype=float),
         expected_close,
@@ -130,10 +134,12 @@ def test_split_and_dividend_adjusted_ohlcv_are_preserved_in_training_and_inferen
         atol=0.0,
     )
     dividend_position = 55
-    assert expected_volume[dividend_position - 1] == 2.0 * (
+    assert expected_volume[dividend_position - 1] == (
         100_000.0 + (dividend_position - 1) * 100.0
     )
-    assert expected_volume[dividend_position] == 100_000.0 + dividend_position * 100.0
+    assert expected_volume[dividend_position] == (
+        100_000.0 + dividend_position * 100.0
+    )
 
     # Training and inference must derive identical PPO inputs from the
     # adjusted OHLCV response, including the rolling-indicator warm-up.

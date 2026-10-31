@@ -1323,7 +1323,6 @@ def test_ppo_prune_fsyncs_partial_deletions_before_reporting_unlink_error(
 
 
 def test_ppo_prune_reports_directory_fsync_failure_after_cleanup(tmp_path, monkeypatch):
-    from pathlib import Path
     from src.agents import ppo_agent
 
     model_path = tmp_path / "fsync-failure.zip"

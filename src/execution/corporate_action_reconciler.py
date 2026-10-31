@@ -415,6 +415,8 @@ class CorporateActionReconciler:
             "last_reconciled_at": datetime.now(timezone.utc).isoformat(),
             "recent_events": ledger,
             "unresolved_activity_ids": sorted(unresolved),
+            "resolved_activity_symbols": copy.deepcopy(resolved_symbols),
+            "manual_resolution_history": copy.deepcopy(resolution_history),
             "blocked_symbols": sorted(blocked_symbols),
             "pagination_checkpoint_seen": bool(checkpoint_seen),
         }

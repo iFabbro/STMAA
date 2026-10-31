@@ -107,3 +107,50 @@ def test_events_and_snapshots_reject_terminal_runs(tmp_path):
 
     assert event_count == 0
     assert snapshot_count == 0
+
+
+
+def test_db_connection_rolls_back_on_keyboard_interrupt(tmp_path):
+    database = tmp_path / "stmaa.db"
+    with db_conn(database) as conn:
+        conn.execute("CREATE TABLE records (value TEXT NOT NULL)")
+
+    with pytest.raises(KeyboardInterrupt):
+        with db_conn(database) as conn:
+            conn.execute("INSERT INTO records (value) VALUES ('partial')")
+            raise KeyboardInterrupt
+
+    with db_conn(database) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+
+    assert count == 0
+
+
+def test_db_connection_closes_when_foreign_key_setup_fails(tmp_path, monkeypatch):
+    class FailingConnection:
+        closed = False
+        rolled_back = False
+        row_factory = None
+
+        def execute(self, _statement):
+            raise sqlite3.OperationalError("simulated database I/O failure")
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def close(self):
+            self.closed = True
+
+    connection = FailingConnection()
+    monkeypatch.setattr(
+        sqlite_logger.sqlite3, "connect", lambda _path: connection
+    )
+
+    with pytest.raises(
+        sqlite3.OperationalError, match="simulated database I/O failure"
+    ):
+        with db_conn(tmp_path / "stmaa.db"):
+            pass
+
+    assert connection.rolled_back
+    assert connection.closed

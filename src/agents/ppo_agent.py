@@ -12,7 +12,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 logger = logging.getLogger(__name__)
-MODEL_CONTRACT_VERSION = 2
+MODEL_CONTRACT_VERSION = 3
 
 
 class StockTradingEnv(gym.Env):
@@ -31,6 +31,9 @@ class StockTradingEnv(gym.Env):
         tickers: List[str],
         initial_capital: float = 100000.0,
         transaction_cost: float = 0.001,
+        slippage: float = 0.0005,
+        max_position_size: float = 0.2,
+        max_gross_exposure: float = 0.5,
         lookback: int = 20,
     ):
         super().__init__()
@@ -40,8 +43,15 @@ class StockTradingEnv(gym.Env):
             raise ValueError("tickers must be a non-empty list of unique symbols")
         if not np.isfinite(initial_capital) or initial_capital <= 0:
             raise ValueError("initial_capital must be finite and positive")
-        if not np.isfinite(transaction_cost) or not 0 <= transaction_cost < 1:
-            raise ValueError("transaction_cost must be finite and in [0, 1)")
+        costs = np.asarray([transaction_cost, slippage, max_position_size, max_gross_exposure], dtype=float)
+        if not np.isfinite(costs).all():
+            raise ValueError("Trading costs and allocation limits must be finite")
+        if transaction_cost < 0 or slippage < 0 or transaction_cost + slippage >= 1:
+            raise ValueError("transaction_cost and slippage must be non-negative and sum to less than 1")
+        if max_position_size <= 0 or max_gross_exposure <= 0:
+            raise ValueError("Allocation limits must be positive")
+        if max_position_size > 1 or max_gross_exposure > 1:
+            raise ValueError("Allocation limits cannot exceed 1")
         if not isinstance(lookback, int) or lookback < 0 or lookback >= len(df) - 1:
             raise ValueError("lookback must be >= 0 and leave at least two usable rows")
 
@@ -68,6 +78,9 @@ class StockTradingEnv(gym.Env):
         self.n_assets = len(self.tickers)
         self.initial_capital = float(initial_capital)
         self.transaction_cost = float(transaction_cost)
+        self.slippage = float(slippage)
+        self.max_position_size = float(max_position_size)
+        self.max_gross_exposure = float(max_gross_exposure)
         self.lookback = lookback
         self.current_step = lookback
         self.balance = self.initial_capital
@@ -87,17 +100,29 @@ class StockTradingEnv(gym.Env):
         )
 
     @staticmethod
-    def action_to_weights(action: np.ndarray, n_assets: int) -> np.ndarray:
+    def action_to_weights(
+        action: np.ndarray,
+        n_assets: int,
+        max_position_size: float = 0.2,
+        max_gross_exposure: float = 0.5,
+    ) -> np.ndarray:
         action = np.asarray(action, dtype=float)
         if action.shape != (n_assets,):
             raise ValueError(f"Expected action shape {(n_assets,)}, got {action.shape}")
         if not np.isfinite(action).all():
             raise ValueError("Action values must be finite")
+        limits = np.asarray([max_position_size, max_gross_exposure], dtype=float)
+        if not np.isfinite(limits).all() or (limits <= 0).any() or (limits > 1).any():
+            raise ValueError("Allocation limits must be finite and in (0, 1]")
         scores = np.clip(action, -1.0, 1.0) + 1.0
         total = float(scores.sum())
         if total <= np.finfo(float).eps:
-            return np.full(n_assets, 1.0 / n_assets, dtype=float)
-        return scores / total
+            normalized = np.full(n_assets, 1.0 / n_assets, dtype=float)
+        else:
+            normalized = scores / total
+        # Deliberately do not redistribute after clipping: any unused allocation
+        # remains cash and can never push a name or gross exposure above its cap.
+        return np.minimum(normalized * max_gross_exposure, max_position_size)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -125,7 +150,9 @@ class StockTradingEnv(gym.Env):
         if self.current_step >= len(self.df) - 1:
             raise RuntimeError("Episode is terminated; call reset() before step()")
 
-        target_weights = self.action_to_weights(action, self.n_assets)
+        target_weights = self.action_to_weights(
+            action, self.n_assets, self.max_position_size, self.max_gross_exposure
+        )
         current_prices = self._get_current_prices()
         equity_before_trade = float(self.balance + np.dot(self.stocks, current_prices))
         if not np.isfinite(equity_before_trade) or equity_before_trade <= 0:
@@ -133,7 +160,7 @@ class StockTradingEnv(gym.Env):
 
         current_weights = self.stocks * current_prices / equity_before_trade
         turnover = float(np.abs(target_weights - current_weights).sum())
-        cost = equity_before_trade * turnover * self.transaction_cost
+        cost = equity_before_trade * turnover * (self.transaction_cost + self.slippage)
         equity_after_cost = equity_before_trade - cost
         if not np.isfinite(equity_after_cost) or equity_after_cost <= 0:
             self.balance = 0.0
@@ -148,7 +175,7 @@ class StockTradingEnv(gym.Env):
 
         # Rebalance at close t, using post-cost equity; all positions are long-only.
         self.stocks = target_weights * equity_after_cost / current_prices
-        self.balance = 0.0
+        self.balance = equity_after_cost * max(0.0, 1.0 - float(target_weights.sum()))
         self.current_step += 1
         next_prices = self._get_current_prices()
         self.total_asset = float(self.balance + np.dot(self.stocks, next_prices))
@@ -202,6 +229,10 @@ class PPOAgent:
         n_epochs: int = 10,
         gamma: float = 0.99,
         verbose: int = 0,
+        transaction_cost: float = 0.001,
+        slippage: float = 0.0005,
+        max_position_size: float = 0.2,
+        max_gross_exposure: float = 0.5,
     ):
         if not tickers or len(set(tickers)) != len(tickers):
             raise ValueError("tickers must be a non-empty list of unique symbols")
@@ -209,7 +240,21 @@ class PPOAgent:
         self.initial_capital = float(initial_capital)
         if not np.isfinite(self.initial_capital) or self.initial_capital <= 0:
             raise ValueError("initial_capital must be finite and positive")
-        self.model_path = model_path or "models/ppo_trading_model_v2.zip"
+        self.model_path = model_path or "models/ppo_trading_model_v3.zip"
+        self.transaction_cost = float(transaction_cost)
+        self.slippage = float(slippage)
+        self.max_position_size = float(max_position_size)
+        self.max_gross_exposure = float(max_gross_exposure)
+        limits = np.asarray([
+            self.transaction_cost, self.slippage,
+            self.max_position_size, self.max_gross_exposure,
+        ], dtype=float)
+        if not np.isfinite(limits).all():
+            raise ValueError("PPO costs and allocation limits must be finite")
+        if self.transaction_cost < 0 or self.slippage < 0 or self.transaction_cost + self.slippage >= 1:
+            raise ValueError("PPO costs must be non-negative and sum to less than 1")
+        if not 0 < self.max_position_size <= 1 or not 0 < self.max_gross_exposure <= 1:
+            raise ValueError("PPO allocation limits must be in (0, 1]")
         self.learning_rate = learning_rate
         self.n_steps = n_steps
         self.batch_size = batch_size
@@ -225,7 +270,13 @@ class PPOAgent:
         else:
             logger.info("No compatible PPO v2 model found; inference will fail closed until a model is trained or loaded")
 
-    def train(self, df: pd.DataFrame, total_timesteps: int = 50000):
+    def train(
+        self,
+        df: pd.DataFrame,
+        total_timesteps: int = 50000,
+        validation_df: Optional[pd.DataFrame] = None,
+        training_metadata: Optional[dict] = None,
+    ):
         if total_timesteps <= 0:
             raise ValueError("total_timesteps must be positive")
 
@@ -234,6 +285,10 @@ class PPOAgent:
                 df=df.copy(),
                 tickers=self.tickers,
                 initial_capital=self.initial_capital,
+                transaction_cost=self.transaction_cost,
+                slippage=self.slippage,
+                max_position_size=self.max_position_size,
+                max_gross_exposure=self.max_gross_exposure,
             )
 
         self.env = DummyVecEnv([make_env])
@@ -246,8 +301,49 @@ class PPOAgent:
         else:
             self.model.set_env(self.env)
         self.model.learn(total_timesteps=total_timesteps)
-        self.save()
+        validation_metrics = self.evaluate(validation_df) if validation_df is not None else None
+        metadata = dict(training_metadata or {})
+        if validation_metrics is not None:
+            metadata["validation_metrics"] = validation_metrics
+        self.save(training_metadata=metadata)
         logger.info("PPO training completed")
+        return validation_metrics
+
+    def evaluate(self, df: pd.DataFrame) -> dict:
+        """Evaluate the deterministic policy on a separate chronological holdout."""
+        if self.model is None:
+            raise RuntimeError("Cannot evaluate PPO policy before training or loading")
+        env = StockTradingEnv(
+            df=df.reset_index(drop=True).copy(),
+            tickers=self.tickers,
+            initial_capital=self.initial_capital,
+            transaction_cost=self.transaction_cost,
+            slippage=self.slippage,
+            max_position_size=self.max_position_size,
+            max_gross_exposure=self.max_gross_exposure,
+            lookback=0,
+        )
+        observation, _ = env.reset()
+        equity = [self.initial_capital]
+        terminated = False
+        while not terminated:
+            action, _ = self.model.predict(observation, deterministic=True)
+            observation, _, terminated, truncated, info = env.step(action)
+            if truncated:
+                raise RuntimeError("Unexpected truncation during PPO validation")
+            equity.append(float(info["total_asset"]))
+        values = np.asarray(equity, dtype=float)
+        if not np.isfinite(values).all() or (values <= 0).any():
+            raise RuntimeError("PPO validation produced invalid portfolio equity")
+        peaks = np.maximum.accumulate(values)
+        return {
+            "observations": int(len(df)),
+            "steps": int(len(values) - 1),
+            "initial_value": float(values[0]),
+            "final_value": float(values[-1]),
+            "cumulative_return": float(values[-1] / values[0] - 1.0),
+            "max_drawdown": float(np.min(values / peaks - 1.0)),
+        }
 
     def predict_weights(
         self,
@@ -275,6 +371,10 @@ class PPOAgent:
             df=market_data.reset_index(drop=True).copy(),
             tickers=self.tickers,
             initial_capital=self.initial_capital,
+            transaction_cost=self.transaction_cost,
+            slippage=self.slippage,
+            max_position_size=self.max_position_size,
+            max_gross_exposure=self.max_gross_exposure,
             lookback=0,
         )
         observation, _ = env.reset(options={
@@ -282,9 +382,11 @@ class PPOAgent:
             "initial_weights": current_weights,
         })
         action, _ = self.model.predict(observation, deterministic=True)
-        return StockTradingEnv.action_to_weights(action, len(self.tickers))
+        return StockTradingEnv.action_to_weights(
+            action, len(self.tickers), self.max_position_size, self.max_gross_exposure
+        )
 
-    def save(self):
+    def save(self, training_metadata: Optional[dict] = None):
         if self.model is None:
             raise RuntimeError("Cannot save PPO model before training")
         model_path = Path(self.model_path)
@@ -295,7 +397,12 @@ class PPOAgent:
             "contract_version": MODEL_CONTRACT_VERSION,
             "tickers": self.tickers,
             "state_dim": 1 + len(self.tickers) * 6,
-            "action_contract": "long_only_target_weights",
+            "action_contract": "long_only_capped_target_weights",
+            "transaction_cost": self.transaction_cost,
+            "slippage": self.slippage,
+            "max_position_size": self.max_position_size,
+            "max_gross_exposure": self.max_gross_exposure,
+            "training": training_metadata or {},
         }, indent=2))
 
     def load(self):
@@ -313,6 +420,16 @@ class PPOAgent:
             raise ValueError("PPO model contract version is incompatible; retrain the model")
         if metadata.get("tickers") != self.tickers or metadata.get("state_dim") != expected_dim:
             raise ValueError("PPO model ticker/state contract is incompatible; retrain the model")
-        if metadata.get("action_contract") != "long_only_target_weights":
+        if metadata.get("action_contract") != "long_only_capped_target_weights":
             raise ValueError("PPO model action contract is incompatible; retrain the model")
+        expected_parameters = {
+            "transaction_cost": self.transaction_cost,
+            "slippage": self.slippage,
+            "max_position_size": self.max_position_size,
+            "max_gross_exposure": self.max_gross_exposure,
+        }
+        for key, expected in expected_parameters.items():
+            actual = metadata.get(key)
+            if not isinstance(actual, (int, float)) or not np.isclose(actual, expected, rtol=0, atol=1e-12):
+                raise ValueError(f"PPO model {key} is incompatible; retrain the model")
         self.model = PPO.load(str(model_path))

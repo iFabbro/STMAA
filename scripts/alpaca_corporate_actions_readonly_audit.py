@@ -205,8 +205,9 @@ def validate_adjustment_effect(
     adjusted: pd.DataFrame,
     event_type: str,
     ex_date: date,
+    adjustment_label: str = "adjustment=all",
 ) -> dict[str, Any]:
-    """Check that adjustment=all changes only the expected historical dimensions."""
+    """Check that the requested adjustment changes only expected historical dimensions."""
     if raw.empty or adjusted.empty or not raw.index.equals(adjusted.index):
         raise AssertionError("raw and adjusted bars must have identical non-empty sessions")
     if raw.isna().any().any() or adjusted.isna().any().any():
@@ -230,7 +231,7 @@ def validate_adjustment_effect(
         atol=1e-8,
     )
     if not price_changed:
-        raise AssertionError(f"adjustment=all did not adjust pre-event prices for {event_type}")
+        raise AssertionError(f"{adjustment_label} did not adjust pre-event prices for {event_type}")
     if event_type == "split" and not volume_changed:
         raise AssertionError("adjustment=all did not adjust pre-event volume for split")
     if event_type in ("dividend", "spin_off") and volume_changed:
@@ -306,9 +307,58 @@ def run_audit(
                 continue
 
             # Once the raw event session exists, missing adjusted data or a
-            # quantitative mismatch remains a hard failure, not a skip.
+            # quantitative mismatch remains a hard failure, not a skip. For
+            # spin-offs, independently probe Alpaca's dedicated adjustment mode
+            # only when "all" reports no historical price adjustment. If the
+            # dedicated mode also has no effect, this candidate is not auditable
+            # on this feed and may be skipped in favor of another independent
+            # spin-off. If the dedicated mode works but "all" does not, fail:
+            # the combined adjustment contract is not being honored.
             adjusted = fetch_daily_bars(client, symbol, ex_date, DATA_ADJUSTMENT)
-            result = validate_adjustment_effect(raw, adjusted, event_type, ex_date)
+            try:
+                result = validate_adjustment_effect(
+                    raw, adjusted, event_type, ex_date
+                )
+            except AssertionError as exc:
+                expected_no_spin_off_adjustment = (
+                    event_type == "spin_off"
+                    and str(exc)
+                    == "adjustment=all did not adjust pre-event prices for spin_off"
+                )
+                if not expected_no_spin_off_adjustment:
+                    raise
+
+                spin_off_adjusted = fetch_daily_bars(
+                    client, symbol, ex_date, "spin-off"
+                )
+                try:
+                    validate_adjustment_effect(
+                        raw,
+                        spin_off_adjusted,
+                        event_type,
+                        ex_date,
+                        adjustment_label="adjustment=spin-off",
+                    )
+                except AssertionError as spin_off_exc:
+                    if str(spin_off_exc) != (
+                        "adjustment=spin-off did not adjust pre-event prices for spin_off"
+                    ):
+                        raise
+                    skipped_candidates.setdefault(event_type, []).append({
+                        "symbol": symbol,
+                        "ex_date": ex_date.isoformat(),
+                        "reason": (
+                            "Alpaca IEX returned no historical price adjustment "
+                            "for this spin-off in either adjustment=all or "
+                            "adjustment=spin-off; candidate is not auditable"
+                        ),
+                    })
+                    continue
+
+                raise AssertionError(
+                    "adjustment=all omitted the spin-off adjustment even though "
+                    "adjustment=spin-off independently adjusted pre-event prices"
+                ) from exc
             result.update({
                 "symbol": symbol,
                 "corporate_action_id": event.get("id"),

@@ -1347,3 +1347,70 @@ def test_ppo_prune_reports_directory_fsync_failure_after_cleanup(tmp_path, monke
 
     assert all(not path.exists() for path in generations)
     assert active_path.read_bytes() == b"active-generation"
+
+
+def test_ppo_prune_aborts_without_deleting_when_directory_scan_fails(
+    tmp_path, monkeypatch
+):
+    from pathlib import Path
+
+    model_path = tmp_path / "scan-error.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    active_path, generations = _create_old_ppo_prune_generations(
+        tmp_path, model_path, agent
+    )
+    real_iterdir = Path.iterdir
+
+    def fail_model_directory_scan(path):
+        if path == tmp_path:
+            raise OSError("simulated directory scan failure")
+        return real_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", fail_model_directory_scan)
+    with pytest.raises(OSError, match="directory scan failure"):
+        agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+
+    assert active_path.is_file()
+    assert all(path.is_file() for path in generations)
+
+
+def test_ppo_prune_preserves_generation_when_its_digest_cannot_be_read(
+    tmp_path, monkeypatch
+):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "unreadable-generation.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    active_path, generations = _create_old_ppo_prune_generations(
+        tmp_path, model_path, agent
+    )
+    unreadable = generations[0]
+    readable = generations[1]
+    real_digest = ppo_agent._sha256_file
+
+    def fail_selected_digest(path):
+        if Path(path) == unreadable:
+            raise OSError("simulated artifact read failure")
+        return real_digest(path)
+
+    monkeypatch.setattr(ppo_agent, "_sha256_file", fail_selected_digest)
+    removed = agent.prune_artifacts(
+        retain_generations=1,
+        dry_run=False,
+        min_generation_age_seconds=0,
+    )
+
+    assert active_path.is_file()
+    assert unreadable.is_file()
+    assert not readable.exists()
+    assert str(readable) in removed
+    assert str(unreadable) not in removed

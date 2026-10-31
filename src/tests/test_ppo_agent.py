@@ -808,3 +808,138 @@ def test_ppo_prune_rejects_symlinked_active_generation(tmp_path):
 
     assert active_path.is_symlink()
     assert external_artifact.exists()
+
+
+
+@pytest.mark.parametrize(
+    "failure_point",
+    ["artifact_replace", "artifact_directory_fsync", "manifest_replace"],
+)
+def test_ppo_save_publication_failures_before_manifest_replace_preserve_previous_generation(
+    tmp_path, monkeypatch, failure_point
+):
+    import json
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "crash-recovery.zip"
+    manifest_path = Path(str(model_path) + ".metadata.json")
+
+    class SavedModel:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def save(self, path):
+            Path(path).write_bytes(self.payload)
+
+    writer = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    writer.model = SavedModel(b"previous-generation")
+    writer.save()
+    previous_manifest = json.loads(manifest_path.read_text())
+    previous_artifact = tmp_path / previous_manifest["artifact_file"]
+
+    writer.model = SavedModel(b"candidate-generation")
+    real_replace = ppo_agent.os.replace
+    if failure_point in ("artifact_replace", "manifest_replace"):
+        def fail_selected_replace(source, destination):
+            destination = Path(destination)
+            if failure_point == "artifact_replace" and destination != manifest_path:
+                raise OSError("simulated artifact publication interruption")
+            if failure_point == "manifest_replace" and destination == manifest_path:
+                raise OSError("simulated manifest publication interruption")
+            return real_replace(source, destination)
+
+        monkeypatch.setattr(ppo_agent.os, "replace", fail_selected_replace)
+    else:
+        def fail_artifact_directory_fsync(path):
+            raise OSError("simulated artifact directory fsync interruption")
+
+        monkeypatch.setattr(
+            ppo_agent, "_fsync_directory", fail_artifact_directory_fsync
+        )
+
+    expected_message = {
+        "artifact_replace": "artifact publication interruption",
+        "artifact_directory_fsync": "artifact directory fsync interruption",
+        "manifest_replace": "manifest publication interruption",
+    }[failure_point]
+    with pytest.raises(OSError, match=expected_message):
+        writer.save()
+
+    assert json.loads(manifest_path.read_text()) == previous_manifest
+    assert previous_artifact.read_bytes() == b"previous-generation"
+
+    captured = {}
+    monkeypatch.setattr(
+        ppo_agent.PPO, "load",
+        lambda path: captured.setdefault("path", path) or object(),
+    )
+    restarted = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    restarted.load()
+    assert Path(captured["path"]) == previous_artifact
+
+
+def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import json
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "post-commit-fsync.zip"
+    manifest_path = Path(str(model_path) + ".metadata.json")
+
+    class SavedModel:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def save(self, path):
+            Path(path).write_bytes(self.payload)
+
+    writer = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    writer.model = SavedModel(b"previous-generation")
+    writer.save()
+    previous_manifest = json.loads(manifest_path.read_text())
+
+    writer.model = SavedModel(b"committed-generation")
+    real_fsync_directory = ppo_agent._fsync_directory
+    calls = 0
+
+    def fail_after_manifest_replace(path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated post-manifest directory fsync failure")
+        return real_fsync_directory(path)
+
+    monkeypatch.setattr(
+        ppo_agent, "_fsync_directory", fail_after_manifest_replace
+    )
+    with pytest.raises(OSError, match="post-manifest directory fsync failure"):
+        writer.save()
+
+    current_manifest = json.loads(manifest_path.read_text())
+    assert current_manifest != previous_manifest
+    active_artifact = tmp_path / current_manifest["artifact_file"]
+    assert active_artifact.read_bytes() == b"committed-generation"
+    assert current_manifest["model_sha256"] == hashlib.sha256(
+        active_artifact.read_bytes()
+    ).hexdigest()
+
+    captured = {}
+    monkeypatch.setattr(
+        ppo_agent.PPO, "load",
+        lambda path: captured.setdefault("path", path) or object(),
+    )
+    restarted = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    restarted.load()
+    assert Path(captured["path"]) == active_artifact

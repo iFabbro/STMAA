@@ -4,6 +4,7 @@ Uses the retail Trading API account-activities endpoint through TradingClient's
 underlying REST transport. It never mutates broker state or submits orders.
 """
 from datetime import datetime, timezone
+import math
 from typing import Callable, Dict, Iterable, List, Optional
 
 
@@ -63,7 +64,6 @@ class CorporateActionReconciler:
                 raise RuntimeError(
                     f"Corporate-action reconciliation cannot validate quantity for {symbol}"
                 ) from exc
-            import math
             if not math.isfinite(quantity):
                 raise RuntimeError(
                     f"Corporate-action reconciliation received non-finite quantity for {symbol}"
@@ -85,6 +85,7 @@ class CorporateActionReconciler:
                 f"Alpaca returned unexpected activity type in corporate-action response: {activity_type or '<missing>'}"
             )
         symbol = activity.get("symbol")
+        activity_sub_type = activity.get("activity_sub_type")
         if symbol is not None:
             if not isinstance(symbol, str) or not symbol.strip():
                 raise RuntimeError("Alpaca corporate-action activity contains an invalid symbol")
@@ -98,7 +99,7 @@ class CorporateActionReconciler:
             "id": activity_id.strip(),
             "activity_type": activity_type,
             "symbol": symbol,
-            "activity_sub_type": activity.get("activity_sub_type"),
+            "activity_sub_type": activity_sub_type,
             "date": activity.get("date") or activity.get("created_at"),
             "status": str(status).strip().lower() if status is not None else None,
         }
@@ -179,27 +180,42 @@ class CorporateActionReconciler:
         ):
             raise RuntimeError("Persisted corporate-action event ledger is malformed")
 
-        ledger = dict(existing_events)
-        for activity in new_activities:
-            ledger[activity["id"]] = activity
-        # Bound local audit state. The checkpoint preserves incremental pagination;
-        # the broker remains the source of truth for older historical activities.
-        if len(ledger) > 500:
-            ordered = list(ledger.items())[-500:]
-            ledger = dict(ordered)
+        # Newest activities are first in the descending API response. Preserve
+        # active historical blockers even when the bounded recent-event ledger rolls.
+        ledger = {activity["id"]: activity for activity in new_activities}
+        for activity_id, activity in existing_events.items():
+            ledger.setdefault(activity_id, activity)
 
         latest_activity_id = (
             new_activities[0]["id"] if new_activities else old_checkpoint
         )
-        unresolved = []
+        unresolved = set(previous.get("unresolved_activity_ids", []))
+        if any(not isinstance(item, str) or not item for item in unresolved):
+            raise RuntimeError("Persisted unresolved corporate-action IDs are malformed")
         blocked_symbols = set()
+        active_event_ids = set(unresolved)
         for activity in ledger.values():
             symbol = activity.get("symbol")
+            cash_only_reorganization = (
+                activity.get("activity_type") == "REO"
+                and str(activity.get("activity_sub_type") or "").upper() == "REOC"
+            )
             if not symbol:
-                unresolved.append(activity["id"])
+                if not cash_only_reorganization:
+                    unresolved.add(activity["id"])
+                    active_event_ids.add(activity["id"])
                 continue
             if symbol in held and symbol not in configured:
                 blocked_symbols.add(symbol)
+                active_event_ids.add(activity["id"])
+
+        # Retain the 500 newest known events plus any still-active blockers.
+        retained_ids = set(list(ledger.keys())[:500]) | active_event_ids
+        ledger = {
+            activity_id: activity
+            for activity_id, activity in ledger.items()
+            if activity_id in retained_ids
+        }
 
         next_state = {
             "last_activity_id": latest_activity_id,

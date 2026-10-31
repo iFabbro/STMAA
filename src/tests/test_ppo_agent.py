@@ -53,8 +53,12 @@ def test_target_weight_action_earns_next_close_to_close_return():
     assert terminated is True
 
 
-def test_action_contract_maps_uniformly_minimum_scores_to_cash():
-    weights = StockTradingEnv.action_to_weights(np.array([-1.0, -1.0]), 2)
+@pytest.mark.parametrize(
+    "action",
+    [np.array([-1.0, -1.0]), np.array([-0.2, -0.8]), np.array([0.0, 0.0])],
+)
+def test_action_contract_maps_non_positive_scores_to_cash(action):
+    weights = StockTradingEnv.action_to_weights(action, 2)
     np.testing.assert_allclose(weights, np.zeros(2))
     assert np.all(weights >= 0)
     assert weights.sum() == pytest.approx(0.0)

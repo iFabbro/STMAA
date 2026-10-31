@@ -321,8 +321,8 @@ def run_audit(
         if result is None:
             skipped = skipped_candidates.get(event_type, [])
             raise RuntimeError(
-                f"INCONCLUSIVE: no {event_type} candidate has raw bars on feed "
-                f"{DATA_FEED}; checked {len(skipped)} candidate(s): "
+                f"INCONCLUSIVE: no {event_type} candidate has auditable raw ex-date coverage "
+                f"on feed {DATA_FEED}; checked {len(skipped)} candidate(s): "
                 + json.dumps(skipped, sort_keys=True)
             )
         results.append(result)

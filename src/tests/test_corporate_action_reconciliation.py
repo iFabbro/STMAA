@@ -266,3 +266,272 @@ def test_broker_executor_uses_read_only_trading_api_activities_endpoint():
         "MA,NC,REO,REORG,SC,SPIN,SPLIT"
     )
     assert persisted == [True]
+
+
+def test_manual_resolution_requires_evidence_and_persists_audit_record():
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "spin-no-symbol",
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                    "activity_sub_type": None,
+                    "date": "2026-10-30",
+                    "status": "executed",
+                }
+            },
+            "unresolved_activity_ids": ["spin-no-symbol"],
+        }
+    }
+    reconciler, updated, _, persisted = _reconciler([], state=state)
+
+    record = reconciler.resolve_unresolved_activity(
+        activity_id="spin-no-symbol",
+        symbol="CHILD",
+        evidence="broker statement ref: CA-2026-1042",
+        actor="operator-1",
+        reason="Issuer corporate-action notice identifies CHILD as the distributed security",
+    )
+
+    stored = updated["corporate_action_reconciliation"]
+    assert stored["unresolved_activity_ids"] == []
+    assert stored["resolved_activity_symbols"]["spin-no-symbol"] == record
+    assert stored["manual_resolution_history"] == [record]
+    assert record["symbol"] == "CHILD"
+    assert record["evidence"] == "broker statement ref: CA-2026-1042"
+    assert record["actor"] == "operator-1"
+    assert record["reason"].startswith("Issuer corporate-action notice")
+    assert record["resolved_at"]
+    assert persisted == [True]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"evidence": ""},
+        {"actor": ""},
+        {"reason": ""},
+        {"symbol": "INVALID SYMBOL"},
+    ],
+)
+def test_manual_resolution_rejects_missing_or_invalid_operator_input(kwargs):
+    state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                }
+            },
+            "unresolved_activity_ids": ["spin-no-symbol"],
+        }
+    }
+    reconciler, updated, _, persisted = _reconciler([], state=state)
+    arguments = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "verified against issuer notice",
+    }
+    arguments.update(kwargs)
+
+    with pytest.raises(ValueError):
+        reconciler.resolve_unresolved_activity(**arguments)
+
+    assert updated["corporate_action_reconciliation"]["unresolved_activity_ids"] == [
+        "spin-no-symbol"
+    ]
+    assert "resolved_activity_symbols" not in updated["corporate_action_reconciliation"]
+    assert persisted == []
+
+
+def test_manual_resolution_rejects_unknown_or_non_unresolved_activity():
+    reconciler, state, _, persisted = _reconciler([[]], state={
+        "corporate_action_reconciliation": {
+            "recent_events": {},
+            "unresolved_activity_ids": [],
+        }
+    })
+
+    with pytest.raises(ValueError, match="not currently unresolved"):
+        reconciler.resolve_unresolved_activity(
+            "missing-id", "CHILD", "statement-123", "operator-1", "verified"
+        )
+
+    assert state["corporate_action_reconciliation"]["unresolved_activity_ids"] == []
+    assert persisted == []
+
+
+def test_manual_resolution_rolls_back_memory_when_persistence_fails():
+    state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                }
+            },
+            "unresolved_activity_ids": ["spin-no-symbol"],
+        }
+    }
+    original = {
+        "recent_events": {
+            "spin-no-symbol": {
+                "id": "spin-no-symbol",
+                "activity_type": "SPIN",
+                "symbol": None,
+            }
+        },
+        "unresolved_activity_ids": ["spin-no-symbol"],
+    }
+    reconciler = CorporateActionReconciler(
+        activity_page_reader=lambda _params: [],
+        state=state,
+        persist=lambda: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+
+    with pytest.raises(OSError, match="disk unavailable"):
+        reconciler.resolve_unresolved_activity(
+            "spin-no-symbol", "CHILD", "statement-123", "operator-1", "verified"
+        )
+
+    assert state["corporate_action_reconciliation"] == original
+
+
+def test_reconcile_honors_audited_manual_symbol_resolution_after_restart():
+    record = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "AAA",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "2026-10-31T10:00:00+00:00",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "spin-no-symbol",
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                    "activity_sub_type": None,
+                    "date": "2026-10-30",
+                    "status": "executed",
+                }
+            },
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"spin-no-symbol": record},
+            "manual_resolution_history": [record],
+        }
+    }
+    reconciler, updated, _, _ = _reconciler(
+        [[_activity("spin-no-symbol", symbol=None)]], state=state
+    )
+
+    result = reconciler.reconcile(["AAA"], {"AAA": {"qty": 1}})
+
+    assert result["new_activity_count"] == 0
+    assert updated["corporate_action_reconciliation"]["unresolved_activity_ids"] == []
+    assert updated["corporate_action_reconciliation"]["resolved_activity_symbols"][
+        "spin-no-symbol"
+    ]["symbol"] == "AAA"
+
+
+def test_audited_resolution_still_blocks_held_symbol_outside_configured_universe():
+    record = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "2026-10-31T10:00:00+00:00",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "spin-no-symbol",
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                    "activity_sub_type": None,
+                    "date": "2026-10-30",
+                    "status": "executed",
+                }
+            },
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"spin-no-symbol": record},
+            "manual_resolution_history": [record],
+        }
+    }
+    reconciler, _, _, _ = _reconciler(
+        [[_activity("spin-no-symbol", symbol=None)]], state=state
+    )
+
+    with pytest.raises(RuntimeError, match="outside the configured PPO universe"):
+        reconciler.reconcile(["PARENT"], {"CHILD": {"qty": 2}})
+
+
+def test_manual_resolution_map_and_history_mismatch_fails_closed():
+    record = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "2026-10-31T10:00:00+00:00",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "spin-no-symbol",
+            "recent_events": {},
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"spin-no-symbol": record},
+            "manual_resolution_history": [],
+        }
+    }
+    reconciler, updated, _, persisted = _reconciler([[]], state=state)
+
+    with pytest.raises(RuntimeError, match="map and audit history disagree"):
+        reconciler.reconcile(["AAA"], {"AAA": {"qty": 1}})
+
+    assert updated["corporate_action_reconciliation"]["resolved_activity_symbols"][
+        "spin-no-symbol"
+    ] == record
+    assert persisted == []
+
+
+def test_broker_executor_manual_resolution_uses_execution_lock_without_broker_calls():
+    from contextlib import nullcontext
+    from src.execution.broker_executor import BrokerExecutor
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {
+                "spin-no-symbol": {
+                    "id": "spin-no-symbol",
+                    "activity_type": "SPIN",
+                    "symbol": None,
+                }
+            },
+            "unresolved_activity_ids": ["spin-no-symbol"],
+        }
+    }
+    executor.execution_lock = lambda: nullcontext()
+    persisted = []
+    executor._save_state = lambda: persisted.append(True)
+
+    record = executor.resolve_corporate_action(
+        "spin-no-symbol", "CHILD", "statement-123", "operator-1", "verified"
+    )
+
+    assert record["symbol"] == "CHILD"
+    assert executor.state["corporate_action_reconciliation"]["unresolved_activity_ids"] == []
+    assert persisted == [True]

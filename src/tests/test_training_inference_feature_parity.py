@@ -7,7 +7,11 @@ import pandas as pd
 import pandas_market_calendars as mcal
 
 import src.data.data_processor as data_processor_module
-from src.data.alpaca_feed import AlpacaFeed
+from src.data.alpaca_feed import AlpacaFeed, _DAILY_TIMEFRAME
+
+
+def feed_module_timeframe():
+    return _DAILY_TIMEFRAME
 
 
 class _BarsResponse:
@@ -20,8 +24,10 @@ class _DeterministicAlpacaClient:
 
     def __init__(self, frame):
         self.frame = frame
+        self.requests = []
 
     def get_stock_bars(self, request):
+        self.requests.append(request)
         return _BarsResponse(self.frame.copy())
 
 
@@ -92,6 +98,13 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
 
     # Inference path: get_bars, with identical provider bars/configuration.
     inference = feed.get_bars(tickers, days=len(sessions))
+
+    # Both callers must request the same versioned Alpaca data configuration.
+    assert len(feed.client.requests) == 2
+    for request in feed.client.requests:
+        assert request.feed == "iex"
+        assert request.adjustment == "all"
+        assert request.timeframe == feed_module_timeframe()
 
     # PPO consumes these five features per ticker in ticker order.
     feature_names = ("Close", "RSI", "MACD", "BB_middle", "ATR")

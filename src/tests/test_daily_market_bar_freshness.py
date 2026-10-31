@@ -300,7 +300,8 @@ def test_inference_request_uses_versioned_daily_data_contract(feed, monkeypatch)
     feed.get_bars(["AAPL"], days=1)
 
     assert len(requests) == 1
-    assert requests[0].timeframe == TimeFrame(1, TimeFrameUnit.Day)
+    assert requests[0].timeframe.amount == 1
+    assert requests[0].timeframe.unit == TimeFrameUnit.Day
     assert requests[0].feed == DATA_FEED
     assert requests[0].adjustment == DATA_ADJUSTMENT
 

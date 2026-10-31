@@ -57,3 +57,19 @@ def test_chronological_split_rejects_too_small_or_invalid_fraction():
         chronological_split(data, validation_fraction=0.5)
     with pytest.raises(ValueError, match="at least 30 training"):
         chronological_split(data, validation_fraction=0.2)
+
+
+
+def test_flatten_processed_single_ticker_flat_columns():
+    data = pd.DataFrame({
+        "Close": [100.0, 101.0],
+        "RSI": [50.0, 55.0],
+        "MACD": [0.0, 0.2],
+        "BB_middle": [99.0, 100.0],
+        "ATR": [1.0, 1.1],
+    })
+    flattened = flatten_processed_data(data, ["AAA"])
+    assert list(flattened.columns) == [
+        "Close_AAA", "RSI_AAA", "MACD_AAA", "BB_middle_AAA", "ATR_AAA"
+    ]
+    np.testing.assert_allclose(flattened["Close_AAA"], data["Close"])

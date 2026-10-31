@@ -435,17 +435,19 @@ class PPOAgent:
         model_path = Path(self.model_path)
         model_path.parent.mkdir(parents=True, exist_ok=True)
         metadata_path = Path(str(model_path) + ".metadata.json")
-        model_fd, model_temp_name = tempfile.mkstemp(
-            prefix=f".{model_path.name}.", suffix=".zip", dir=model_path.parent
-        )
-        os.close(model_fd)
-        metadata_fd, metadata_temp_name = tempfile.mkstemp(
-            prefix=f".{metadata_path.name}.", suffix=".tmp", dir=model_path.parent
-        )
-        os.close(metadata_fd)
-        model_temp_path = Path(model_temp_name)
-        metadata_temp_path = Path(metadata_temp_name)
+        model_temp_path = None
+        metadata_temp_path = None
         try:
+            model_fd, model_temp_name = tempfile.mkstemp(
+                prefix=f".{model_path.name}.", suffix=".zip", dir=model_path.parent
+            )
+            os.close(model_fd)
+            model_temp_path = Path(model_temp_name)
+            metadata_fd, metadata_temp_name = tempfile.mkstemp(
+                prefix=f".{metadata_path.name}.", suffix=".tmp", dir=model_path.parent
+            )
+            os.close(metadata_fd)
+            metadata_temp_path = Path(metadata_temp_name)
             # Publish each model under an immutable content-addressed name. The
             # metadata file is the sole atomic pointer to the active generation.
             self.model.save(str(model_temp_path))
@@ -480,8 +482,10 @@ class PPOAgent:
             os.replace(metadata_temp_path, metadata_path)
             _fsync_directory(model_path.parent)
         finally:
-            model_temp_path.unlink(missing_ok=True)
-            metadata_temp_path.unlink(missing_ok=True)
+            if model_temp_path is not None:
+                model_temp_path.unlink(missing_ok=True)
+            if metadata_temp_path is not None:
+                metadata_temp_path.unlink(missing_ok=True)
 
     def load(self):
         model_path = Path(self.model_path)

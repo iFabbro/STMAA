@@ -30,6 +30,7 @@ except ModuleNotFoundError:
     from data.market_data_contract import (
         market_data_contract,
         validate_market_data_contract,
+        validate_market_data_fingerprint,
     )
 
 logger = logging.getLogger(__name__)

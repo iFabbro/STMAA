@@ -107,6 +107,7 @@ def main(argv=None):
     parser.add_argument("--end-date", required=True, help="Exclusive history end, YYYY-MM-DD")
     parser.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
     parser.add_argument("--total-timesteps", type=int, default=50000)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--model-path", type=Path, default=MODEL_PATH)
     parser.add_argument("--max-position-size", type=float, default=MAX_POSITION_SIZE)
@@ -134,6 +135,8 @@ def main(argv=None):
         slippage=args.slippage,
         max_position_size=args.max_position_size,
         max_gross_exposure=args.max_gross_exposure,
+        load_existing_model=False,
+        seed=args.seed,
         verbose=1,
     )
     metadata = {
@@ -146,7 +149,7 @@ def main(argv=None):
         "validation_end": str(validation.index.max()),
         "validation_fraction": args.validation_fraction,
         "total_timesteps": args.total_timesteps,
-        "seed": None,
+        "seed": args.seed,
     }
     metrics = agent.train(
         training,

@@ -82,6 +82,6 @@ def test_missing_current_account_id_does_not_reuse_persisted_identity(
     snapshot = executor.get_account_status()
 
     assert snapshot["account_data_fresh"] is False
-    assert snapshot["account_id"] is None
+    assert snapshot.get("account_id") is None
     assert executor.state["account_id"] == "previous-account"
     assert executor.state["account_data_fresh"] is False

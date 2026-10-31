@@ -1177,3 +1177,73 @@ def test_ppo_prune_preserves_future_dated_generations_and_staging_files(tmp_path
     assert orphan_path.read_bytes() == orphan_payload
     assert staging_path.read_bytes() == b"future-dated-staging"
     assert active_path.is_file()
+
+
+@pytest.mark.parametrize(
+    "manifest_mutation",
+    [
+        "missing_contract_version",
+        "wrong_contract_version",
+        "missing_tickers",
+        "wrong_state_dim",
+        "missing_action_contract",
+        "invalid_market_data_contract",
+        "wrong_cost_parameter",
+    ],
+)
+def test_ppo_prune_rejects_incompatible_manifest_without_deleting_recovery_generation(
+    tmp_path, manifest_mutation
+):
+    import json
+    import os
+    import time
+    from pathlib import Path
+
+    model_path = tmp_path / "incompatible-manifest.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest_mutation == "missing_contract_version":
+        manifest.pop("contract_version")
+    elif manifest_mutation == "wrong_contract_version":
+        manifest["contract_version"] = 999
+    elif manifest_mutation == "missing_tickers":
+        manifest.pop("tickers")
+    elif manifest_mutation == "wrong_state_dim":
+        manifest["state_dim"] = 999
+    elif manifest_mutation == "missing_action_contract":
+        manifest.pop("action_contract")
+    elif manifest_mutation == "invalid_market_data_contract":
+        manifest["market_data_contract"] = {}
+    elif manifest_mutation == "wrong_cost_parameter":
+        manifest["transaction_cost"] = 0.25
+    manifest_path.write_text(json.dumps(manifest))
+
+    recovery_payload = b"previous-recoverable-generation"
+    import hashlib
+
+    recovery_digest = hashlib.sha256(recovery_payload).hexdigest()
+    recovery_path = tmp_path / f"incompatible-manifest.{recovery_digest}.zip"
+    recovery_path.write_bytes(recovery_payload)
+    old = time.time() - 7200
+    os.utime(recovery_path, (old, old))
+
+    with pytest.raises(RuntimeError, match="active manifest is invalid"):
+        agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+
+    assert recovery_path.read_bytes() == recovery_payload
+    assert manifest_path.exists()

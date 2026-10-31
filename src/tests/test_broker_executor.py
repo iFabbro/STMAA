@@ -3600,4 +3600,3 @@ def test_account_status_rejects_boolean_financial_values(
     assert executor.state["account_data_fresh"] is False
     persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
     assert persisted["account_data_fresh"] is False
-

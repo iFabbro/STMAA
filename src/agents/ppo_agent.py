@@ -12,7 +12,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 logger = logging.getLogger(__name__)
-MODEL_CONTRACT_VERSION = 3
+MODEL_CONTRACT_VERSION = 4
 
 
 class StockTradingEnv(gym.Env):
@@ -117,9 +117,9 @@ class StockTradingEnv(gym.Env):
         scores = np.clip(action, -1.0, 1.0) + 1.0
         total = float(scores.sum())
         if total <= np.finfo(float).eps:
-            normalized = np.full(n_assets, 1.0 / n_assets, dtype=float)
-        else:
-            normalized = scores / total
+            # A uniformly minimum action is an explicit all-cash target.
+            return np.zeros(n_assets, dtype=float)
+        normalized = scores / total
         # Deliberately do not redistribute after clipping: any unused allocation
         # remains cash and can never push a name or gross exposure above its cap.
         return np.minimum(normalized * max_gross_exposure, max_position_size)
@@ -404,7 +404,7 @@ class PPOAgent:
             "contract_version": MODEL_CONTRACT_VERSION,
             "tickers": self.tickers,
             "state_dim": 1 + len(self.tickers) * 6,
-            "action_contract": "long_only_capped_target_weights",
+            "action_contract": "long_only_capped_target_weights_zero_floor",
             "transaction_cost": self.transaction_cost,
             "slippage": self.slippage,
             "max_position_size": self.max_position_size,
@@ -427,7 +427,7 @@ class PPOAgent:
             raise ValueError("PPO model contract version is incompatible; retrain the model")
         if metadata.get("tickers") != self.tickers or metadata.get("state_dim") != expected_dim:
             raise ValueError("PPO model ticker/state contract is incompatible; retrain the model")
-        if metadata.get("action_contract") != "long_only_capped_target_weights":
+        if metadata.get("action_contract") != "long_only_capped_target_weights_zero_floor":
             raise ValueError("PPO model action contract is incompatible; retrain the model")
         expected_parameters = {
             "transaction_cost": self.transaction_cost,

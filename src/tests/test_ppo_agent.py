@@ -470,6 +470,50 @@ def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
         PPOAgent(tickers=["A"], model_path=str(model_path))
 
 
+
+def test_model_load_deserializes_the_exact_bytes_that_passed_digest_verification(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import json
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "verified-buffer.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"verified-original-model")
+
+    agent.model = SavedModel()
+    agent.save()
+    metadata = json.loads(Path(str(model_path) + ".metadata.json").read_text())
+    artifact_path = tmp_path / metadata["artifact_file"]
+    expected_payload = artifact_path.read_bytes()
+    assert hashlib.sha256(expected_payload).hexdigest() == metadata["model_sha256"]
+
+    loaded = {}
+
+    def replace_path_then_load(artifact_buffer):
+        # Simulate an external writer replacing the path after verification but
+        # before the model loader consumes its input.
+        artifact_path.write_bytes(b"unverified-replacement-model")
+        loaded["payload"] = artifact_buffer.read()
+        return object()
+
+    monkeypatch.setattr(ppo_agent.PPO, "load", replace_path_then_load)
+    restarted = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    restarted.load()
+
+    assert loaded["payload"] == expected_payload
+    assert artifact_path.read_bytes() == b"unverified-replacement-model"
+
+
 def test_model_restart_loads_manifest_generation(tmp_path, monkeypatch):
     from pathlib import Path
     from src.agents import ppo_agent

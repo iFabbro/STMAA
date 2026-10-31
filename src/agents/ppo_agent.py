@@ -1,8 +1,8 @@
 """PPO agent with a consistent target-weight action contract."""
 import fcntl
 import hashlib
-import io
 import hmac
+import io
 import json
 import logging
 import os

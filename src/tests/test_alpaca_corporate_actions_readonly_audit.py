@@ -162,7 +162,7 @@ def test_run_audit_skips_candidate_without_ex_date_bar_and_uses_next(monkeypatch
         {"_audit_type": "dividend", "symbol": "AAA", "ex_date": "2025-01-03", "id": "no-session"},
         {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "covered"},
         {"_audit_type": "split", "symbol": "DDD", "ex_date": "2025-01-03", "id": "split"},
-        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2024-04-10", "id": "spin"},
+        {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "spin"},
     ]
     monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
     monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())
@@ -211,7 +211,7 @@ def test_run_audit_is_inconclusive_when_all_candidates_lack_ex_date_bar(monkeypa
 
     monkeypatch.setattr(audit, "fetch_daily_bars", bars_without_event_session)
 
-    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has raw bars"):
+    with pytest.raises(RuntimeError, match="INCONCLUSIVE: no split candidate has auditable raw ex-date coverage"):
         audit.run_audit("key", "secret", "2016-01-01", "2025-12-31")
 
 

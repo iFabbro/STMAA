@@ -703,3 +703,20 @@ def test_all_public_ppo_artifact_operations_fail_closed_without_lock(
     monkeypatch.setattr(ppo_agent.fcntl, "flock", fail_lock)
     with pytest.raises(RuntimeError, match="Unable to acquire PPO artifact lock"):
         getattr(agent, operation)()
+
+
+def test_ppo_artifact_lock_rejects_symlinked_lock_file(tmp_path):
+    from src.agents.ppo_agent import _artifact_lock
+
+    model_path = tmp_path / "symlinked-lock.zip"
+    lock_path = tmp_path / ".symlinked-lock.zip.artifact.lock"
+    external_target = tmp_path / "external-lock-target"
+    external_target.write_text("must remain untouched")
+    lock_path.symlink_to(external_target)
+
+    with pytest.raises(RuntimeError, match="Unable to open PPO artifact lock"):
+        with _artifact_lock(model_path):
+            pytest.fail("symlinked lock file must never be followed")
+
+    assert lock_path.is_symlink()
+    assert external_target.read_text() == "must remain untouched"

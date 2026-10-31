@@ -413,6 +413,63 @@ def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
         PPOAgent(tickers=["A"], model_path=str(model_path))
 
 
+def test_model_load_rejects_non_content_addressed_artifact_filename(tmp_path):
+    import hashlib
+    import json
+
+    model_path = tmp_path / "named.zip"
+    payload = b"valid model bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    (tmp_path / "arbitrary.zip").write_bytes(payload)
+    metadata = {
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": market_data_contract(),
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+        "model_sha256": digest,
+        "artifact_file": "arbitrary.zip",
+    }
+    (tmp_path / "named.zip.metadata.json").write_text(json.dumps(metadata))
+
+    with pytest.raises(ValueError, match="filename does not match its SHA-256"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
+    import hashlib
+    import json
+
+    model_path = tmp_path / "linked.zip"
+    external_artifact = tmp_path / "external-model.zip"
+    payload = b"valid model bytes"
+    external_artifact.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    artifact_name = f"linked.{digest}.zip"
+    (tmp_path / artifact_name).symlink_to(external_artifact)
+    metadata = {
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": market_data_contract(),
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+        "model_sha256": digest,
+        "artifact_file": artifact_name,
+    }
+    (tmp_path / "linked.zip.metadata.json").write_text(json.dumps(metadata))
+
+    with pytest.raises(ValueError, match="must not be a symbolic link"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
 def test_model_restart_loads_manifest_generation(tmp_path, monkeypatch):
     from pathlib import Path
     from src.agents import ppo_agent

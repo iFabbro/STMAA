@@ -92,6 +92,44 @@ def test_existing_checkpoint_stops_pagination_without_reprocessing_old_events():
     assert len(requests) == 1
 
 
+def test_missing_persisted_checkpoint_fails_closed_without_advancing_state():
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "checkpoint-no-longer-visible",
+            "recent_events": {},
+        }
+    }
+    pages = [[_activity("newer-activity")]]
+    reconciler, updated, _, persisted = _reconciler(pages, state=state)
+
+    with pytest.raises(RuntimeError, match="checkpoint was not found"):
+        reconciler.reconcile(["NEWCO"], {"NEWCO": {"qty": 1}})
+
+    assert updated["corporate_action_reconciliation"]["last_activity_id"] == (
+        "checkpoint-no-longer-visible"
+    )
+    assert updated["corporate_action_reconciliation"]["recent_events"] == {}
+    assert persisted == []
+
+
+def test_missing_persisted_checkpoint_on_empty_history_fails_closed():
+    state = {
+        "corporate_action_reconciliation": {
+            "last_activity_id": "checkpoint-no-longer-visible",
+            "recent_events": {},
+        }
+    }
+    reconciler, updated, _, persisted = _reconciler([[]], state=state)
+
+    with pytest.raises(RuntimeError, match="checkpoint was not found"):
+        reconciler.reconcile(["NEWCO"], {"NEWCO": {"qty": 1}})
+
+    assert updated["corporate_action_reconciliation"]["last_activity_id"] == (
+        "checkpoint-no-longer-visible"
+    )
+    assert persisted == []
+
+
 def test_missing_symbol_is_persisted_and_blocks_fail_closed():
     pages = [[_activity("spin-no-symbol", symbol=None)]]
     reconciler, state, _, _ = _reconciler(pages)

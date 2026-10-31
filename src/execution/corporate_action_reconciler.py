@@ -135,6 +135,11 @@ class CorporateActionReconciler:
             if len(page) > self._page_size:
                 raise RuntimeError("Alpaca corporate-action endpoint exceeded requested page size")
             if not page:
+                if checkpoint and not checkpoint_seen:
+                    raise RuntimeError(
+                        "Persisted corporate-action activity checkpoint was not found in the "
+                        "complete broker activity history; refusing to advance reconciliation"
+                    )
                 return activities, checkpoint, checkpoint_seen
 
             validated_page = [self._validate_activity(item) for item in page]
@@ -152,6 +157,11 @@ class CorporateActionReconciler:
                 return activities, checkpoint, True
 
             if len(page) < self._page_size:
+                if checkpoint and not checkpoint_seen:
+                    raise RuntimeError(
+                        "Persisted corporate-action activity checkpoint was not found in the "
+                        "complete broker activity history; refusing to advance reconciliation"
+                    )
                 return activities, checkpoint, False
 
             next_token = validated_page[-1]["id"]

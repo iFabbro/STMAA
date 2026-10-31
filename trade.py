@@ -133,6 +133,14 @@ class PaperTradingBot:
         positions = self.executor.get_positions()
         if not isinstance(positions, dict):
             raise RuntimeError("Cannot verify current broker positions for PPO inference")
+        corporate_action_reconcile = getattr(
+            self.executor, "reconcile_corporate_actions", None
+        )
+        if not callable(corporate_action_reconcile):
+            raise RuntimeError(
+                "Corporate-action reconciliation is unavailable; refusing PPO inference"
+            )
+        corporate_action_reconcile(self.tickers, positions=positions)
         # The bot's configured ticker list is the actual PPO universe. Corporate
         # actions can create broker holdings that the model cannot observe.
         # Validate them here rather than confusing a missing model symbol with

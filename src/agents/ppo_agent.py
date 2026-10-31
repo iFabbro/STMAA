@@ -656,7 +656,16 @@ class PPOAgent:
         ):
             raise ValueError("PPO model metadata has an invalid artifact filename")
         else:
+            expected_artifact_name = (
+                f"{model_path.stem}.{expected_digest}{model_path.suffix or '.zip'}"
+            )
+            if artifact_name != expected_artifact_name:
+                raise ValueError(
+                    "PPO model metadata artifact filename does not match its SHA-256"
+                )
             artifact_path = model_path.parent / artifact_name
+        if artifact_path.is_symlink():
+            raise ValueError("PPO model artifact must not be a symbolic link")
         if not artifact_path.is_file():
             raise FileNotFoundError(f"PPO model artifact not found: {artifact_path}")
         actual_digest = _sha256_file(artifact_path)

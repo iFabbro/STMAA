@@ -54,6 +54,7 @@ def _sha256_file(path: Path) -> str:
         if fd is not None:
             os.close(fd)
 
+
 def _verified_artifact_buffer(path: Path, expected_digest: str) -> io.BytesIO:
     """Return immutable verified model bytes for deserialization.
 

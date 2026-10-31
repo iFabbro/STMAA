@@ -174,7 +174,7 @@ class AlpacaFeed:
     def get_historical_ohlcv(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """Fetch contract-compliant adjusted daily OHLCV for model training.
 
-        end_date is exclusive, matching the training CLI and yfinance convention.
+        end_date is exclusive, matching the training CLI date-range contract.
         Unlike get_bars(), this method does not require the requested range to end
         at the latest session; it validates every expected NYSE session in range.
         """

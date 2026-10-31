@@ -53,12 +53,24 @@ def test_target_weight_action_earns_next_close_to_close_return():
     assert terminated is True
 
 
-def test_action_contract_is_long_only_and_handles_all_negative_scores():
-    weights = StockTradingEnv.action_to_weights(np.array([-1.0, -1.0]), 2)
-    np.testing.assert_allclose(weights, np.array([0.2, 0.2]))
+@pytest.mark.parametrize(
+    "action",
+    [np.array([-1.0, -1.0]), np.array([-0.2, -0.8]), np.array([0.0, 0.0])],
+)
+def test_action_contract_maps_non_positive_scores_to_cash(action):
+    weights = StockTradingEnv.action_to_weights(action, 2)
+    np.testing.assert_allclose(weights, np.zeros(2))
     assert np.all(weights >= 0)
-    assert weights.max() <= 0.2
-    assert weights.sum() == pytest.approx(0.4)
+    assert weights.sum() == pytest.approx(0.0)
+
+
+def test_action_contract_keeps_positive_scores_and_cash_residual():
+    weights = StockTradingEnv.action_to_weights(
+        np.array([-1.0, 1.0]), 2,
+        max_position_size=0.5, max_gross_exposure=0.5,
+    )
+    np.testing.assert_allclose(weights, np.array([0.0, 0.5]))
+    assert weights.sum() == pytest.approx(0.5)
 
 
 def test_invalid_market_data_and_actions_fail_explicitly():
@@ -150,10 +162,10 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
     model_path = tmp_path / "model.zip"
     model_path.write_bytes(b"placeholder")
     metadata = {
-        "contract_version": 3,
+        "contract_version": 4,
         "tickers": ["A"],
         "state_dim": 7,
-        "action_contract": "long_only_capped_target_weights",
+        "action_contract": "long_only_capped_target_weights_zero_floor",
         "transaction_cost": 0.001,
         "slippage": 0.0005,
         "max_position_size": 0.2,

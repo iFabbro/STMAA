@@ -906,3 +906,79 @@ def test_execute_and_persist_cycle_serializes_execution_with_snapshot_update():
         "second-execute",
         "second-snapshot",
     ]
+
+
+def test_generate_and_execute_cycle_holds_lock_across_inference_and_execution():
+    class LockingExecutor:
+        def __init__(self):
+            self.lock_depth = 0
+
+        @contextmanager
+        def execution_lock(self):
+            self.lock_depth += 1
+            try:
+                yield
+            finally:
+                self.lock_depth -= 1
+
+    executor = LockingExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.executor = executor
+    market_data = pd.DataFrame({"Close_AAPL": [100.0]})
+    expected_weights = PortfolioWeights(
+        weights=np.array([1.0]), tickers=["AAPL"]
+    )
+    observed = []
+
+    def generate_weights(data):
+        assert data is market_data
+        assert executor.lock_depth == 1
+        observed.append("inference")
+        return expected_weights
+
+    def execute_and_persist_cycle(weights):
+        assert weights is expected_weights
+        assert executor.lock_depth == 1
+        observed.append("execution")
+        return {"orders": []}
+
+    bot.generate_weights = generate_weights
+    bot.execute_and_persist_cycle = execute_and_persist_cycle
+
+    result = bot.generate_and_execute_cycle(market_data)
+
+    assert result == {"orders": []}
+    assert observed == ["inference", "execution"]
+    assert executor.lock_depth == 0
+
+
+def test_run_loop_uses_atomic_generation_and_execution_cycle(monkeypatch):
+    class ReadOnlyExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "cash": 1000.0,
+                "portfolio_value": 1000.0,
+                "equity": 1000.0,
+                "account_data_fresh": True,
+            }
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.executor = ReadOnlyExecutor()
+    bot.tickers = ["AAPL"]
+    market_data = pd.DataFrame({"Close_AAPL": [100.0]})
+    calls = []
+    bot.get_market_data = lambda: market_data
+    bot.generate_and_execute_cycle = lambda data: calls.append(data)
+
+    monkeypatch.setattr(trade, "running", True)
+
+    def stop_after_cycle(_):
+        monkeypatch.setattr(trade, "running", False)
+
+    monkeypatch.setattr(trade.time, "sleep", stop_after_cycle)
+    bot.run_loop(interval_seconds=0)
+
+    assert len(calls) == 1
+    assert calls[0] is market_data

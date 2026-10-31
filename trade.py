@@ -455,6 +455,14 @@ class PaperTradingBot:
             self.update_hub_state(result)
             return result
 
+    def generate_and_execute_cycle(self, market_data: pd.DataFrame):
+        """Keep the holdings snapshot, PPO inference, and execution in one locked cycle."""
+        execution_lock = getattr(self.executor, "execution_lock", None)
+        lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+        with lock_context:
+            weights = self.generate_weights(market_data)
+            return self.execute_and_persist_cycle(weights)
+
     def run_loop(self, interval_seconds: int = 60):
         """Run loop trading continuo"""
         print("\n" + "=" * 62)
@@ -474,8 +482,7 @@ class PaperTradingBot:
 
             try:
                 market_data = self.get_market_data()
-                weights = self.generate_weights(market_data)
-                self.execute_and_persist_cycle(weights)
+                self.generate_and_execute_cycle(market_data)
 
                 status = self.executor.get_account_status()
                 if status.get("account_data_fresh") is not True:

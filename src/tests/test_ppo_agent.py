@@ -1,3 +1,5 @@
+import multiprocessing
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -564,3 +566,57 @@ def test_ppo_artifact_operations_fail_closed_when_lock_cannot_be_acquired(
     monkeypatch.setattr(ppo_agent.fcntl, "flock", fail_lock)
     with pytest.raises(RuntimeError, match="Unable to acquire PPO artifact lock"):
         agent.prune_artifacts()
+
+
+
+def _artifact_lock_process_worker(model_path, timeout_seconds, result_queue):
+    from pathlib import Path
+    from src.agents.ppo_agent import _artifact_lock
+
+    try:
+        with _artifact_lock(Path(model_path), timeout_seconds=timeout_seconds):
+            result_queue.put("acquired")
+    except RuntimeError as exc:
+        result_queue.put(str(exc))
+
+
+def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_path):
+    from pathlib import Path
+    from src.agents.ppo_agent import _artifact_lock
+
+    model_path = tmp_path / "concurrent.zip"
+    context = multiprocessing.get_context("fork")
+    result_queue = context.Queue()
+
+    # A second process must time out while the first process owns the lock.
+    with _artifact_lock(model_path):
+        blocked = context.Process(
+            target=_artifact_lock_process_worker,
+            args=(str(model_path), 0.2, result_queue),
+        )
+        blocked.start()
+        blocked.join(timeout=5)
+        if blocked.is_alive():
+            blocked.terminate()
+            blocked.join(timeout=2)
+            pytest.fail("child process did not finish while testing lock contention")
+        assert blocked.exitcode == 0
+        assert result_queue.get(timeout=1) == (
+            "Timed out acquiring PPO artifact lock; refusing artifact operation"
+        )
+
+    # Once the owner exits, a fresh process must be able to acquire the same lock.
+    acquired = context.Process(
+        target=_artifact_lock_process_worker,
+        args=(str(model_path), 1.0, result_queue),
+    )
+    acquired.start()
+    acquired.join(timeout=5)
+    if acquired.is_alive():
+        acquired.terminate()
+        acquired.join(timeout=2)
+        pytest.fail("child process did not finish after the lock owner released it")
+    assert acquired.exitcode == 0
+    assert result_queue.get(timeout=1) == "acquired"
+    result_queue.close()
+    result_queue.join_thread()

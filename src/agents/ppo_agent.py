@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
@@ -46,10 +47,22 @@ def _sha256_file(path: Path) -> str:
 def _artifact_lock(model_path: Path, timeout_seconds: float = 30.0):
     """Serialize PPO artifact readers, writers, and maintenance across processes."""
     lock_path = model_path.parent.resolve() / f".{model_path.name}.artifact.lock"
+    lock_fd = None
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_file = lock_path.open("a+", encoding="utf-8")
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise OSError("O_NOFOLLOW is required for safe PPO artifact locking")
+        flags = os.O_CREAT | os.O_RDWR | os.O_APPEND | nofollow
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        lock_fd = os.open(lock_path, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise OSError("PPO artifact lock must be a regular file")
+        lock_file = os.fdopen(lock_fd, "a+", encoding="utf-8")
+        lock_fd = None
     except OSError as exc:
+        if lock_fd is not None:
+            os.close(lock_fd)
         raise RuntimeError("Unable to open PPO artifact lock; refusing artifact operation") from exc
     with lock_file:
         deadline = time.monotonic() + timeout_seconds

@@ -1540,3 +1540,38 @@ def test_ppo_prune_preserves_generation_when_grace_period_stat_fails(
     assert str(failing_generation) not in removed
     assert failing_generation.read_bytes()
     assert active_path.read_bytes() == b"active-generation"
+
+
+
+def test_verified_ppo_artifact_buffer_loads_real_stable_baselines_model(tmp_path):
+    """Exercise the real SB3 deserializer with the verified in-memory artifact."""
+    import hashlib
+
+    from src.agents import ppo_agent
+
+    data, tickers = market_data(prices_a=(100.0, 101.0, 102.0, 103.0))
+    env = StockTradingEnv(data, tickers, lookback=0)
+    model = ppo_agent.PPO(
+        "MlpPolicy",
+        env,
+        n_steps=2,
+        batch_size=2,
+        n_epochs=1,
+        device="cpu",
+        verbose=0,
+    )
+    artifact_path = tmp_path / "real-ppo-model.zip"
+    model.save(str(artifact_path))
+    expected_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+    with ppo_agent._verified_artifact_buffer(
+        artifact_path, expected_digest
+    ) as verified_buffer:
+        loaded = ppo_agent.PPO.load(
+            verified_buffer, env=env, device="cpu"
+        )
+
+    observation, _ = env.reset()
+    action, _ = loaded.predict(observation, deterministic=True)
+    assert action.shape == env.action_space.shape
+    assert np.isfinite(action).all()

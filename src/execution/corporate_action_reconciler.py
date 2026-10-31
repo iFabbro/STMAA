@@ -116,7 +116,7 @@ class CorporateActionReconciler:
         seen_ids = set()
         page_token = None
         checkpoint_seen = False
-        for page_number in range(self._max_pages):
+        for _ in range(self._max_pages):
             params = {
                 "activity_types": ",".join(sorted(CORPORATE_ACTION_TYPES)),
                 "direction": "desc",

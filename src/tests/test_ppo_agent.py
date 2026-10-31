@@ -842,8 +842,6 @@ def test_ppo_save_publication_failures_before_manifest_replace_preserve_previous
 
     writer.model = SavedModel(b"candidate-generation")
     real_replace = ppo_agent.os.replace
-    real_fsync_directory = ppo_agent._fsync_directory
-
     if failure_point in ("artifact_replace", "manifest_replace"):
         def fail_selected_replace(source, destination):
             destination = Path(destination)

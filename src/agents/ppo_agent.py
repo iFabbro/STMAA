@@ -707,9 +707,31 @@ class PPOAgent:
             # De-duplicate while preserving deterministic output order.
             remove = list(dict.fromkeys(remove))
             if not dry_run and remove:
-                for candidate in remove:
-                    candidate.unlink(missing_ok=True)
-                _fsync_directory(model_path.parent)
+                deleted_any = False
+                try:
+                    for candidate in remove:
+                        candidate.unlink(missing_ok=True)
+                        deleted_any = True
+                except OSError as exc:
+                    if deleted_any:
+                        try:
+                            _fsync_directory(model_path.parent)
+                        except OSError as sync_exc:
+                            raise RuntimeError(
+                                "PPO artifact pruning partially completed; "
+                                "directory fsync failed and filesystem state requires review"
+                            ) from sync_exc
+                    raise RuntimeError(
+                        "PPO artifact pruning partially completed; remaining artifacts "
+                        "were preserved after an unlink failure"
+                    ) from exc
+                try:
+                    _fsync_directory(model_path.parent)
+                except OSError as exc:
+                    raise RuntimeError(
+                        "PPO artifact cleanup completed but directory fsync failed; "
+                        "filesystem durability is uncertain"
+                    ) from exc
             return [str(candidate) for candidate in remove]
 
     def _load_locked(self):

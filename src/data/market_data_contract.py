@@ -14,6 +14,12 @@ DATA_ADJUSTMENT = "all"
 DATA_FEATURE_VERSION = 1
 DATA_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
 DATA_ADJUSTMENT_EVENTS = ("split", "dividend", "spin-off")
+FEATURE_FORMULAS = {
+    "RSI": "rolling_sma_gain_loss; zero_loss_gain_only_100_flat_50",
+    "MACD": "ema_12_minus_ema_26_adjust_false",
+    "BB_middle": "rolling_sma_20",
+    "ATR": "rolling_sma_14_of_true_range",
+}
 FEATURE_PARAMETERS = {
     "rsi_period": 14,
     "rsi_gain_only": 100.0,
@@ -44,8 +50,12 @@ def market_data_contract() -> dict[str, Any]:
         "adjustment": DATA_ADJUSTMENT,
         "features": list(DATA_FEATURES),
         "feature_version": DATA_FEATURE_VERSION,
+        "feature_formulas": dict(FEATURE_FORMULAS),
         "feature_parameters": dict(FEATURE_PARAMETERS),
-        "semantics": dict(DATA_SEMANTICS),
+        "semantics": {
+            **DATA_SEMANTICS,
+            "corporate_action_events": list(DATA_ADJUSTMENT_EVENTS),
+        },
         "corporate_actions": list(DATA_ADJUSTMENT_EVENTS),
     }
 

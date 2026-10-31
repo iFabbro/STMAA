@@ -10,10 +10,6 @@ import src.data.data_processor as data_processor_module
 from src.data.alpaca_feed import AlpacaFeed, _DAILY_TIMEFRAME
 
 
-def feed_module_timeframe():
-    return _DAILY_TIMEFRAME
-
-
 class _BarsResponse:
     def __init__(self, frame):
         self.df = frame
@@ -104,7 +100,7 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
     for request in feed.client.requests:
         assert request.feed == "iex"
         assert request.adjustment == "all"
-        assert request.timeframe == feed_module_timeframe()
+        assert request.timeframe == _DAILY_TIMEFRAME
 
     # PPO consumes these five features per ticker in ticker order.
     feature_names = ("Close", "RSI", "MACD", "BB_middle", "ATR")

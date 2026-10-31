@@ -17,6 +17,8 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
+from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
+
 _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
 logger = logging.getLogger(__name__)
@@ -199,8 +201,8 @@ class AlpacaFeed:
             start=start,
             end=end,
             limit=None,
-            feed='iex',  # Free tier: IEX data (15min delay)
-            adjustment='all',
+            feed=DATA_FEED,  # Versioned contract: IEX feed
+            adjustment=DATA_ADJUSTMENT,
         )
 
         logger.info(f"⬇️  Scaricamento bars per {tickers} (ultimi {days}gg)…")
@@ -404,8 +406,8 @@ class AlpacaFeed:
             timeframe=TimeFrame(1, TimeFrameUnit.Day),
             start=start,
             end=end,
-            feed='iex',
-            adjustment='all',
+            feed=DATA_FEED,
+            adjustment=DATA_ADJUSTMENT,
         )
         try:
             bars = self.client.get_stock_bars(request).df.reset_index()

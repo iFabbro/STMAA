@@ -1414,3 +1414,38 @@ def test_ppo_prune_preserves_generation_when_its_digest_cannot_be_read(
     assert not readable.exists()
     assert str(readable) in removed
     assert str(unreadable) not in removed
+
+
+
+def test_ppo_prune_aborts_without_deleting_when_generation_stat_fails(
+    tmp_path, monkeypatch
+):
+    """A metadata lookup failure while ordering verified generations must fail closed."""
+    from pathlib import Path
+
+    model_path = tmp_path / "stat-error.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+    active_path, generations = _create_old_ppo_prune_generations(
+        tmp_path, model_path, agent
+    )
+    failing_generation = generations[0]
+    real_stat = Path.stat
+
+    def fail_selected_stat(path, *args, **kwargs):
+        if path == failing_generation:
+            raise OSError("simulated generation stat failure")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fail_selected_stat)
+
+    with pytest.raises(OSError, match="generation stat failure"):
+        agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+
+    assert active_path.read_bytes() == b"active-generation"
+    assert all(path.read_bytes() for path in generations)

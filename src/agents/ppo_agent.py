@@ -12,9 +12,9 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 logger = logging.getLogger(__name__)
-MODEL_CONTRACT_VERSION = 5
-
 from src.data.market_data_contract import market_data_contract, validate_market_data_contract
+
+MODEL_CONTRACT_VERSION = 5
 
 
 class StockTradingEnv(gym.Env):

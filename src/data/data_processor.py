@@ -6,6 +6,11 @@ import numpy as np
 import pandas as pd
 
 try:
+    from src.data.feature_engineering import calculate_features
+except ModuleNotFoundError:
+    from data.feature_engineering import calculate_features
+
+try:
     from src.data.alpaca_feed import AlpacaFeed
 except ModuleNotFoundError:
     from data.alpaca_feed import AlpacaFeed
@@ -95,43 +100,8 @@ class DataProcessor:
 
     @staticmethod
     def _indicators(frame: pd.DataFrame) -> pd.DataFrame:
-        """Calculate indicators for one ticker using only current and prior bars."""
-        result = pd.DataFrame(index=frame.index)
-        close = frame["Close"]
-        high = frame["High"]
-        low = frame["Low"]
-
-        delta = close.diff()
-        gain = delta.clip(lower=0).rolling(window=14).mean()
-        loss = (-delta.clip(upper=0)).rolling(window=14).mean()
-        rs = gain / loss.replace(0, np.nan)
-        rsi = 100 - (100 / (1 + rs))
-        # A positive gain with zero average loss has RSI 100; a flat window is 50.
-        rsi = rsi.where(loss.ne(0), np.where(gain.gt(0), 100.0, 50.0))
-        result["RSI"] = rsi
-
-        exp1 = close.ewm(span=12, adjust=False).mean()
-        exp2 = close.ewm(span=26, adjust=False).mean()
-        result["MACD"] = exp1 - exp2
-        result["MACD_Signal"] = result["MACD"].ewm(span=9, adjust=False).mean()
-
-        result["BB_middle"] = close.rolling(window=20).mean()
-        result["BB_std"] = close.rolling(window=20).std()
-        result["BB_upper"] = result["BB_middle"] + result["BB_std"] * 2
-        result["BB_lower"] = result["BB_middle"] - result["BB_std"] * 2
-
-        previous_close = close.shift(1)
-        true_range = pd.concat(
-            [
-                high - low,
-                (high - previous_close).abs(),
-                (low - previous_close).abs(),
-            ],
-            axis=1,
-        ).max(axis=1)
-        result["TR"] = true_range
-        result["ATR"] = true_range.rolling(window=14).mean()
-        return result
+        """Use the canonical versioned feature implementation."""
+        return calculate_features(frame)
 
     def add_technical_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add technical indicators to flat or two-level ticker/field OHLCV data."""

@@ -66,6 +66,7 @@ def test_contract_explicitly_covers_corporate_action_adjustment_classes(event):
         {"version": 0},
         {"corporate_actions": ["split", "dividend"]},
         {"feature_version": 0},
+        {"feature_formulas": {"RSI": "different"}},
         {"feature_parameters": {"rsi_period": 10}},
     ],
 )

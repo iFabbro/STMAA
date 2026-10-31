@@ -572,7 +572,7 @@ class PPOAgent:
 
             import re
             pattern = re.compile(
-                rf"^{re.escape(model_path.stem)}\\.([0-9a-f]{{64}}){re.escape(model_path.suffix or '.zip')}$"
+                rf"^{re.escape(model_path.stem)}\.([0-9a-f]{{64}}){re.escape(model_path.suffix or '.zip')}$"
             )
             generations = []
             for candidate in model_path.parent.iterdir():

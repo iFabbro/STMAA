@@ -561,3 +561,82 @@ def test_old_resolved_corporate_action_still_blocks_unconfigured_held_symbol():
 
     with pytest.raises(RuntimeError, match="outside the configured PPO universe"):
         reconciler.reconcile(["PARENT"], {"CHILD": {"qty": 1}})
+
+
+def test_manual_resolution_rejects_cash_only_reorganization():
+    state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {
+                "reo-cash": {
+                    "id": "reo-cash",
+                    "activity_type": "REO",
+                    "activity_sub_type": "REOC",
+                    "symbol": None,
+                }
+            },
+            "unresolved_activity_ids": ["reo-cash"],
+        }
+    }
+    reconciler, updated, _, persisted = _reconciler([], state=state)
+
+    with pytest.raises(ValueError, match="Cash-only"):
+        reconciler.resolve_unresolved_activity(
+            "reo-cash", "CHILD", "statement-123", "operator-1", "verified"
+        )
+
+    assert updated["corporate_action_reconciliation"]["unresolved_activity_ids"] == [
+        "reo-cash"
+    ]
+    assert persisted == []
+
+
+def test_manual_resolution_symbol_conflict_with_later_broker_evidence_fails_closed():
+    record = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "2026-10-31T10:00:00+00:00",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {},
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"spin-no-symbol": record},
+            "manual_resolution_history": [record],
+        }
+    }
+    reconciler, _, _, persisted = _reconciler(
+        [[_activity("spin-no-symbol", symbol="BROKERCO")]], state=state
+    )
+
+    with pytest.raises(RuntimeError, match="conflicts with persisted manual resolution"):
+        reconciler.reconcile(["CHILD", "BROKERCO"], {"CHILD": {"qty": 1}})
+
+    assert persisted == []
+
+
+def test_malformed_manual_resolution_timestamp_fails_closed():
+    record = {
+        "activity_id": "spin-no-symbol",
+        "symbol": "CHILD",
+        "evidence": "statement-123",
+        "actor": "operator-1",
+        "reason": "issuer notice confirms distributed security",
+        "resolved_at": "not-a-timestamp",
+    }
+    state = {
+        "corporate_action_reconciliation": {
+            "recent_events": {},
+            "unresolved_activity_ids": [],
+            "resolved_activity_symbols": {"spin-no-symbol": record},
+            "manual_resolution_history": [record],
+        }
+    }
+    reconciler, _, _, persisted = _reconciler([[]], state=state)
+
+    with pytest.raises(RuntimeError, match="invalid timestamp"):
+        reconciler.reconcile(["AAA"], {"AAA": {"qty": 1}})
+
+    assert persisted == []

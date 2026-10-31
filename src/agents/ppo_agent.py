@@ -431,6 +431,7 @@ class PPOAgent:
         metadata_fd, metadata_temp_name = tempfile.mkstemp(
             prefix=f".{metadata_path.name}.", suffix=".tmp", dir=model_path.parent
         )
+        os.close(metadata_fd)
         model_temp_path = Path(model_temp_name)
         metadata_temp_path = Path(metadata_temp_name)
         try:
@@ -450,7 +451,7 @@ class PPOAgent:
                 "model_sha256": model_digest,
                 "training": training_metadata or {},
             }
-            with os.fdopen(metadata_fd, "w", encoding="utf-8") as metadata_file:
+            with metadata_temp_path.open("w", encoding="utf-8") as metadata_file:
                 metadata_file.write(json.dumps(metadata, indent=2))
                 metadata_file.flush()
                 os.fsync(metadata_file.fileno())

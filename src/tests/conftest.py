@@ -28,6 +28,7 @@ def isolate_broker_executor_corporate_action_io(monkeypatch, request):
         "test_alpaca_corporate_actions_readonly_audit.py",
         "test_corporate_action_adjusted_ohlcv.py",
         "test_corporate_action_reconciliation.py",
+        "test_broker_corporate_action_execution_e2e.py",
     }
     if request.node.path.name in dedicated_reconciler_tests:
         return

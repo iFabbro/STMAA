@@ -4,8 +4,8 @@ Sostituisce tutti i mock presenti in trade.py e hub.py.
 Compatibile con la pipeline DataProcessor esistente.
 Usa endpoint free-tier (15min delay).
 """
-import os
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -17,14 +17,10 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-
 try:
     from src.data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
 except ModuleNotFoundError:
     from data.market_data_contract import DATA_ADJUSTMENT, DATA_FEED
-
-_DAILY_TIMEFRAME
 
 _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 

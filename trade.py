@@ -77,6 +77,7 @@ class PaperTradingBot:
             base_url=base_url,
             paper_trading=True,
             initial_capital=initial_capital,
+            configured_symbols=tickers,
         )
 
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)

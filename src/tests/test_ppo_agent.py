@@ -541,12 +541,16 @@ def test_ppo_artifact_retention_keeps_active_and_requested_generations(tmp_path)
 
     manifest_path = tmp_path / "retained.zip.metadata.json"
     active = tmp_path / json.loads(manifest_path.read_text())["artifact_file"]
-    preview = agent.prune_artifacts(retain_generations=2, dry_run=True)
+    preview = agent.prune_artifacts(
+        retain_generations=2, dry_run=True, min_generation_age_seconds=0
+    )
     assert len(preview) == 1
     assert active.exists()
     assert Path(preview[0]).exists()
 
-    removed = agent.prune_artifacts(retain_generations=2, dry_run=False)
+    removed = agent.prune_artifacts(
+        retain_generations=2, dry_run=False, min_generation_age_seconds=0
+    )
     assert removed == preview
     assert active.exists()
     assert not Path(removed[0]).exists()
@@ -943,3 +947,149 @@ def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
     )
     restarted.load()
     assert Path(captured["path"]) == active_artifact
+
+
+
+def test_ppo_prune_preserves_recent_orphan_generation_until_recovery_grace_expires(
+    tmp_path,
+):
+    import hashlib
+    import os
+    import time
+    from pathlib import Path
+
+    model_path = tmp_path / "orphan-grace.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+
+    orphan_payload = b"published-before-manifest-crash"
+    orphan_digest = hashlib.sha256(orphan_payload).hexdigest()
+    orphan_path = tmp_path / f"orphan-grace.{orphan_digest}.zip"
+    orphan_path.write_bytes(orphan_payload)
+
+    # retain_generations=1 must not override the recovery grace period.
+    removed = agent.prune_artifacts(
+        retain_generations=1,
+        dry_run=False,
+        min_generation_age_seconds=3600,
+    )
+    assert str(orphan_path) not in removed
+    assert orphan_path.read_bytes() == orphan_payload
+
+    old = time.time() - 7200
+    os.utime(orphan_path, (old, old))
+    removed = agent.prune_artifacts(
+        retain_generations=1,
+        dry_run=False,
+        min_generation_age_seconds=3600,
+    )
+    assert str(orphan_path) in removed
+    assert not orphan_path.exists()
+
+
+def _ppo_save_with_blocking_model_process(model_path, started, release, result_queue):
+    from pathlib import Path
+
+    agent = PPOAgent(
+        tickers=["A"], model_path=model_path, load_existing_model=False
+    )
+
+    class BlockingModel:
+        def save(self, path):
+            started.set()
+            if not release.wait(timeout=10):
+                raise RuntimeError("timed out waiting to publish test generation")
+            Path(path).write_bytes(b"concurrent-generation")
+
+    agent.model = BlockingModel()
+    try:
+        agent.save()
+        result_queue.put("save:success")
+    except Exception as exc:
+        result_queue.put(f"save:error:{exc}")
+
+
+def _ppo_prune_process(model_path, result_queue):
+    agent = PPOAgent(
+        tickers=["A"], model_path=model_path, load_existing_model=False
+    )
+    try:
+        removed = agent.prune_artifacts(
+            retain_generations=1,
+            dry_run=False,
+            min_generation_age_seconds=0,
+        )
+        result_queue.put(("prune:success", removed))
+    except Exception as exc:
+        result_queue.put(("prune:error", str(exc)))
+
+
+def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
+    from pathlib import Path
+    import json
+
+    model_path = tmp_path / "save-prune-race.zip"
+    initial = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class InitialModel:
+        def save(self, path):
+            Path(path).write_bytes(b"initial-generation")
+
+    initial.model = InitialModel()
+    initial.save()
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    initial_manifest = json.loads(manifest_path.read_text())
+    initial_artifact = tmp_path / initial_manifest["artifact_file"]
+
+    context = multiprocessing.get_context("fork")
+    started = context.Event()
+    release = context.Event()
+    result_queue = context.Queue()
+    saver = context.Process(
+        target=_ppo_save_with_blocking_model_process,
+        args=(str(model_path), started, release, result_queue),
+    )
+    pruner = None
+    saver.start()
+    try:
+        assert started.wait(timeout=5), "save process did not enter model publication"
+        pruner = context.Process(
+            target=_ppo_prune_process,
+            args=(str(model_path), result_queue),
+        )
+        pruner.start()
+        pruner.join(timeout=0.25)
+        assert pruner.is_alive(), "prune must wait while save owns the artifact lock"
+    finally:
+        release.set()
+
+    saver.join(timeout=10)
+    assert not saver.is_alive(), "save process did not finish"
+    assert saver.exitcode == 0
+    assert pruner is not None
+    pruner.join(timeout=10)
+    assert not pruner.is_alive(), "prune process did not finish after save released lock"
+    assert pruner.exitcode == 0
+
+    outcomes = [result_queue.get(timeout=2), result_queue.get(timeout=2)]
+    assert "save:success" in outcomes
+    prune_result = next(item for item in outcomes if isinstance(item, tuple))
+    assert prune_result[0] == "prune:success"
+
+    final_manifest = json.loads(manifest_path.read_text())
+    final_artifact = tmp_path / final_manifest["artifact_file"]
+    assert final_artifact.read_bytes() == b"concurrent-generation"
+    assert final_artifact.exists()
+    assert not initial_artifact.exists()
+    result_queue.close()
+    result_queue.join_thread()

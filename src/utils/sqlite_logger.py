@@ -82,16 +82,18 @@ def json_dump(data: Optional[Dict[str, Any]]) -> str:
 def db_conn(db_path: Path = DB_PATH):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    # SQLite disables foreign-key enforcement by default; enable it per connection.
-    conn.execute("PRAGMA foreign_keys = ON")
     try:
+        conn.row_factory = sqlite3.Row
+        # SQLite disables foreign-key enforcement by default; enable it per connection.
+        conn.execute("PRAGMA foreign_keys = ON")
         yield conn
         conn.commit()
-    except Exception:
+    except BaseException:
+        # Include interrupts so an interrupted transaction is explicitly rolled back.
         conn.rollback()
         raise
     finally:
+        # Also close when connection initialization (for example, PRAGMA) fails.
         conn.close()
 
 

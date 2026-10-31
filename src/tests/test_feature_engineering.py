@@ -52,8 +52,8 @@ def test_provider_adjusted_synthetic_corporate_actions_do_not_create_feature_jum
     event, adjustment_factor
 ):
     event_at = 35
-    raw = _ohlcv(length=80, close=100.0 / adjustment_factor)
-    raw.iloc[event_at:, raw.columns.get_indexer(["Open", "High", "Low", "Close"])] *= adjustment_factor
+    raw = _ohlcv(length=80, close=100.0)
+    raw.iloc[:event_at, raw.columns.get_indexer(["Open", "High", "Low", "Close"])] /= adjustment_factor
 
     # Simulate the provider's backward adjustment: pre-event OHLC is restated
     # onto the post-event price basis. This is an internal pipeline fixture,

@@ -55,14 +55,59 @@ def test_clean_data_does_not_backfill_initial_missing_prices(processor):
     assert cleaned.loc[cleaned.index[1], "Close"] == data.loc[cleaned.index[1], "Close"]
 
 
-def test_clean_data_forward_fills_only_after_first_observation(processor):
+def test_clean_data_rejects_interior_price_gaps_instead_of_forward_filling(processor):
     data = _ohlcv(pd.date_range("2024-01-01", periods=4, freq="D"))
     data.loc[data.index[1], "Close"] = np.nan
 
+    with pytest.raises(ValueError, match="Missing Close observation"):
+        processor.clean_data(data)
+
+
+@pytest.mark.parametrize("field", ["Open", "High", "Low", "Close", "Volume"])
+@pytest.mark.parametrize("gap_position", ["interior", "trailing"])
+def test_clean_data_rejects_missing_ohlcv_after_first_observation(
+    processor, field, gap_position
+):
+    data = _ohlcv(pd.date_range("2024-01-01", periods=4, freq="D"))
+    missing_index = data.index[1] if gap_position == "interior" else data.index[-1]
+    data.loc[missing_index, field] = np.nan
+
+    with pytest.raises(ValueError, match=f"Missing {field} observation"):
+        processor.clean_data(data)
+
+
+def test_clean_data_preserves_leading_missing_ohlcv_without_backfilling(processor):
+    data = _ohlcv(pd.date_range("2024-01-01", periods=4, freq="D"))
+    data.loc[data.index[0], ["Open", "High", "Low", "Close", "Volume"]] = np.nan
+
     cleaned = processor.clean_data(data)
 
-    assert cleaned.loc[cleaned.index[1], "Close"] == data.loc[cleaned.index[0], "Close"]
+    assert cleaned.loc[data.index[0]].isna().all()
+    pd.testing.assert_series_equal(cleaned.loc[data.index[1]], data.loc[data.index[1]])
 
+
+def test_multi_ticker_cleaning_rejects_a_missing_symbol_bar(processor):
+    index = pd.date_range("2024-01-01", periods=4, freq="D")
+    a = _ohlcv(index)
+    b = _ohlcv(index, offset=20)
+    data = pd.concat({"AAA": a, "BBB": b}, axis=1)
+    data.loc[index[2], ("AAA", ["Open", "High", "Low", "Close", "Volume"])] = np.nan
+
+    with pytest.raises(ValueError, match="Missing Open observation"):
+        processor.clean_data(data)
+
+
+def test_multi_ticker_cleaning_allows_leading_missing_before_symbol_starts(processor):
+    index = pd.date_range("2024-01-01", periods=4, freq="D")
+    a = _ohlcv(index)
+    b = _ohlcv(index, offset=20)
+    b.loc[index[0], ["Open", "High", "Low", "Close", "Volume"]] = np.nan
+    data = pd.concat({"AAA": a, "BBB": b}, axis=1)
+
+    cleaned = processor.clean_data(data)
+
+    assert pd.isna(cleaned.loc[index[0], ("BBB", "Close")])
+    assert cleaned.loc[index[1]:, ("BBB", "Close")].notna().all()
 
 @pytest.mark.parametrize("field_level", [0, 1])
 def test_multi_ticker_multiindex_cleaning_and_indicators(processor, field_level):

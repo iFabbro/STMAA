@@ -38,6 +38,7 @@ from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeight
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
 from src.data.alpaca_feed import AlpacaFeed
+from src.config import MAX_POSITION_SIZE, TRANSACTION_COST, SLIPPAGE
 try:
     from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
     PPO_AVAILABLE = True
@@ -60,11 +61,12 @@ class PaperTradingBot:
     """Bot trading per paper trading con Alpaca"""
 
     def __init__(self, tickers: List[str], initial_capital: float = 100000.0,
-                 max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 1.0,
+                 max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 0.5,
                  liquidate_on_drawdown: bool = False, api_key: str | None = None,
                  api_secret: str | None = None, base_url: str = "https://paper-api.alpaca.markets"):
         self.tickers = tickers
         self.initial_capital = initial_capital
+        self.max_gross_exposure = float(max_gross_exposure)
         self.liquidate_on_drawdown = liquidate_on_drawdown
         # Restore verified broker-equity history from the last atomic dashboard snapshot.
         self.equity_curve = load_equity_curve()
@@ -97,6 +99,10 @@ class PaperTradingBot:
         self.ppo_agent = PPOAgent(
             tickers=tickers,
             initial_capital=initial_capital,
+            transaction_cost=TRANSACTION_COST,
+            slippage=SLIPPAGE,
+            max_position_size=MAX_POSITION_SIZE,
+            max_gross_exposure=self.max_gross_exposure,
         ) if PPO_AVAILABLE else None
 
         print("PaperTradingBot inizializzato (PPO disponibile)" if PPO_AVAILABLE else "PPO non disponibile: la generazione dei pesi e il trading sono disabilitati")
@@ -154,8 +160,11 @@ class PaperTradingBot:
             )
         if not np.isfinite(weights).all() or (weights < 0).any():
             raise RuntimeError("PPO returned non-finite or negative target weights")
-        if not np.isclose(weights.sum(), 1.0, rtol=1e-6, atol=1e-8):
-            raise RuntimeError("PPO returned target weights that do not sum to 1")
+        if (
+            (weights > self.ppo_agent.max_position_size + 1e-8).any()
+            or float(weights.sum()) > self.ppo_agent.max_gross_exposure + 1e-8
+        ):
+            raise RuntimeError("PPO returned target weights outside the configured position/gross-exposure limits")
 
         portfolio_weights = PortfolioWeights(
             weights=weights,

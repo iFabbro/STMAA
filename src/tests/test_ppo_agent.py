@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from src.agents.ppo_agent import PPOAgent, StockTradingEnv
+from src.backtest.backtest_engine import ExecutionConsistentBacktest
 
 
 def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
@@ -36,26 +37,28 @@ def test_environment_observation_matches_declared_space():
 def test_target_weight_action_earns_next_close_to_close_return():
     data, tickers = market_data()
     env = StockTradingEnv(
-        data, tickers, initial_capital=1000.0, transaction_cost=0.0, lookback=0
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, lookback=0,
     )
     env.reset()
     _, reward, terminated, truncated, info = env.step(np.array([1.0]))
-    assert info["total_asset"] == pytest.approx(1100.0)
-    assert reward == pytest.approx(0.10)
+    assert info["total_asset"] == pytest.approx(1020.0)
+    assert reward == pytest.approx(0.02)
     assert terminated is False
     assert truncated is False
 
     _, reward, terminated, _, info = env.step(np.array([1.0]))
-    assert info["total_asset"] == pytest.approx(1210.0)
-    assert reward == pytest.approx(0.10)
+    assert info["total_asset"] == pytest.approx(1040.4)
+    assert reward == pytest.approx(0.02)
     assert terminated is True
 
 
 def test_action_contract_is_long_only_and_handles_all_negative_scores():
     weights = StockTradingEnv.action_to_weights(np.array([-1.0, -1.0]), 2)
-    np.testing.assert_allclose(weights, np.array([0.5, 0.5]))
+    np.testing.assert_allclose(weights, np.array([0.2, 0.2]))
     assert np.all(weights >= 0)
-    assert weights.sum() == pytest.approx(1.0)
+    assert weights.max() <= 0.2
+    assert weights.sum() == pytest.approx(0.4)
 
 
 def test_invalid_market_data_and_actions_fail_explicitly():
@@ -84,7 +87,7 @@ def test_prediction_uses_latest_market_row_and_same_action_contract():
     weights = agent.predict_weights(data, current_weights=np.array([0.25]))
     assert captured["observation"][1] == pytest.approx(121.0)
     assert captured["observation"][6] == pytest.approx(0.25)
-    np.testing.assert_allclose(weights, np.array([1.0]))
+    np.testing.assert_allclose(weights, np.array([0.2]))
 
 
 def test_prediction_fails_closed_when_model_is_unavailable():
@@ -116,3 +119,76 @@ def test_legacy_model_without_contract_metadata_is_rejected(tmp_path):
     model_path.write_bytes(b"placeholder")
     with pytest.raises(ValueError, match="no contract metadata"):
         PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+
+def test_action_contract_never_exceeds_position_or_gross_caps():
+    weights = StockTradingEnv.action_to_weights(
+        np.array([1.0, 1.0, 1.0, 1.0]), 4,
+        max_position_size=0.2, max_gross_exposure=0.5,
+    )
+    assert np.all(weights >= 0)
+    assert np.all(weights <= 0.2)
+    assert weights.sum() <= 0.5 + 1e-12
+
+
+def test_environment_charges_transaction_cost_and_slippage_and_keeps_cash():
+    data, tickers = market_data(prices_a=(100.0, 100.0))
+    env = StockTradingEnv(data, tickers, initial_capital=1000.0, lookback=0)
+    env.reset()
+    _, _, terminated, _, info = env.step(np.array([1.0]))
+    assert terminated is True
+    assert info["target_weights"][0] == pytest.approx(0.2)
+    assert info["transaction_cost"] == pytest.approx(0.3)
+    assert env.balance == pytest.approx(799.76)
+    assert env.stocks[0] * 100.0 == pytest.approx(199.94)
+
+
+def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
+    import json
+
+    model_path = tmp_path / "model.zip"
+    model_path.write_bytes(b"placeholder")
+    metadata = {
+        "contract_version": 3,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights",
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+    }
+    (tmp_path / "model.zip.metadata.json").write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="max_gross_exposure"):
+        PPOAgent(
+            tickers=["A"], model_path=str(model_path), max_gross_exposure=0.4
+        )
+
+
+
+def test_ppo_environment_execution_costs_match_backtest_engine():
+    data, tickers = market_data(prices_a=(100.0, 110.0))
+    env = StockTradingEnv(
+        data,
+        tickers,
+        initial_capital=1000.0,
+        transaction_cost=0.001,
+        slippage=0.0005,
+        max_position_size=1.0,
+        max_gross_exposure=1.0,
+        lookback=0,
+    )
+    env.reset()
+    _, _, _, _, info = env.step(np.array([1.0]))
+
+    backtest = ExecutionConsistentBacktest(
+        initial_capital=1000.0, transaction_cost=0.001, slippage=0.0005
+    )
+    result = backtest.run_backtest(
+        data[["Close_A"]],
+        lambda _timestamp, _row: np.array([1.0]),
+        tickers,
+    )
+
+    assert info["total_asset"] == pytest.approx(result["final_value"])

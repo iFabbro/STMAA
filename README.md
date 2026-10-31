@@ -98,6 +98,27 @@ Eseguire la suite di test usando gli stessi percorsi configurati nella CI:
 python -m pytest src/tests tests -q
 ```
 
+### Addestramento PPO (ricerca, non paper execution)
+
+Il training usa barre storiche OHLCV aggiustate scaricate da Yahoo Finance, calcola gli indicatori causali e divide i dati cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
+
+```bash
+PYTHONPATH=. python train.py \
+  --start-date 2018-01-01 \
+  --end-date 2026-01-01 \
+  --total-timesteps 50000 \
+  --validation-fraction 0.2 \
+  --max-position-size 0.20 \
+  --max-gross-exposure 0.50 \
+  --transaction-cost 0.001 \
+  --slippage 0.0005 \
+  --seed 42
+```
+
+L'opzione `--end-date` è esclusiva. Il comando produce `models/ppo_trading_model_v3.zip` e il relativo file `.metadata.json`, che registra versione del contratto, ticker, costi, limiti di allocazione, intervalli temporali e metriche sul periodo holdout. I limiti e i costi devono coincidere con quelli del runtime; il caricamento rifiuta un modello con parametri incompatibili. Se `MAX_PORTFOLIO_EXPOSURE` in `.env` è diverso da `0.50`, passare lo stesso valore a `--max-gross-exposure`.
+
+La validazione è diagnostica e non applica una soglia automatica di redditività: un risultato positivo sul periodo holdout non garantisce prestazioni future. Il training non accede al broker e non invia ordini. `trade.py` continua a richiedere un modello compatibile e resta configurato per Alpaca Paper.
+
 Avviare il flusso di paper trading:
 
 ```bash

@@ -483,6 +483,33 @@ class BrokerExecutor:
                     self.logger.exception("Unable to remove temporary broker state file %s", temp_path)
             raise
 
+    def resolve_corporate_action(
+        self,
+        activity_id: str,
+        symbol: str,
+        evidence: str,
+        actor: str,
+        reason: str,
+    ) -> Dict:
+        """Record an operator-evidenced corporate-action symbol resolution.
+
+        The shared execution lock prevents concurrent state writers. This method
+        performs no broker API request and cannot submit or cancel orders.
+        """
+        with self.execution_lock():
+            reconciler = CorporateActionReconciler(
+                activity_page_reader=lambda _params: [],
+                state=self.state,
+                persist=self._save_state,
+            )
+            return reconciler.resolve_unresolved_activity(
+                activity_id=activity_id,
+                symbol=symbol,
+                evidence=evidence,
+                actor=actor,
+                reason=reason,
+            )
+
     def reconcile_corporate_actions(self, configured_symbols, positions=None) -> Dict:
         """Read Alpaca corporate-action activities and reconcile them with holdings.
 

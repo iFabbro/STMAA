@@ -4,7 +4,9 @@ Uses the retail Trading API account-activities endpoint through TradingClient's
 underlying REST transport. It never mutates broker state or submits orders.
 """
 from datetime import datetime, timezone
+import copy
 import math
+import re
 from typing import Callable, Iterable
 
 
@@ -174,6 +176,144 @@ class CorporateActionReconciler:
             "refusing to assume reconciliation is complete"
         )
 
+
+    @staticmethod
+    def _validate_manual_resolution(resolution: object, activity_id: str) -> dict:
+        if not isinstance(resolution, dict):
+            raise RuntimeError("Persisted corporate-action manual resolution is malformed")
+        symbol = resolution.get("symbol")
+        if not isinstance(symbol, str) or not re.fullmatch(
+            r"[A-Z0-9][A-Z0-9.-]{0,31}", symbol
+        ):
+            raise RuntimeError("Persisted corporate-action manual resolution has an invalid symbol")
+        for field, maximum in (("evidence", 512), ("actor", 128), ("reason", 1000), ("resolved_at", 64)):
+            value = resolution.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+                raise RuntimeError(
+                    f"Persisted corporate-action manual resolution has invalid {field}"
+                )
+        try:
+            timestamp = datetime.fromisoformat(
+                resolution["resolved_at"].replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                "Persisted corporate-action manual resolution has an invalid timestamp"
+            ) from exc
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise RuntimeError(
+                "Persisted corporate-action manual resolution timestamp must include a timezone"
+            )
+        if resolution.get("activity_id") != activity_id:
+            raise RuntimeError("Persisted corporate-action manual resolution ID does not match its key")
+        return resolution
+
+    @staticmethod
+    def _required_text(value: object, field: str, maximum: int) -> str:
+        if not isinstance(value, str) or not value.strip() or len(value.strip()) > maximum:
+            raise ValueError(f"Manual corporate-action resolution requires a valid {field}")
+        return value.strip()
+
+    def resolve_unresolved_activity(
+        self,
+        activity_id: str,
+        symbol: str,
+        evidence: str,
+        actor: str,
+        reason: str,
+    ) -> dict:
+        """Manually resolve one missing-symbol activity with durable audit evidence.
+
+        This changes local reconciliation metadata only. It never reads or mutates
+        broker state and never submits, replaces, or cancels orders.
+        """
+        normalized_id = self._required_text(activity_id, "activity_id", 256)
+        normalized_symbol = self._required_text(symbol, "symbol", 32).upper()
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,31}", normalized_symbol):
+            raise ValueError("Manual corporate-action resolution requires a valid ticker symbol")
+        evidence_ref = self._required_text(evidence, "evidence", 512)
+        operator = self._required_text(actor, "actor", 128)
+        explanation = self._required_text(reason, "reason", 1000)
+
+        previous = self._state.get("corporate_action_reconciliation", {})
+        if not isinstance(previous, dict):
+            raise RuntimeError("Persisted corporate-action reconciliation state is malformed")
+        unresolved = previous.get("unresolved_activity_ids", [])
+        events = previous.get("recent_events", {})
+        resolutions = previous.get("resolved_activity_symbols", {})
+        history = previous.get("manual_resolution_history", [])
+        if (
+            not isinstance(unresolved, list)
+            or any(not isinstance(item, str) or not item for item in unresolved)
+            or len(unresolved) != len(set(unresolved))
+            or not isinstance(events, dict)
+            or not isinstance(resolutions, dict)
+            or not isinstance(history, list)
+        ):
+            raise RuntimeError("Persisted corporate-action manual-resolution state is malformed")
+        history_by_id = {}
+        for record in history:
+            if not isinstance(record, dict):
+                raise RuntimeError("Persisted corporate-action manual-resolution history is malformed")
+            record_id = record.get("activity_id")
+            if not isinstance(record_id, str) or not record_id or record_id in history_by_id:
+                raise RuntimeError("Persisted corporate-action manual-resolution history has invalid IDs")
+            history_by_id[record_id] = self._validate_manual_resolution(record, record_id)
+        if set(history_by_id) != set(resolutions):
+            raise RuntimeError("Corporate-action manual-resolution map and audit history disagree")
+        for resolved_id, record in resolutions.items():
+            self._validate_manual_resolution(record, resolved_id)
+            if history_by_id.get(resolved_id) != record:
+                raise RuntimeError("Corporate-action manual-resolution evidence is inconsistent")
+        if set(unresolved).intersection(resolutions):
+            raise RuntimeError("Corporate-action activity is both unresolved and manually resolved")
+        if normalized_id not in unresolved:
+            raise ValueError("Corporate-action activity is not currently unresolved")
+        event = events.get(normalized_id)
+        if not isinstance(event, dict) or event.get("id") != normalized_id:
+            raise RuntimeError(
+                "Cannot resolve corporate-action activity without its persisted event evidence"
+            )
+        if event.get("symbol") is not None:
+            raise ValueError("Only activities with a missing symbol can use manual symbol resolution")
+        if event.get("activity_type") not in CORPORATE_ACTION_TYPES:
+            raise RuntimeError("Persisted unresolved activity has an invalid corporate-action type")
+        if (
+            event.get("activity_type") == "REO"
+            and str(event.get("activity_sub_type") or "").upper() == "REOC"
+        ):
+            raise ValueError("Cash-only reorganization activities do not require symbol resolution")
+        if normalized_id in resolutions:
+            raise RuntimeError("Corporate-action activity already has a manual resolution")
+        if any(
+            isinstance(record, dict) and record.get("activity_id") == normalized_id
+            for record in history
+        ):
+            raise RuntimeError("Corporate-action activity already appears in the manual-resolution audit log")
+
+        resolution = {
+            "activity_id": normalized_id,
+            "symbol": normalized_symbol,
+            "evidence": evidence_ref,
+            "actor": operator,
+            "reason": explanation,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        next_state = copy.deepcopy(previous)
+        next_state["unresolved_activity_ids"] = [
+            item for item in unresolved if item != normalized_id
+        ]
+        next_state.setdefault("resolved_activity_symbols", {})[normalized_id] = resolution
+        next_state.setdefault("manual_resolution_history", []).append(resolution.copy())
+
+        self._state["corporate_action_reconciliation"] = next_state
+        try:
+            self._persist()
+        except Exception:
+            self._state["corporate_action_reconciliation"] = previous
+            raise
+        return resolution.copy()
+
     def reconcile(self, configured_symbols: Iterable[str], positions: dict) -> dict:
         """Reconcile all newly observed events; raise before trading on uncertainty."""
         configured = self._normalize_symbols(configured_symbols)
@@ -202,13 +342,45 @@ class CorporateActionReconciler:
         raw_unresolved = previous.get("unresolved_activity_ids", [])
         if not isinstance(raw_unresolved, list):
             raise RuntimeError("Persisted unresolved corporate-action IDs are malformed")
-        unresolved = set(raw_unresolved)
-        if any(not isinstance(item, str) or not item for item in unresolved):
+        if any(not isinstance(item, str) or not item for item in raw_unresolved):
             raise RuntimeError("Persisted unresolved corporate-action IDs are malformed")
+        unresolved = set(raw_unresolved)
+        if len(unresolved) != len(raw_unresolved):
+            raise RuntimeError("Persisted unresolved corporate-action IDs contain duplicates")
+
+        resolved_symbols = previous.get("resolved_activity_symbols", {})
+        resolution_history = previous.get("manual_resolution_history", [])
+        if not isinstance(resolved_symbols, dict) or not isinstance(resolution_history, list):
+            raise RuntimeError("Persisted corporate-action manual-resolution state is malformed")
+        history_by_id = {}
+        for record in resolution_history:
+            if not isinstance(record, dict):
+                raise RuntimeError("Persisted corporate-action manual-resolution history is malformed")
+            record_id = record.get("activity_id")
+            if not isinstance(record_id, str) or not record_id or record_id in history_by_id:
+                raise RuntimeError("Persisted corporate-action manual-resolution history has invalid IDs")
+            history_by_id[record_id] = self._validate_manual_resolution(record, record_id)
+        if set(history_by_id) != set(resolved_symbols):
+            raise RuntimeError("Corporate-action manual-resolution map and audit history disagree")
+        for activity_id, record in resolved_symbols.items():
+            self._validate_manual_resolution(record, activity_id)
+            if history_by_id.get(activity_id) != record:
+                raise RuntimeError("Corporate-action manual-resolution evidence is inconsistent")
+        if unresolved.intersection(resolved_symbols):
+            raise RuntimeError("Corporate-action activity is both unresolved and manually resolved")
+
         blocked_symbols = set()
         active_event_ids = set(unresolved)
         for activity in ledger.values():
             symbol = activity.get("symbol")
+            resolution = resolved_symbols.get(activity["id"])
+            if resolution:
+                resolved_symbol = resolution["symbol"]
+                if symbol and symbol != resolved_symbol:
+                    raise RuntimeError(
+                        "Broker corporate-action symbol conflicts with persisted manual resolution"
+                    )
+                symbol = resolved_symbol
             cash_only_reorganization = (
                 activity.get("activity_type") == "REO"
                 and str(activity.get("activity_sub_type") or "").upper() == "REOC"
@@ -221,6 +393,14 @@ class CorporateActionReconciler:
             if symbol in held and symbol not in configured:
                 blocked_symbols.add(symbol)
                 active_event_ids.add(activity["id"])
+
+        # Keep resolved corporate-action mappings safety-relevant even after their
+        # source events age out of the bounded recent-event ledger.
+        for activity_id, resolution in resolved_symbols.items():
+            symbol = resolution["symbol"]
+            if symbol in held and symbol not in configured:
+                blocked_symbols.add(symbol)
+                active_event_ids.add(activity_id)
 
         # Retain the 500 newest known events plus any still-active blockers.
         retained_ids = set(list(ledger.keys())[:500]) | active_event_ids
@@ -235,6 +415,8 @@ class CorporateActionReconciler:
             "last_reconciled_at": datetime.now(timezone.utc).isoformat(),
             "recent_events": ledger,
             "unresolved_activity_ids": sorted(unresolved),
+            "resolved_activity_symbols": copy.deepcopy(resolved_symbols),
+            "manual_resolution_history": copy.deepcopy(resolution_history),
             "blocked_symbols": sorted(blocked_symbols),
             "pagination_checkpoint_seen": bool(checkpoint_seen),
         }

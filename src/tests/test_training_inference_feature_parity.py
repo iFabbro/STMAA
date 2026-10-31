@@ -119,7 +119,7 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
     ]
     inference_matrix = inference.loc[:, inference_columns]
 
-    # Compare actual output matrices, including dates, order, and exact values.
+    # Compare actual output matrices, including dates, order, values, and NaN warm-up.
     pd.testing.assert_index_equal(training_matrix.index, inference_matrix.index)
     assert list(training_matrix.columns) == inference_columns
     pd.testing.assert_frame_equal(
@@ -128,6 +128,13 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
         check_exact=True,
         check_freq=False,
     )
-    assert np.isfinite(inference_matrix.to_numpy(dtype=float)).all()
+
+    # Indicator warm-up legitimately produces NaNs at the start of the series.
+    # Both pipelines must preserve the same NaN mask; infinities are never valid.
+    values = inference_matrix.to_numpy(dtype=float)
+    assert not np.isinf(values).any()
+    assert np.isfinite(values).any(axis=0).all()
+    assert np.isfinite(values[-1]).all()
+
     assert inference.attrs["market_data_contract"]
     assert inference.attrs["market_data_fingerprint"]

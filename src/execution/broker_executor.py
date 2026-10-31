@@ -46,14 +46,16 @@ def _validate_risk_limits(limits):
 
 _validate_risk_limits(RISK_LIMITS)
 
-logs_dir = Path("logs/execution")
-logs_dir.mkdir(parents=True, exist_ok=True)
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+EXECUTION_LOG_DIR = REPOSITORY_ROOT / "logs" / "execution"
+EXECUTION_LOG_PATH = EXECUTION_LOG_DIR / "broker_executor.log"
+EXECUTION_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(logs_dir / "broker_executor.log"),
+        logging.FileHandler(EXECUTION_LOG_PATH),
         logging.StreamHandler(),
     ],
 )

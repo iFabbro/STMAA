@@ -28,7 +28,7 @@ REQUIRED_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
 
 
 def flatten_processed_data(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
-    """Convert yfinance field/ticker columns into the PPO feature contract."""
+    """Convert provider field/ticker columns into the PPO feature contract."""
     if not isinstance(data, pd.DataFrame) or data.empty:
         raise ValueError("Historical market data must be a non-empty DataFrame")
     field_level = DataProcessor._field_level(data.columns)
@@ -36,7 +36,7 @@ def flatten_processed_data(data: pd.DataFrame, tickers: list[str]) -> pd.DataFra
         required = [f"{feature}_{ticker}" for ticker in tickers for feature in REQUIRED_FEATURES]
         if all(column in data.columns for column in required):
             return data.loc[:, required].copy()
-        # yfinance returns flat field names for a single ticker; map those
+        # A single-ticker provider response may use flat field names; map those
         # fields to the same ticker-suffixed feature contract used at inference.
         if len(tickers) == 1 and all(feature in data.columns for feature in REQUIRED_FEATURES):
             return pd.DataFrame(
@@ -47,7 +47,7 @@ def flatten_processed_data(data: pd.DataFrame, tickers: list[str]) -> pd.DataFra
         raise ValueError(f"Processed data is missing PPO features: {missing}")
 
     if data.columns.nlevels != 2:
-        raise ValueError("Only two-level yfinance OHLCV columns are supported")
+        raise ValueError("Only two-level provider OHLCV columns are supported")
     ticker_level = 1 - field_level
     available = set(data.columns.get_level_values(ticker_level))
     missing_tickers = [ticker for ticker in tickers if ticker not in available]

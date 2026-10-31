@@ -34,12 +34,42 @@ logger = logging.getLogger(__name__)
 
 
 def _sha256_file(path: Path) -> str:
-    """Return a streaming SHA-256 digest for a model artifact."""
-    digest = hashlib.sha256()
-    with path.open("rb") as artifact:
-        for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    """Return a streaming SHA-256 digest without following symbolic links."""
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("O_NOFOLLOW is required for safe PPO artifact access")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("PPO model artifact must be a regular file")
+        digest = hashlib.sha256()
+        with os.fdopen(fd, "rb") as artifact:
+            fd = None
+            for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _read_json_manifest(path: Path):
+    """Read a JSON manifest from a regular file without following symlinks."""
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("O_NOFOLLOW is required for safe PPO manifest access")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("PPO model metadata must be a regular file")
+        with os.fdopen(fd, "r", encoding="utf-8") as manifest_file:
+            fd = None
+            return json.load(manifest_file)
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 
@@ -566,8 +596,8 @@ class PPOAgent:
             if not manifest_path.is_file():
                 return []
             try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
+                manifest = _read_json_manifest(manifest_path)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
                 raise RuntimeError("Cannot prune PPO artifacts: active manifest is unreadable") from exc
             active_name = manifest.get("artifact_file")
             active_digest = manifest.get("model_sha256")
@@ -580,7 +610,7 @@ class PPOAgent:
             ):
                 raise RuntimeError("Cannot prune PPO artifacts: active manifest is invalid")
             active_path = model_path.parent / active_name
-            if not active_path.is_file() or not hmac.compare_digest(_sha256_file(active_path), active_digest):
+            if active_path.is_symlink() or not active_path.is_file() or not hmac.compare_digest(_sha256_file(active_path), active_digest):
                 raise RuntimeError("Cannot prune PPO artifacts: active generation is missing or corrupt")
 
             import re
@@ -625,13 +655,15 @@ class PPOAgent:
     def _load_locked(self):
         model_path = Path(self.model_path)
         metadata_path = Path(str(model_path) + ".metadata.json")
+        if metadata_path.is_symlink():
+            raise ValueError("PPO model metadata must not be a symbolic link")
         if not metadata_path.exists():
             if not model_path.exists():
                 raise FileNotFoundError(f"Model not found: {model_path}")
             raise ValueError(
                 "PPO model has no contract metadata; retrain it with the current action/state contract"
             )
-        metadata = json.loads(metadata_path.read_text())
+        metadata = _read_json_manifest(metadata_path)
         expected_dim = 1 + len(self.tickers) * 6
         if metadata.get("contract_version") != MODEL_CONTRACT_VERSION:
             raise ValueError("PPO model contract version is incompatible; retrain the model")

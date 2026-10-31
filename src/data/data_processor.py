@@ -50,13 +50,20 @@ class DataProcessor:
         if missing:
             raise ValueError(f"Missing required OHLCV columns: {sorted(missing)}")
         cleaned = frame.copy()
-        # Drop fully missing source rows before filling Volume; otherwise filling
-        # Volume first would turn empty rows into apparently valid observations.
-        cleaned = cleaned.dropna(how="all")
-        for col in _PRICE_FIELDS:
-            # Forward-fill only: backfilling would leak a future price into the past.
-            cleaned[col] = cleaned[col].ffill()
-        cleaned["Volume"] = cleaned["Volume"].fillna(0)
+        # Leading missing values are allowed (for example, before a symbol's
+        # first available observation). Once a field has started, every later
+        # bar must be present: forward-filling would manufacture stale prices
+        # and silently compress missing market sessions in downstream training.
+        for col in ("Open", "High", "Low", "Close", "Volume"):
+            first_valid = cleaned[col].first_valid_index()
+            if first_valid is None:
+                raise ValueError(f"No valid {col} observations in market data")
+            missing_after_start = cleaned.loc[first_valid:, col].isna()
+            if missing_after_start.any():
+                missing_at = missing_after_start[missing_after_start].index[0]
+                raise ValueError(
+                    f"Missing {col} observation after first valid bar at {missing_at!r}"
+                )
         return cleaned
 
     def clean_data(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -71,7 +78,8 @@ class DataProcessor:
         if ticker_level is None:
             raise ValueError("Only two-level ticker/field MultiIndex columns are supported")
 
-        cleaned = data.copy().dropna(how="all")
+        # Preserve fully missing rows so gaps are detected per symbol.
+        cleaned = data.copy()
         tickers = list(dict.fromkeys(data.columns.get_level_values(ticker_level)))
         for ticker in tickers:
             ticker_frame = data.xs(ticker, axis=1, level=ticker_level, drop_level=True)

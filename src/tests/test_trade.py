@@ -991,3 +991,37 @@ def test_run_loop_uses_atomic_generation_and_execution_cycle(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0] is market_data
+
+
+def test_generate_weights_blocks_unconfigured_corporate_action_position(monkeypatch):
+    class NeverRunPPO:
+        def predict_weights(self, market_data, current_weights=None):
+            raise AssertionError("PPO inference must not run with an unconfigured broker holding")
+
+    class SpinOffExecutor:
+        def get_account_status(self):
+            return {
+                "portfolio_value": 10000.0,
+                "equity": 10000.0,
+                "account_data_fresh": True,
+            }
+
+        def get_positions(self):
+            return {
+                "AAPL": {"market_value": 1000.0, "qty": 10.0},
+                "SPIN": {"market_value": 500.0, "qty": 5.0},
+            }
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL", "MSFT"]
+    bot.ppo_agent = NeverRunPPO()
+    bot.executor = SpinOffExecutor()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+
+    with pytest.raises(
+        RuntimeError,
+        match="outside the configured PPO universe.*SPIN",
+    ):
+        bot.generate_weights(
+            pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]})
+        )

@@ -4,16 +4,11 @@ from typing import List
 
 import numpy as np
 import pandas as pd
-import numpy as np
-import pandas as pd
 
 try:
     from src.data.alpaca_feed import AlpacaFeed
 except ModuleNotFoundError:
     from data.alpaca_feed import AlpacaFeed
-
-
-_OHLCV_FIELDS
 
 
 _OHLCV_FIELDS = {"Open", "High", "Low", "Close", "Volume"}

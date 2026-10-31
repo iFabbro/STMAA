@@ -103,15 +103,15 @@ python -m pytest src/tests tests -q
 Il training usa barre storiche OHLCV aggiustate scaricate da Yahoo Finance, calcola gli indicatori causali e divide i dati cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
 
 ```bash
-PYTHONPATH=. python train.py \\
-  --start-date 2018-01-01 \\
-  --end-date 2026-01-01 \\
-  --total-timesteps 50000 \\
-  --validation-fraction 0.2 \\
-  --max-position-size 0.20 \\
-  --max-gross-exposure 0.50 \\
-  --transaction-cost 0.001 \\
-  --slippage 0.0005 \\
+PYTHONPATH=. python train.py \
+  --start-date 2018-01-01 \
+  --end-date 2026-01-01 \
+  --total-timesteps 50000 \
+  --validation-fraction 0.2 \
+  --max-position-size 0.20 \
+  --max-gross-exposure 0.50 \
+  --transaction-cost 0.001 \
+  --slippage 0.0005 \
   --seed 42
 ```
 

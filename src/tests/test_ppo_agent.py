@@ -1098,6 +1098,38 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
     result_queue.join_thread()
 
 
+@pytest.mark.parametrize("manifest_payload", ["null", "[]", '"not-an-object"'])
+def test_ppo_prune_rejects_non_object_manifest_without_deleting_artifacts(
+    tmp_path, manifest_payload
+):
+    import hashlib
+
+    model_path = tmp_path / "non-object-manifest.zip"
+    agent = PPOAgent(
+        tickers=["A"], model_path=str(model_path), load_existing_model=False
+    )
+
+    class SavedModel:
+        def save(self, path):
+            Path(path).write_bytes(b"active-generation")
+
+    agent.model = SavedModel()
+    agent.save()
+
+    orphan_payload = b"orphan-generation"
+    orphan_digest = hashlib.sha256(orphan_payload).hexdigest()
+    orphan_path = tmp_path / f"non-object-manifest.{orphan_digest}.zip"
+    orphan_path.write_bytes(orphan_payload)
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    manifest_path.write_text(manifest_payload)
+
+    with pytest.raises(RuntimeError, match="active manifest is invalid"):
+        agent.prune_artifacts(dry_run=False, min_generation_age_seconds=0)
+
+    assert orphan_path.read_bytes() == orphan_payload
+    assert manifest_path.read_text() == manifest_payload
+
+
 def test_ppo_prune_preserves_future_dated_generations_and_staging_files(tmp_path):
     """Clock skew must never make a future-dated artifact eligible for deletion."""
     import hashlib

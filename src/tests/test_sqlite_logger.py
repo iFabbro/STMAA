@@ -146,7 +146,9 @@ def test_db_connection_closes_when_foreign_key_setup_fails(tmp_path, monkeypatch
         sqlite_logger.sqlite3, "connect", lambda _path: connection
     )
 
-    with pytest.raises(sqlite3.OperationalError, match="simulated database I/O failure"):
+    with pytest.raises(
+        sqlite3.OperationalError, match="simulated database I/O failure"
+    ):
         with db_conn(tmp_path / "stmaa.db"):
             pass
 

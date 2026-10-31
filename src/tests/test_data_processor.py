@@ -9,6 +9,7 @@ import pytest
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.data.data_processor import DataProcessor
+from src.data.alpaca_feed import AlpacaFeed
 
 
 @pytest.fixture
@@ -102,3 +103,25 @@ def test_multi_ticker_cleaning_does_not_leak_future_price(processor):
 def test_clean_data_rejects_missing_ohlcv_columns(processor):
     with pytest.raises(ValueError, match="Missing required OHLCV columns"):
         processor.clean_data(pd.DataFrame({"Close": [100.0]}))
+
+
+
+@pytest.mark.parametrize(
+    "prices, expected_value",
+    [
+        ([100.0] * 20, 50.0),
+        ([100.0 + i for i in range(20)], 100.0),
+    ],
+)
+def test_alpaca_rsi_matches_historical_processor_on_zero_loss_windows(prices, expected_value):
+    close = pd.Series(prices, dtype=float)
+    frame = pd.DataFrame({
+        "Close": close,
+        "High": close + 1.0,
+        "Low": close - 1.0,
+    })
+    expected = DataProcessor._indicators(frame)["RSI"]
+    actual = AlpacaFeed._calculate_rsi(close)
+
+    np.testing.assert_allclose(actual.to_numpy(), expected.to_numpy(), equal_nan=True)
+    assert actual.iloc[-1] == pytest.approx(expected_value)

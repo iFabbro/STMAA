@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from src.agents.ppo_agent import PPOAgent, StockTradingEnv
+from src.backtest.backtest_engine import ExecutionConsistentBacktest
 
 
 def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
@@ -163,3 +164,31 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
         PPOAgent(
             tickers=["A"], model_path=str(model_path), max_gross_exposure=0.4
         )
+
+
+
+def test_ppo_environment_execution_costs_match_backtest_engine():
+    data, tickers = market_data(prices_a=(100.0, 110.0))
+    env = StockTradingEnv(
+        data,
+        tickers,
+        initial_capital=1000.0,
+        transaction_cost=0.001,
+        slippage=0.0005,
+        max_position_size=1.0,
+        max_gross_exposure=1.0,
+        lookback=0,
+    )
+    env.reset()
+    _, _, _, _, info = env.step(np.array([1.0]))
+
+    backtest = ExecutionConsistentBacktest(
+        initial_capital=1000.0, transaction_cost=0.001, slippage=0.0005
+    )
+    result = backtest.run_backtest(
+        data[["Close_A"]],
+        lambda _timestamp, _row: np.array([1.0]),
+        tickers,
+    )
+
+    assert info["total_asset"] == pytest.approx(result["final_value"])

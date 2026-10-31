@@ -189,7 +189,10 @@ class CorporateActionReconciler:
         latest_activity_id = (
             new_activities[0]["id"] if new_activities else old_checkpoint
         )
-        unresolved = set(previous.get("unresolved_activity_ids", []))
+        raw_unresolved = previous.get("unresolved_activity_ids", [])
+        if not isinstance(raw_unresolved, list):
+            raise RuntimeError("Persisted unresolved corporate-action IDs are malformed")
+        unresolved = set(raw_unresolved)
         if any(not isinstance(item, str) or not item for item in unresolved):
             raise RuntimeError("Persisted unresolved corporate-action IDs are malformed")
         blocked_symbols = set()

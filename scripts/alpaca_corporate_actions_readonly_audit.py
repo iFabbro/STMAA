@@ -9,9 +9,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -31,10 +33,43 @@ EVENT_BUCKETS = {
 EVENT_TYPES = "forward_split,reverse_split,cash_dividend,spin_off"
 OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
 MAX_CANDIDATES_PER_TYPE = 25
+RATE_LIMIT_MAX_ATTEMPTS = 5
+RATE_LIMIT_MAX_DELAY_SECONDS = 30
 
 
 class NoBarsAvailable(RuntimeError):
     """The selected feed returned no bars for this symbol/date window."""
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    """Recognize HTTP 429 from urllib and Alpaca SDK exceptions."""
+    if isinstance(exc, HTTPError) and exc.code == 429:
+        return True
+    return getattr(exc, "status_code", None) == 429
+
+
+def _call_with_rate_limit_retry(operation, context: str):
+    """Retry transient Alpaca rate limits without masking permanent failures."""
+    for attempt in range(RATE_LIMIT_MAX_ATTEMPTS):
+        try:
+            return operation()
+        except Exception as exc:
+            if not _is_rate_limited(exc):
+                raise
+            if attempt == RATE_LIMIT_MAX_ATTEMPTS - 1:
+                raise RuntimeError(
+                    f"Alpaca rate limit persisted after {RATE_LIMIT_MAX_ATTEMPTS} "
+                    f"attempts while {context}"
+                ) from exc
+
+            headers = getattr(exc, "headers", None)
+            retry_after = headers.get("Retry-After") if headers else None
+            try:
+                delay = float(retry_after) if retry_after is not None else 2 ** attempt
+            except (TypeError, ValueError):
+                delay = 2 ** attempt
+            delay = min(max(delay, 0.0), RATE_LIMIT_MAX_DELAY_SECONDS)
+            time_module.sleep(delay)
 
 
 def _get_json(url: str, params: dict[str, str], api_key: str, api_secret: str) -> dict[str, Any]:
@@ -47,8 +82,13 @@ def _get_json(url: str, params: dict[str, str], api_key: str, api_secret: str) -
             "Accept": "application/json",
         },
     )
-    with urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    def request_json() -> dict[str, Any]:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    return _call_with_rate_limit_retry(
+        request_json, "fetching corporate-action records"
+    )
 
 
 def fetch_corporate_actions(
@@ -139,7 +179,10 @@ def fetch_daily_bars(
         feed=DATA_FEED,
         adjustment=adjustment,
     )
-    response = client.get_stock_bars(request)
+    response = _call_with_rate_limit_retry(
+        lambda: client.get_stock_bars(request),
+        f"fetching {adjustment} daily bars for {symbol} around {ex_date}",
+    )
     if response.df.empty:
         raise NoBarsAvailable(f"No {adjustment} daily bars returned for {symbol} around {ex_date}")
     frame = response.df.reset_index()

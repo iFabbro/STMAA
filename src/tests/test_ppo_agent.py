@@ -229,3 +229,97 @@ def test_model_rejects_previous_market_data_contract_version(tmp_path):
     }))
     with pytest.raises(ValueError, match="market-data contract"):
         PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_model_load_rejects_missing_artifact_digest_before_deserialization(tmp_path, monkeypatch):
+    import json
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "missing-digest.zip"
+    model_path.write_bytes(b"model-bytes")
+    metadata = {
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": market_data_contract(),
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+    }
+    (tmp_path / "missing-digest.zip.metadata.json").write_text(json.dumps(metadata))
+    monkeypatch.setattr(ppo_agent.PPO, "load", lambda *_args, **_kwargs: pytest.fail("must not deserialize"))
+    with pytest.raises(ValueError, match="no valid artifact SHA-256"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_model_load_rejects_artifact_digest_mismatch_before_deserialization(tmp_path, monkeypatch):
+    import json
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "tampered.zip"
+    model_path.write_bytes(b"model-bytes")
+    metadata = {
+        "contract_version": 5,
+        "tickers": ["A"],
+        "state_dim": 7,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "market_data_contract": market_data_contract(),
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+        "model_sha256": "0" * 64,
+    }
+    (tmp_path / "tampered.zip.metadata.json").write_text(json.dumps(metadata))
+    monkeypatch.setattr(ppo_agent.PPO, "load", lambda *_args, **_kwargs: pytest.fail("must not deserialize"))
+    with pytest.raises(ValueError, match="artifact SHA-256 mismatch"):
+        PPOAgent(tickers=["A"], model_path=str(model_path))
+
+
+def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    from src.agents import ppo_agent
+
+    model_path = tmp_path / "saved.zip"
+    agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class FakeModel:
+        def save(self, path):
+            Path(path).write_bytes(b"verified-model-artifact")
+
+    from pathlib import Path
+    agent.model = FakeModel()
+    agent.save(training_metadata={"seed": 42})
+
+    metadata = json.loads((tmp_path / "saved.zip.metadata.json").read_text())
+    assert metadata["model_sha256"] == hashlib.sha256(model_path.read_bytes()).hexdigest()
+    assert metadata["training"] == {"seed": 42}
+    assert not list(tmp_path.glob(".*.tmp"))
+    assert not list(tmp_path.glob(".*.zip"))
+
+
+def test_model_save_failure_preserves_existing_published_artifacts(tmp_path):
+    import json
+    from pathlib import Path
+
+    model_path = tmp_path / "existing.zip"
+    metadata_path = tmp_path / "existing.zip.metadata.json"
+    model_path.write_bytes(b"previous-model")
+    metadata_path.write_text('{"previous": true}')
+    agent = PPOAgent(tickers=["A"], model_path=str(model_path), load_existing_model=False)
+
+    class FailingModel:
+        def save(self, path):
+            Path(path).write_bytes(b"partial-model")
+            raise OSError("simulated model serialization failure")
+
+    agent.model = FailingModel()
+    with pytest.raises(OSError, match="simulated"):
+        agent.save()
+    assert model_path.read_bytes() == b"previous-model"
+    assert json.loads(metadata_path.read_text()) == {"previous": True}
+    assert not list(tmp_path.glob(".*.tmp"))
+    assert not list(tmp_path.glob(".*.zip"))

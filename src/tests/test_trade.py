@@ -980,4 +980,5 @@ def test_run_loop_uses_atomic_generation_and_execution_cycle(monkeypatch):
     monkeypatch.setattr(trade.time, "sleep", stop_after_cycle)
     bot.run_loop(interval_seconds=0)
 
-    assert calls == [market_data]
+    assert len(calls) == 1
+    assert calls[0] is market_data

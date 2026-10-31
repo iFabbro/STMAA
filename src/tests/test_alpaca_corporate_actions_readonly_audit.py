@@ -262,7 +262,7 @@ def test_run_audit_skips_spin_off_without_provider_adjustment_and_uses_next(monk
         {"_audit_type": "split", "symbol": "AAA", "ex_date": "2025-01-03", "id": "split"},
         {"_audit_type": "dividend", "symbol": "BBB", "ex_date": "2025-01-03", "id": "dividend"},
         {"_audit_type": "spin_off", "source_symbol": "CCC", "ex_date": "2025-01-03", "id": "unadjusted"},
-        {"_audit_type": "spin_off", "source_symbol": "DDD", "ex_date": "2025-01-02", "id": "adjusted"},
+        {"_audit_type": "spin_off", "source_symbol": "DDD", "ex_date": "2025-01-03", "id": "adjusted"},
     ]
     monkeypatch.setattr(audit, "fetch_corporate_actions", lambda *args: events)
     monkeypatch.setattr(audit, "StockHistoricalDataClient", lambda **kwargs: object())

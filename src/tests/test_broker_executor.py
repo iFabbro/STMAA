@@ -3782,7 +3782,6 @@ def _attempt_execution_lock_in_child_process(state_file, result_queue):
 def test_execution_lock_serializes_independent_processes(alpaca_env, tmp_path):
     """A second process must fail closed while another process owns the execution lock."""
     import multiprocessing
-    import threading
 
     executor = BrokerExecutor()
     context = multiprocessing.get_context("fork")

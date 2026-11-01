@@ -52,7 +52,12 @@ class FakeExecutor:
                 "unrealized_pl": 1_000.0,
             }
         }
-        self.open_orders = [SimpleNamespace(symbol="AAPL", notional=reserved_notional)]
+        self.open_orders = [
+            SimpleNamespace(
+                symbol="AAPL", side="buy", notional=reserved_notional,
+                qty=10.0, filled_qty=0.0,
+            )
+        ]
         self.lock_active = False
 
     @contextmanager
@@ -193,6 +198,46 @@ def test_pending_order_counts_toward_per_symbol_position_limit():
     }
     assert observation.decision["position_limits_consistent"] is False
     assert observation.health.broker_state_consistent is False
+
+
+@pytest.mark.parametrize(
+    ("side", "position_market_value"),
+    [
+        ("buy", 10_000.0),
+        ("sell", 10_000.0),
+        ("buy", -10_000.0),
+        ("sell", -10_000.0),
+    ],
+)
+def test_pending_order_exposure_is_direction_agnostic_for_long_and_short_positions(
+    side, position_market_value
+):
+    bot = FakeBot(reserved_notional=5_000.0)
+    order = bot.executor.open_orders[0]
+    order.side = side
+    order.qty = 10.0
+    order.filled_qty = 5.0
+    bot.executor.positions["AAPL"]["market_value"] = position_market_value
+
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    # The provider reserves the estimator's full original-order notional,
+    # regardless of side or partial-fill progress, as a conservative gross bound.
+    assert observation.decision["gross_exposure_ratio"] == pytest.approx(0.15)
+    assert observation.decision["position_exposure_by_symbol"] == {
+        "AAPL": pytest.approx(0.15)
+    }
+    assert observation.decision["pending_order_exposure_by_symbol"] == {
+        "AAPL": 5_000.0
+    }
+
+
+def test_provider_fails_closed_when_pending_order_side_is_missing_or_invalid():
+    bot = FakeBot()
+    bot.executor.open_orders[0].side = "unknown"
+
+    with pytest.raises(RuntimeError, match="side is missing or invalid"):
+        ProductionPaperSoakObservationProvider(bot)()
 
 
 def test_provider_fails_closed_for_pending_order_outside_configured_universe():

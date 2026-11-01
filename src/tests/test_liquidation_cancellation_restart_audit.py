@@ -79,6 +79,7 @@ def test_cancelled_close_with_partial_fill_retries_only_refreshed_residual(audit
         snapshots=[
             [position("AAPL", 2)],  # snapshot before terminal-order reconciliation
             [position("AAPL", 1)],  # refreshed after canceled order; partial fill remains
+            [position("AAPL", 1)],  # post-close refresh; AAPL is already processed
         ],
         order_statuses={"old-close": "canceled"},
     )
@@ -87,7 +88,7 @@ def test_cancelled_close_with_partial_fill_retries_only_refreshed_residual(audit
 
     liquidations = executor._liquidate_all_positions([])
 
-    assert client.position_reads == 2
+    assert client.position_reads == 3
     assert client.close_calls == ["AAPL"]
     assert liquidations[0]["quantity"] == pytest.approx(1.0)
     persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))

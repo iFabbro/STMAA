@@ -156,7 +156,9 @@ def test_execute_weights_revalidates_broker_snapshot_before_first_submission(
 
 class _FakeOrder:
     def __init__(self, status, qty=0, filled_qty=0, limit_price=None, notional=None, symbol="AAPL"):
+        self.id = f"fake-{symbol}-{status}"
         self.status = status
+        self.side = "buy"
         self.qty = qty
         self.filled_qty = filled_qty
         self.limit_price = limit_price
@@ -3126,6 +3128,12 @@ def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_bas
             "account_data_source": "alpaca_account",
         },
         {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:30+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
             "cash": 9800.0, "portfolio_value": 19800.0, "buying_power": 19800.0,
             "equity": 9800.0, "account_data_fresh": True,
             "account_snapshot_at": "2026-10-24T12:01:00+00:00",
@@ -3163,6 +3171,12 @@ def test_execute_weights_does_not_append_metrics_when_post_snapshot_is_stale(
             "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
             "equity": 10000.0, "account_data_fresh": True,
             "account_snapshot_at": "2026-10-24T12:00:00+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:30+00:00",
             "account_data_source": "alpaca_account",
         },
         {

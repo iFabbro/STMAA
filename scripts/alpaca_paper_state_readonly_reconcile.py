@@ -100,19 +100,31 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
     checks: list[dict] = []
     account_id = str(getattr(account, "id", "") or "") or None
     state_account_id = str(state.get("account_id", "") or "") or None
+    account_status = text_value(getattr(account, "status", ""))
+    trading_blocked = getattr(account, "trading_blocked", None)
     if state.get("account_mode") != "paper":
         issues.append("persisted state account_mode is not paper")
+    if not state_account_id:
+        issues.append("persisted state account ID is missing; broker account binding cannot be proven")
     if not account_id:
         issues.append("current broker account ID is unavailable")
     if state_account_id and account_id and state_account_id != account_id:
         issues.append("persisted account ID differs from current Paper account")
-    if not bool(getattr(account, "trading_blocked", False)) and text_value(
-        getattr(account, "status", "")
-    ) not in {"active", "accountstatus.active"}:
+    if account_status not in {"active", "accountstatus.active"}:
         issues.append("broker account status is not clearly active")
+    if trading_blocked is not False:
+        issues.append("broker account trading_blocked is not explicitly false")
 
     if len(orders) >= 500:
         issues.append("broker order snapshot reached the 500-order limit; complete order-history coverage is not established")
+    order_ids = [str(getattr(o, "id", "") or "") for o in orders]
+    client_ids = [str(getattr(o, "client_order_id", "") or "") for o in orders]
+    if any(not value for value in order_ids):
+        issues.append("broker order snapshot contains an order without a broker order ID")
+    if len([value for value in order_ids if value]) != len(set(value for value in order_ids if value)):
+        issues.append("broker order snapshot contains duplicate broker order IDs")
+    if len([value for value in client_ids if value]) != len(set(value for value in client_ids if value)):
+        issues.append("broker order snapshot contains duplicate client order IDs")
     orders_by_id = {str(getattr(o, "id", "")): o for o in orders if getattr(o, "id", None)}
     orders_by_client = {
         str(getattr(o, "client_order_id", "")): o
@@ -204,7 +216,9 @@ def reconcile(state: dict, account: Any, orders: list[Any], positions: list[Any]
         }
 
     return {
-        "account_id_match": bool(account_id and (not state_account_id or account_id == state_account_id)),
+        "account_id_match": bool(account_id and state_account_id and account_id == state_account_id),
+        "account_status": account_status,
+        "trading_blocked": trading_blocked,
         "persisted_order_checks": checks,
         "position_snapshot": positions_by_symbol,
         "fill_activity_count": len(fills),
@@ -249,6 +263,7 @@ def main() -> int:
     print(f"STATE_FILE: {state_path}")
     print(f"ACCOUNT_ID: {getattr(account, 'id', 'unavailable')}")
     print(f"ACCOUNT_STATUS: {text_value(getattr(account, 'status', 'unknown'))}")
+    print(f"TRADING_BLOCKED: {getattr(account, 'trading_blocked', 'unknown')}")
     print(f"ORDERS_READ: {len(orders)}")
     print(f"POSITIONS_READ: {len(positions)}")
     print(f"FILL_ACTIVITIES_READ: {len(fills)}")

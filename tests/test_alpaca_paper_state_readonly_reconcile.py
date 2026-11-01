@@ -101,3 +101,57 @@ def test_load_state_accepts_legacy_string_for_pending_liquidation(tmp_path):
     path.write_text(json.dumps(state), encoding="utf-8")
 
     assert load_state(path)["emergency_liquidation_pending"]["AAPL"] == "close-order-1"
+
+
+
+def test_reconcile_blocks_paper_account_when_trading_is_blocked():
+    report = reconcile(
+        valid_state(),
+        SimpleNamespace(id="paper-account-1", status="ACTIVE", trading_blocked=True),
+        [],
+        [],
+        [],
+    )
+
+    assert report["issue_count"] > 0
+    assert report["trading_blocked"] is True
+    assert any("trading_blocked is not explicitly false" in issue for issue in report["issues"])
+
+
+def test_reconcile_blocks_account_without_explicit_active_status():
+    report = reconcile(
+        valid_state(),
+        SimpleNamespace(id="paper-account-1", status="ONBOARDING", trading_blocked=False),
+        [],
+        [],
+        [],
+    )
+
+    assert report["issue_count"] > 0
+    assert any("status is not clearly active" in issue for issue in report["issues"])
+
+
+def test_reconcile_requires_persisted_account_identity():
+    state = valid_state()
+    state["account_id"] = None
+
+    report = reconcile(state, account(), [], [], [])
+
+    assert report["account_id_match"] is False
+    assert any("persisted state account ID is missing" in issue for issue in report["issues"])
+
+
+def test_reconcile_rejects_duplicate_broker_order_identifiers():
+    first = SimpleNamespace(
+        id="duplicate-order", client_order_id="client-1", symbol="AAPL",
+        status="accepted", filled_qty="0", filled_avg_price=None,
+    )
+    second = SimpleNamespace(
+        id="duplicate-order", client_order_id="client-2", symbol="MSFT",
+        status="accepted", filled_qty="0", filled_avg_price=None,
+    )
+
+    report = reconcile(valid_state(), account(), [first, second], [], [])
+
+    assert any("duplicate broker order IDs" in issue for issue in report["issues"])
+    assert report["result"] == "REVIEW_REQUIRED"

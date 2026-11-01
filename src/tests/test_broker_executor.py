@@ -2412,6 +2412,8 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
     snapshots = [
         [],
         [SimpleNamespace(symbol="AAPL", qty="0.4")],
+        # Post-close refresh: the symbol was already processed this cycle.
+        [SimpleNamespace(symbol="AAPL", qty="0.4")],
     ]
 
     class FakeTradingClient:
@@ -2439,7 +2441,7 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
 
     result = executor._liquidate_all_positions([])
 
-    assert fake.position_calls == 2
+    assert fake.position_calls == 3
     assert fake.close_calls == ["AAPL"]
     assert result[0]["order_id"] == "residual-close"
     assert executor.state["emergency_liquidation_pending"] == {

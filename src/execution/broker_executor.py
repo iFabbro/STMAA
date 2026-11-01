@@ -2218,7 +2218,7 @@ class BrokerExecutor:
                         "order_id": str(order_id),
                         "client_order_id": client_order_id,
                         "status": self._status_text(order.status, default="unknown"),
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "price": price,
                         "pre_order_position_qty": float(
                             positions.get(ticker, {}).get("qty", 0.0) or 0.0

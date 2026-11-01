@@ -332,6 +332,21 @@ class ProductionPaperSoakObservationProvider:
             return PaperSoakShadowObservation(health=health, decision=decision)
     
 
+
+def validate_production_paper_preflight(bot: Any) -> dict:
+    """Fail closed on a fresh, identified, active Paper account before monitoring."""
+    executor = getattr(bot, "executor", None)
+    if getattr(executor, "paper_trading", None) is not True:
+        raise RuntimeError("Paper soak preflight refused: executor is not explicitly in paper mode")
+    if getattr(executor, "base_url", None) != PAPER_ENDPOINT:
+        raise RuntimeError("Paper soak preflight refused: broker endpoint is not Alpaca Paper")
+    from src.utils.startup_config import validate_broker_preflight
+
+    account = validate_broker_preflight(executor)
+    if account.get("status") != "active" or account.get("trading_blocked") is not False:
+        raise RuntimeError("Paper soak preflight failed: Alpaca Paper account is not active and unblocked")
+    return account
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the production-inference, read-only STMAA Paper soak shadow runner."
@@ -388,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
             vix_threshold_high=config.vix_threshold_high,
             vix_threshold_low=config.vix_threshold_low,
         )
+        # Explicit read-only broker preflight before creating a monitor session.
+        # The provider repeats its own snapshot validation on every observation.
+        validate_production_paper_preflight(bot)
         monitor = PaperSoakMonitor(
             db_path=args.db_path,
             duration_seconds=args.duration_hours * 60 * 60,
@@ -400,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
                 "production_strategy_inference": True,
                 "observation_interval_seconds": args.interval_seconds,
                 "broker_mutations_enabled": False,
+                "broker_preflight_passed": True,
+                "broker_preflight_mode": "paper",
             },
         )
         runner = PaperSoakShadowRunner(

@@ -44,3 +44,34 @@ are implemented and reviewed, this component alone must not be treated as a
 An interrupted or failed process records a failed run when it can still write
 to SQLite. A hard process or host failure may leave a run in `running` state;
 recovery and interpretation of such runs are addressed separately.
+
+
+## Automatic stop controller (PR 3)
+
+`PaperSoakStopController` evaluates a complete `PaperSoakHealthSnapshot`
+provided by a caller. It has no broker client and performs no broker reads or
+order mutations. It is a policy component only; this PR does not yet connect
+it to a broker-polling loop or start a soak.
+
+The controller stops on any of the following:
+- a non-Paper broker endpoint;
+- any attempted broker order mutation;
+- broker/local state mismatch or indeterminable exposure;
+- invalid or stale market data;
+- persistence/lock failure or incomplete broker snapshot;
+- three consecutive broker API failures;
+- heartbeat age greater than 120 seconds.
+
+Every required health field must be explicitly supplied with the expected type.
+Missing or malformed telemetry triggers a stop rather than being treated as
+healthy. The stop is sticky for the session, is recorded as a
+`stop_triggered` event, and is restored when the controller is recreated for
+the same monitor run. A healthy later observation cannot clear it. If durable
+event recording fails, the controller remains stopped in memory and raises
+`StopPersistenceError`; the caller must terminate the session.
+
+The controller does not cancel, close, replace, or otherwise modify orders.
+There is no automatic resume/reset API. A new soak requires a separately
+created monitor session and a deliberate operational decision. Broker polling,
+monitor-loop integration, recovery policy, and final acceptance reporting
+remain separate steps.

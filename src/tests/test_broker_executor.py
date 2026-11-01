@@ -127,7 +127,7 @@ def test_execute_weights_revalidates_broker_snapshot_before_first_submission(
     def get_open_orders():
         order_reads["count"] += 1
         if changed_snapshot == "open_orders" and order_reads["count"] > 1:
-            return [_FakeOrder("accepted", qty=1, filled_qty=0, symbol="AAPL")]
+            return [type("SnapshotOrder", (), {"id": "open-1", "symbol": "AAPL", "side": "buy", "status": "accepted", "qty": 1, "filled_qty": 0})()]
         return []
 
     monkeypatch.setattr(executor, "get_account_status", get_account)

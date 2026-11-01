@@ -152,6 +152,12 @@ class ProductionPaperSoakObservationProvider:
             exposure_ratio = gross_exposure / equity
             if not math.isfinite(exposure_ratio):
                 raise RuntimeError("Aggregate broker exposure is not determinable")
+            max_position_limit = float(self.bot.ppo_agent.max_position_size)
+            position_limits_consistent = all(
+                abs(float(position["market_value"])) / equity
+                <= max_position_limit + 1e-8
+                for position in positions.values()
+            )
     
             state = self.executor.state
             persisted_account_id = state.get("account_id")
@@ -217,6 +223,7 @@ class ProductionPaperSoakObservationProvider:
                 and corporate_actions_consistent
                 and not unresolved_execution_state
                 and exposure_within_limit
+                and position_limits_consistent
             )
             snapshot_complete = (
                 account.get("account_data_fresh") is True
@@ -261,6 +268,8 @@ class ProductionPaperSoakObservationProvider:
                 "gross_exposure_notional": gross_exposure,
                 "gross_exposure_ratio": exposure_ratio,
                 "gross_exposure_limit": gross_limit,
+                "max_position_size_limit": max_position_limit,
+                "position_limits_consistent": position_limits_consistent,
                 "pending_order_count": len(open_orders),
                 "broker_account_id": account_id,
                 "broker_snapshot_at": account.get("account_snapshot_at"),

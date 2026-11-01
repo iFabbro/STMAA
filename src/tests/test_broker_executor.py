@@ -3760,3 +3760,65 @@ def test_account_status_rejects_boolean_financial_values(
     assert executor.state["account_data_fresh"] is False
     persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
     assert persisted["account_data_fresh"] is False
+
+
+def _attempt_execution_lock_in_child_process(state_file, result_queue):
+    """Acquire the same OS lock from an independent process."""
+    import threading
+    from pathlib import Path
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state_file = Path(state_file)
+    executor.execution_lock_timeout_seconds = 0.15
+    executor._execution_lock_local = threading.local()
+    try:
+        with executor.execution_lock():
+            result_queue.put("acquired")
+    except RuntimeError as exc:
+        result_queue.put(str(exc))
+
+
+def test_execution_lock_serializes_independent_processes(alpaca_env, tmp_path):
+    """A second process must fail closed while another process owns the execution lock."""
+    import multiprocessing
+
+    executor = BrokerExecutor()
+    context = multiprocessing.get_context("fork")
+    result_queue = context.Queue()
+
+    with executor.execution_lock():
+        child = context.Process(
+            target=_attempt_execution_lock_in_child_process,
+            args=(str(executor.state_file), result_queue),
+        )
+        child.start()
+        child.join(timeout=5)
+
+        assert not child.is_alive(), "child process did not respect execution-lock timeout"
+        assert child.exitcode == 0
+        result = result_queue.get(timeout=1)
+
+    assert result == "Timed out acquiring broker execution lock; refusing execution"
+
+
+def test_stale_executor_cannot_overwrite_newer_persisted_state(alpaca_env):
+    """An executor initialized from an old revision must not overwrite a newer writer."""
+    first = BrokerExecutor()
+    second = BrokerExecutor()
+
+    initial_revision = first.state["state_revision"]
+    assert second.state["state_revision"] == initial_revision
+
+    first.state["total_orders"] = 11
+    first._save_state()
+
+    second.state["total_orders"] = 22
+    with pytest.raises(
+        RuntimeError,
+        match="Persisted broker state changed in another process; refusing stale overwrite",
+    ):
+        second._save_state()
+
+    persisted = json.loads(first.state_file.read_text(encoding="utf-8"))
+    assert persisted["total_orders"] == 11
+    assert persisted["state_revision"] == initial_revision + 1

@@ -38,7 +38,7 @@ from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeight
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
 from src.data.alpaca_feed import AlpacaFeed
-from src.config import MAX_POSITION_SIZE, TRANSACTION_COST, SLIPPAGE
+from src.config import TRANSACTION_COST, SLIPPAGE
 try:
     from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
     PPO_AVAILABLE = True
@@ -63,7 +63,10 @@ class PaperTradingBot:
     def __init__(self, tickers: List[str], initial_capital: float = 100000.0,
                  max_drawdown_threshold: float = 0.15, max_gross_exposure: float = 0.5,
                  liquidate_on_drawdown: bool = False, api_key: str | None = None,
-                 api_secret: str | None = None, base_url: str = "https://paper-api.alpaca.markets"):
+                 api_secret: str | None = None, base_url: str = "https://paper-api.alpaca.markets",
+                 max_position_size: float = 0.2, transaction_cost: float = TRANSACTION_COST,
+                 slippage: float = SLIPPAGE, vix_threshold_high: float = 30.0,
+                 vix_threshold_low: float = 15.0):
         self.tickers = tickers
         self.initial_capital = initial_capital
         self.max_gross_exposure = float(max_gross_exposure)
@@ -82,10 +85,10 @@ class PaperTradingBot:
 
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)
         self.pipeline.set_risk(RiskOverlayModule(
-            max_position_size=0.2,
+            max_position_size=max_position_size,
             max_drawdown_threshold=max_drawdown_threshold,
-            vix_threshold_high=30,
-            vix_threshold_low=15,
+            vix_threshold_high=vix_threshold_high,
+            vix_threshold_low=vix_threshold_low,
             initial_capital=initial_capital,
             max_gross_exposure=max_gross_exposure,
         ))
@@ -100,9 +103,9 @@ class PaperTradingBot:
         self.ppo_agent = PPOAgent(
             tickers=tickers,
             initial_capital=initial_capital,
-            transaction_cost=TRANSACTION_COST,
-            slippage=SLIPPAGE,
-            max_position_size=MAX_POSITION_SIZE,
+            transaction_cost=transaction_cost,
+            slippage=slippage,
+            max_position_size=max_position_size,
             max_gross_exposure=self.max_gross_exposure,
         ) if PPO_AVAILABLE else None
 
@@ -576,17 +579,24 @@ def main(argv=None):
         print(f"Limite esposizione: {config.max_portfolio_exposure:.1%}")
         print(f"Limite drawdown: {config.max_drawdown:.1%}")
         print(f"Liquidazione su drawdown: {config.liquidate_on_drawdown}")
+        print(f"Universo: {', '.join(config.tickers)}")
+        print(f"Capitale iniziale configurato: {config.initial_capital:,.2f}")
+        print(f"Intervallo ciclo: {config.interval_seconds} secondi")
 
-        tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
         bot = PaperTradingBot(
-            tickers=tickers,
-            initial_capital=500000.0,
+            tickers=list(config.tickers),
+            initial_capital=config.initial_capital,
             max_drawdown_threshold=config.max_drawdown,
             max_gross_exposure=config.max_portfolio_exposure,
             liquidate_on_drawdown=config.liquidate_on_drawdown,
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=config.base_url,
+            max_position_size=config.max_position_size,
+            transaction_cost=config.transaction_cost,
+            slippage=config.slippage,
+            vix_threshold_high=config.vix_threshold_high,
+            vix_threshold_low=config.vix_threshold_low,
         )
 
         # Read-only broker request; no loop or order submission before it passes.
@@ -600,7 +610,7 @@ def main(argv=None):
             status = "completed"
             return 0
 
-        bot.run_loop(interval_seconds=300)
+        bot.run_loop(interval_seconds=config.interval_seconds)
         status = "completed"
         return 0
     except Exception as exc:

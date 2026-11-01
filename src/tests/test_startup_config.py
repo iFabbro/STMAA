@@ -1,6 +1,11 @@
 import pytest
 
-from src.utils.startup_config import load_startup_config, validate_broker_preflight
+from src.utils.startup_config import (
+    load_hub_refresh_seconds,
+    load_startup_config,
+    load_tickers,
+    validate_broker_preflight,
+)
 
 
 VALID_ENV = {
@@ -16,6 +21,70 @@ def test_startup_config_defaults_to_paper_and_safe_liquidation_setting():
     assert config.liquidate_on_drawdown is False
     assert config.max_portfolio_exposure == pytest.approx(0.50)
     assert config.max_drawdown == pytest.approx(0.15)
+    assert config.tickers == ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
+    assert config.initial_capital == pytest.approx(500000.0)
+    assert config.max_position_size == pytest.approx(0.20)
+    assert config.transaction_cost == pytest.approx(0.001)
+    assert config.slippage == pytest.approx(0.0005)
+    assert config.vix_threshold_high == pytest.approx(30.0)
+    assert config.vix_threshold_low == pytest.approx(15.0)
+    assert config.interval_seconds == 300
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("STMAA_INITIAL_CAPITAL", "0"),
+        ("STMAA_INITIAL_CAPITAL", "nan"),
+        ("MAX_POSITION_SIZE", "0"),
+        ("MAX_POSITION_SIZE", "0.60"),
+        ("TRANSACTION_COST", "-0.1"),
+        ("TRANSACTION_COST", "1"),
+        ("SLIPPAGE", "nan"),
+        ("VIX_THRESHOLD_LOW", "-1"),
+        ("VIX_THRESHOLD_HIGH", "15"),
+        ("STMAA_INTERVAL_SECONDS", "0"),
+        ("STMAA_INTERVAL_SECONDS", "1.5"),
+    ],
+)
+def test_startup_config_rejects_invalid_runtime_settings(key, value):
+    with pytest.raises(ValueError):
+        load_startup_config({**VALID_ENV, key: value})
+
+
+def test_startup_config_loads_runtime_overrides():
+    config = load_startup_config({
+        **VALID_ENV,
+        "STMAA_TICKERS": "aapl, msft",
+        "STMAA_INITIAL_CAPITAL": "250000",
+        "MAX_POSITION_SIZE": "0.10",
+        "TRANSACTION_COST": "0.002",
+        "SLIPPAGE": "0.001",
+        "VIX_THRESHOLD_LOW": "12",
+        "VIX_THRESHOLD_HIGH": "28",
+        "STMAA_INTERVAL_SECONDS": "120",
+    })
+    assert config.tickers == ("AAPL", "MSFT")
+    assert config.initial_capital == pytest.approx(250000.0)
+    assert config.max_position_size == pytest.approx(0.10)
+    assert config.transaction_cost == pytest.approx(0.002)
+    assert config.slippage == pytest.approx(0.001)
+    assert config.vix_threshold_low == pytest.approx(12.0)
+    assert config.vix_threshold_high == pytest.approx(28.0)
+    assert config.interval_seconds == 120
+
+
+@pytest.mark.parametrize("value", ["", "AAPL,,MSFT", "AAPL,AAPL", "bad ticker", "1AAPL"])
+def test_ticker_loader_rejects_empty_invalid_or_duplicate_symbols(value):
+    with pytest.raises(ValueError):
+        load_tickers({"STMAA_TICKERS": value})
+
+
+def test_hub_refresh_interval_is_positive_integer():
+    assert load_hub_refresh_seconds({}) == 30
+    assert load_hub_refresh_seconds({"STMAA_HUB_REFRESH_SECONDS": "15"}) == 15
+    with pytest.raises(ValueError, match="STMAA_HUB_REFRESH_SECONDS"):
+        load_hub_refresh_seconds({"STMAA_HUB_REFRESH_SECONDS": "0"})
 
 
 @pytest.mark.parametrize(

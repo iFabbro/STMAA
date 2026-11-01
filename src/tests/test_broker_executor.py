@@ -2412,6 +2412,8 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
     snapshots = [
         [],
         [SimpleNamespace(symbol="AAPL", qty="0.4")],
+        # Post-close refresh: the symbol was already processed this cycle.
+        [SimpleNamespace(symbol="AAPL", qty="0.4")],
     ]
 
     class FakeTradingClient:
@@ -2439,7 +2441,7 @@ def test_canceled_partial_close_refreshes_residual_position_before_retry(
 
     result = executor._liquidate_all_positions([])
 
-    assert fake.position_calls == 2
+    assert fake.position_calls == 3
     assert fake.close_calls == ["AAPL"]
     assert result[0]["order_id"] == "residual-close"
     assert executor.state["emergency_liquidation_pending"] == {
@@ -3903,3 +3905,122 @@ def test_stale_executor_cannot_overwrite_newer_persisted_state(alpaca_env):
     persisted = json.loads(first.state_file.read_text(encoding="utf-8"))
     assert persisted["total_orders"] == 11
     assert persisted["state_revision"] == initial_revision + 1
+
+
+
+def test_emergency_liquidation_refreshes_positions_and_open_orders_before_each_close(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.positions = [
+                SimpleNamespace(symbol="AAPL", qty="3"),
+                SimpleNamespace(symbol="TSLA", qty="-2"),
+            ]
+            self.closed = []
+            self.cancelled = []
+
+        def get_all_positions(self):
+            return [
+                SimpleNamespace(symbol=position.symbol, qty=position.qty)
+                for position in self.positions
+            ]
+
+        def cancel_order_by_id(self, order_id):
+            self.cancelled.append(order_id)
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            if symbol == "AAPL":
+                self.positions = [
+                    SimpleNamespace(symbol="AAPL", qty="0"),
+                    SimpleNamespace(symbol="TSLA", qty="-1"),
+                    SimpleNamespace(symbol="MSFT", qty="4"),
+                ]
+            elif symbol == "TSLA":
+                self.positions = [
+                    SimpleNamespace(symbol="AAPL", qty="0"),
+                    SimpleNamespace(symbol="TSLA", qty="0"),
+                    SimpleNamespace(symbol="MSFT", qty="4"),
+                ]
+            elif symbol == "MSFT":
+                self.positions = [
+                    SimpleNamespace(symbol="AAPL", qty="0"),
+                    SimpleNamespace(symbol="TSLA", qty="0"),
+                    SimpleNamespace(symbol="MSFT", qty="0"),
+                ]
+            return SimpleNamespace(id=f"close-{symbol}", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    appearing_order = SimpleNamespace(id="manual-open-1", symbol="NVDA")
+    aapl_close = SimpleNamespace(id="close-AAPL", symbol="AAPL")
+    tsla_close = SimpleNamespace(id="close-TSLA", symbol="TSLA")
+    snapshots = iter([
+        [], [], [],  # initial pass and AAPL pre/post checks
+        [aapl_close, appearing_order], [aapl_close],
+        [aapl_close, tsla_close], [aapl_close, tsla_close],
+    ])
+    monkeypatch.setattr(
+        executor, "_get_open_orders", lambda: next(snapshots, [])
+    )
+
+    liquidations = executor._liquidate_all_positions([])
+
+    assert fake.closed == ["AAPL", "TSLA", "MSFT"]
+    assert fake.cancelled == ["manual-open-1"]
+    assert [item["quantity"] for item in liquidations] == [3.0, 1.0, 4.0]
+    assert [item["ticker"] for item in liquidations] == ["AAPL", "TSLA", "MSFT"]
+
+
+def test_emergency_liquidation_stops_if_new_open_order_cannot_be_cancelled(
+    alpaca_env, monkeypatch
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.positions = [
+                SimpleNamespace(symbol="AAPL", qty="1"),
+                SimpleNamespace(symbol="TSLA", qty="2"),
+            ]
+            self.closed = []
+            self.cancelled = []
+
+        def get_all_positions(self):
+            return list(self.positions)
+
+        def cancel_order_by_id(self, order_id):
+            self.cancelled.append(order_id)
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id=f"close-{symbol}", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    appearing_order = SimpleNamespace(id="manual-open-2", symbol="NVDA")
+    snapshots = iter([
+        [], [], [],                  # initial pass and AAPL pre/post checks
+        [appearing_order], [appearing_order],  # cancellation has not completed
+    ])
+    monkeypatch.setattr(
+        executor, "_get_open_orders", lambda: next(snapshots, [])
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="broker confirms unrelated open orders are cancelled",
+    ):
+        executor._liquidate_all_positions([])
+
+    assert fake.closed == ["AAPL"]
+    assert fake.cancelled == ["manual-open-2"]

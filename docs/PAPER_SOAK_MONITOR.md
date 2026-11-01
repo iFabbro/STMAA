@@ -12,6 +12,8 @@ heartbeats, and shadow observations in the existing SQLite event database
 - `PaperSoakShadowRunner`: invokes an injected observation provider, records
   hypothetical strategy decisions, and connects each health observation to
   the stop controller.
+- `paper_soak_report`: read-only report generator for persisted run evidence
+  and an operator-supplied snapshot of GitHub workflow conclusions.
 
 ## Run the broker-independent heartbeat monitor
 
@@ -98,6 +100,70 @@ reconstructed against the same active run. A latched stop remains authoritative
 even if subsequent health observations are healthy. A confirmed-dead process
 causes the owning run to be finalized as failed rather than re-opened.
 
+## Automated acceptance report
+
+Generate a JSON report for the latest run:
+
+```bash
+PYTHONPATH=. python -m src.utils.paper_soak_report \
+  --db-path logs/stmaa.db \
+  --output reports/paper-soak-report.json
+```
+
+Select a specific run with `--run-id <uuid>`. The command reads the SQLite
+database in read-only mode and does not contact Alpaca, submit orders, or call
+GitHub. Exit codes are: `0=PASS`, `1=FAIL`, `2=INCOMPLETE`, `3=NOT_RUN`.
+
+The report checks terminal run state, continuous elapsed duration, presence
+and safety of every shadow observation, all mandatory health signals, stop and
+error events, disabled order submission, provider declaration, and source
+commit SHA. Missing mandatory health telemetry or a failed safety control is
+a failure. An active, short, unobserved, or insufficiently identified run is
+incomplete. No matching run is `NOT_RUN`.
+
+### CI evidence input
+
+GitHub workflow status is deliberately not inferred from the local SQLite
+database. Supply a JSON snapshot for the same source commit:
+
+```json
+{
+  "commit_sha": "<40-character commit SHA>",
+  "workflows": {
+    "CI": "success",
+    "Tests": "success",
+    "Lint": "success",
+    "Secrets scan": "success"
+  }
+}
+```
+
+Then generate the report with:
+
+```bash
+PYTHONPATH=. python -m src.utils.paper_soak_report \
+  --db-path logs/stmaa.db \
+  --run-id <run-uuid> \
+  --ci-evidence reports/ci-evidence.json \
+  --output reports/paper-soak-report.json
+```
+
+All four workflow conclusions must be `success` and their evidence commit SHA
+must exactly match the soak run's recorded 40-character source commit SHA.
+Missing CI evidence or incomplete workflow results prevent a `PASS`; a failed
+workflow or commit mismatch produces `FAIL`. The supplied CI JSON is an
+operator-provided snapshot, not a cryptographically verified GitHub attestation.
+Verify the workflow conclusions directly on GitHub before relying on the report.
+
+A `PASS` requires all checks to pass, including a completed continuous
+48-hour run with shadow observations, a declared production read-only provider,
+production strategy inference, a recorded source commit, and green CI evidence
+for that same commit. The provider declaration is metadata and does not prove
+the provider's implementation is safe; code review and independent integration
+tests remain necessary. A test or placeholder provider cannot establish
+operational acceptance. The report is an evidence summary, not a certification
+or authorization to trade live.
+
 ## Safety boundary and current limitations
 
 The runner does not itself poll Alpaca or obtain market data, account equity,
@@ -105,8 +171,8 @@ positions, open orders, persisted broker state, or VIX. A completed run using
 a test or placeholder provider is **not** evidence that the production
 strategy, broker state, or market-data pipeline was healthy. In particular,
 the production `PaperTradingBot`/PPO path has not yet been connected to this
-runner. A concrete read-only provider, reconnect policy, final soak acceptance
-report, and operational preflight remain outstanding.
+runner. A concrete read-only provider, reconnect policy, and operational
+preflight remain outstanding.
 
 No component described here submits, replaces, cancels, or closes broker
 orders. The 48-hour soak has not been started, and this implementation is not

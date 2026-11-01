@@ -2038,6 +2038,34 @@ class BrokerExecutor:
                 "Broker open orders changed after sizing; refusing order submission"
             )
 
+    def _verify_quote_before_submission(self, ticker: str, expected_price: float) -> float:
+        """Refresh the quote after broker preflight and reject stale or changed sizing data."""
+        latest_prices = self._get_prices_from_bars([ticker])
+        latest_price = latest_prices.get(ticker) if isinstance(latest_prices, dict) else None
+        try:
+            latest_price = float(latest_price)
+            expected_price = float(expected_price)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError(
+                f"Cannot verify a fresh market quote for {ticker} immediately before submission"
+            ) from exc
+        if (
+            not np.isfinite(latest_price)
+            or latest_price <= 0
+            or not np.isfinite(expected_price)
+            or expected_price <= 0
+        ):
+            raise RuntimeError(
+                f"Cannot verify a fresh market quote for {ticker} immediately before submission"
+            )
+        # A new quote must still support the price used to calculate exposure and
+        # quantity. If it moved, abort and let the next cycle rebuild all sizing.
+        if not np.isclose(latest_price, expected_price, rtol=1e-9, atol=1e-8):
+            raise RuntimeError(
+                f"Market quote changed after sizing for {ticker}; refusing order submission"
+            )
+        return latest_price
+
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         """Run the complete broker execution cycle under the shared OS lock."""
         with self.execution_lock():
@@ -2448,6 +2476,13 @@ class BrokerExecutor:
                 # must rebuild account, positions, open orders, and prices from fresh
                 # broker snapshots before another symbol can be submitted.
                 self._verify_execution_snapshot(account, positions, open_orders)
+                # Broker preflight can take time. Re-fetch and revalidate the quote
+                # after those reads so stale or moved pricing cannot authorize an
+                # order sized from the earlier snapshot.
+                price = self._verify_quote_before_submission(ticker, price)
+                qty = round(abs(order_notional) / price, 6)
+                if qty < 0.000001:
+                    continue
 
                 client_order_id = str(uuid.uuid4())
                 # Persist intent before calling the broker: a lost response must not

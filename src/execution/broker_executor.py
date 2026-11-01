@@ -672,7 +672,7 @@ class BrokerExecutor:
             active_statuses = {
                 "new", "partially_filled", "done_for_day", "pending_cancel",
                 "pending_replace", "accepted", "pending_new",
-                "accepted_for_bidding", "suspended",
+                "accepted_for_bidding", "stopped", "suspended", "held",
             }
             for order in orders:
                 order_id = str(getattr(order, "id", "") or "").strip()
@@ -929,7 +929,7 @@ class BrokerExecutor:
             "cancelled", "expired", "replaced", "pending_cancel",
             "pending_replace", "accepted", "pending_new",
             "accepted_for_bidding", "stopped", "rejected", "suspended",
-            "calculated",
+            "calculated", "held",
         }
         if normalized_status not in known_statuses:
             raise RuntimeError(

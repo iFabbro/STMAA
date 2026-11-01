@@ -2205,7 +2205,6 @@ class BrokerExecutor:
                     + ", ".join(sorted(missing_prices))
                 )
 
-            pending_reduction = False
             for ticker in execution_tickers:
                 target_weight = float(target_weight_by_ticker.get(ticker, 0.0))
                 if ticker in open_order_symbols:
@@ -2237,16 +2236,7 @@ class BrokerExecutor:
 
                 # Submit only the signed delta needed to reach the bounded target.
                 order_notional = bounded_target - current_notional
-                risk_reducing_target = (
-                    abs(bounded_target) < abs(current_notional) - 1e-8
-                )
                 if order_notional > 0:
-                    if pending_reduction and not risk_reducing_target:
-                        self.logger.warning(
-                            "Skipping additional buy for %s until pending reductions are confirmed",
-                            ticker,
-                        )
-                        continue
                     cover_notional = (
                         min(order_notional, abs(current_notional))
                         if current_notional < 0
@@ -2322,19 +2312,6 @@ class BrokerExecutor:
                     # path below records a single unresolved outcome instead.
                     self._record_confirmed_submission(ticker, order_info)
                     orders_executed.append(order_info)
-                    if self._order_status_value(order) not in {
-                        "canceled", "cancelled", "expired", "rejected",
-                    }:
-                        positions[ticker] = {
-                            **positions.get(ticker, {}),
-                            "market_value": current_notional + order_notional,
-                        }
-                        if abs(current_notional + order_notional) < abs(current_notional) - 1e-8:
-                            pending_reduction = True
-                        if side == OrderSide.BUY:
-                            available_buying_power = max(
-                                0.0, available_buying_power - abs(order_notional)
-                            )
                     self.logger.info(f"  {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
                     # A successful submission changes broker exposure/order state.
                     # Stop here; a later rebalance cycle will use fresh broker data.

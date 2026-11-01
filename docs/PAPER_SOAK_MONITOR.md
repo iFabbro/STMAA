@@ -150,7 +150,16 @@ data contract and PPO inference path, reads the Paper account, positions and
 open orders, reconciles corporate-action activity, estimates aggregate and
 per-symbol gross exposure including pending orders, rejects pending orders
 outside the configured PPO universe, validates the latest completed-session VIX close,
-and applies the existing risk overlay to a hypothetical target. A missing or
+and applies the existing risk overlay to a hypothetical target. Every active
+pending order must have a valid `buy` or `sell` side, but exposure aggregation is
+intentionally direction-agnostic: the full estimated original order notional is
+added to the symbol's absolute position exposure and to aggregate gross exposure.
+The provider does not assume that a sell reduces a long, that a buy covers a
+short, or that opposing orders can be netted. This is a conservative upper bound;
+it can temporarily overstate exposure, especially while a partially filled
+order is still represented in the broker's position snapshot. That overstatement
+can block otherwise risk-reducing activity, but avoids understating exposure
+when position and order snapshots lag one another. A missing or invalid side,
 incompatible model, stale/invalid data, unreadable broker state, unknown
 pending-order notional, inconsistent account identity, persistence failure or
 exposure above the configured gross limit fails closed.

@@ -63,17 +63,19 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
             "MSFT": 300.0,
         },
     )
-    # This test covers a successful rebalance; isolate it from external broker
-    # credentials and return a deterministic accepted response for every symbol.
-    monkeypatch.setattr(
-        executor.trading_client,
-        "submit_order",
-        lambda request: type(
+    # A rebalance cycle must submit only one order, then refresh broker state
+    # on the next cycle before considering another symbol.
+    submitted_symbols = []
+
+    def submit_order(request):
+        submitted_symbols.append(request.symbol)
+        return type(
             "_OrderResponse",
             (),
             {"id": f"order-{request.symbol}", "status": "accepted"},
-        )(),
-    )
+        )()
+
+    monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
 
     weights = PortfolioWeights(
         weights=np.array([0.4, 0.3, 0.3]),
@@ -83,7 +85,8 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
     result = executor.execute_weights(weights)
 
     assert "orders" in result
-    assert len(result["orders"]) == 3
+    assert len(result["orders"]) == 1
+    assert submitted_symbols == [result["orders"][0]["ticker"]]
     assert result["timestamp"] is not None
     for order in result["orders"]:
         order_timestamp = datetime.fromisoformat(order["timestamp"])
@@ -879,7 +882,7 @@ def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch
     assert result["orders"] == []
 
 
-def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure(
+def test_multi_symbol_rebalance_submits_one_order_per_cycle_within_gross_exposure_cap(
     alpaca_env, monkeypatch
 ):
     from types import SimpleNamespace
@@ -909,7 +912,8 @@ def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure
         PortfolioWeights(weights=np.full(len(tickers), 0.1), tickers=tickers)
     )
 
-    assert len(result["orders"]) == 5
+    assert len(result["orders"]) == 1
+    assert len(submitted) == 1
     total_submitted_notional = sum(order.qty * 100.0 for order in submitted)
     assert total_submitted_notional <= 5000.0 + 1e-6
 

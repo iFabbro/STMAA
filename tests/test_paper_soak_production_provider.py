@@ -91,6 +91,7 @@ class FakeBot:
         self.tickers = ["AAPL"]
         self.max_gross_exposure = 0.5
         self.liquidate_on_drawdown = False
+        self.ppo_agent = type("PPO", (), {"max_position_size": 0.2})()
         self.pipeline = type(
             "Pipeline",
             (),
@@ -204,3 +205,13 @@ def test_provider_stops_on_unresolved_persisted_broker_execution_state():
 
     assert observation.health.broker_state_consistent is False
     assert observation.decision["unresolved_execution_state"] is True
+
+
+def test_provider_marks_existing_position_over_position_limit_inconsistent():
+    bot = FakeBot()
+    bot.executor.positions["AAPL"]["market_value"] = 25_000.0
+
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    assert observation.health.broker_state_consistent is False
+    assert observation.decision["position_limits_consistent"] is False

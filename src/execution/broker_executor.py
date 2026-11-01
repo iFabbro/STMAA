@@ -983,8 +983,10 @@ class BrokerExecutor:
                     created_at_raw if isinstance(created_at_raw, datetime)
                     else datetime.fromisoformat(str(created_at_raw))
                 )
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
+                # Naive timestamps have no defensible timezone. Treating them
+                # as UTC can associate an unrelated broker order with this intent.
+                if created_at.tzinfo is None or created_at.utcoffset() is None:
+                    continue
                 # The broker order must have been created shortly after the
                 # persisted intent. An upper bound prevents a later, unrelated order
                 # with the same symbol/side/quantity from being misidentified.
@@ -1102,8 +1104,13 @@ class BrokerExecutor:
                         raw_created_at if isinstance(raw_created_at, datetime)
                         else datetime.fromisoformat(str(raw_created_at))
                     )
-                    if order_created_at.tzinfo is None:
-                        order_created_at = order_created_at.replace(tzinfo=timezone.utc)
+                    # Broker history timestamps must be timezone-aware;
+                    # ambiguous timestamps are not reconciliation evidence.
+                    if (
+                        order_created_at.tzinfo is None
+                        or order_created_at.utcoffset() is None
+                    ):
+                        continue
                 except (TypeError, ValueError):
                     continue
                 if (

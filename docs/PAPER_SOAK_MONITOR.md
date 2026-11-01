@@ -137,11 +137,11 @@ artifact plus its metadata, run the production provider from the repository
 root:
 
 ```bash
-PYTHONPATH=. python -m src.utils.paper_soak_production_provider \\
-  --branch main \\
-  --commit-sha <40-character-commit-sha> \\
-  --duration-hours 48 \\
-  --interval-seconds 60 \\
+PYTHONPATH=. python -m src.utils.paper_soak_production_provider \
+  --branch main \
+  --commit-sha <40-character-commit-sha> \
+  --duration-hours 48 \
+  --interval-seconds 60 \
   --db-path logs/stmaa.db
 ```
 

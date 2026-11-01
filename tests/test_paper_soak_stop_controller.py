@@ -4,6 +4,7 @@ import sqlite3
 import pytest
 
 from src.utils.paper_soak_monitor import PaperSoakMonitor
+from src.utils import paper_soak_stop_controller
 from src.utils.paper_soak_stop_controller import (
     MAX_CONSECUTIVE_API_FAILURES,
     MAX_HEARTBEAT_AGE_SECONDS,
@@ -164,10 +165,10 @@ def test_stop_is_restored_from_event_log_after_controller_recreation(tmp_path):
 def test_stop_remains_latched_in_memory_if_event_persistence_fails(tmp_path, monkeypatch):
     monitor, controller = make_controller(tmp_path)
 
-    def fail_record_event(*_args, **_kwargs):
+    def fail_log_event(*_args, **_kwargs):
         raise sqlite3.OperationalError("simulated disk failure")
 
-    monkeypatch.setattr(monitor, "record_event", fail_record_event)
+    monkeypatch.setattr(paper_soak_stop_controller, "log_event", fail_log_event)
     with pytest.raises(StopPersistenceError, match="durable stop event"):
         controller.evaluate(healthy_snapshot(persistence_healthy=False))
 

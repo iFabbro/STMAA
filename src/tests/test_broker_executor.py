@@ -150,8 +150,8 @@ def test_execute_weights_revalidates_broker_snapshot_before_first_submission(
         )
 
     assert account_reads["count"] == 2
-    assert position_reads["count"] == 2
-    assert order_reads["count"] == 2
+    assert position_reads["count"] == (1 if changed_snapshot == "account" else 2)
+    assert order_reads["count"] == (2 if changed_snapshot == "open_orders" else 1)
 
 
 class _FakeOrder:

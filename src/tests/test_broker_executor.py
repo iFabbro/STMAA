@@ -85,6 +85,10 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
     assert "orders" in result
     assert len(result["orders"]) == 3
     assert result["timestamp"] is not None
+    for order in result["orders"]:
+        order_timestamp = datetime.fromisoformat(order["timestamp"])
+        assert order_timestamp.tzinfo is not None
+        assert order_timestamp.utcoffset() == timedelta(0)
 
 
 class _FakeOrder:

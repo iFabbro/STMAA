@@ -76,6 +76,28 @@ stop controller, emits a heartbeat, and terminates the session as failed when
 a stop threshold is reached. Missing or malformed observations fail closed.
 The stop is sticky and cannot be reset within the same monitor session.
 
+## Restart and reconnection semantics
+
+A process restart does not resume an interrupted soak run. SQLite records the
+owning process identity; when a later process proves that owner is dead,
+`recover_orphaned_runs` finalizes the orphaned run as `failed`. Late heartbeats
+or observations against that run are rejected. A new process may create a new
+run, but the interrupted run remains failed evidence and must not be counted
+toward a continuous soak duration.
+
+A read-only provider connection error is terminal for the current shadow
+run. The runner records the failure and stops; it does not silently retry,
+reuse a stale observation, or mark the run healthy. Any future reconnect policy
+must first obtain a complete fresh broker snapshot, revalidate exposure and
+market-data freshness, and remain read-only. Until such a policy is explicitly
+implemented and tested, restarting the shadow runner is a new run, not a
+continuation of the previous one.
+
+The stop controller restores its latched stop from the SQLite event log when
+reconstructed against the same active run. A latched stop remains authoritative
+even if subsequent health observations are healthy. A confirmed-dead process
+causes the owning run to be finalized as failed rather than re-opened.
+
 ## Safety boundary and current limitations
 
 The runner does not itself poll Alpaca or obtain market data, account equity,
@@ -83,7 +105,7 @@ positions, open orders, persisted broker state, or VIX. A completed run using
 a test or placeholder provider is **not** evidence that the production
 strategy, broker state, or market-data pipeline was healthy. In particular,
 the production `PaperTradingBot`/PPO path has not yet been connected to this
-runner. A concrete read-only provider, restart recovery, final soak acceptance
+runner. A concrete read-only provider, reconnect policy, final soak acceptance
 report, and operational preflight remain outstanding.
 
 No component described here submits, replaces, cancels, or closes broker

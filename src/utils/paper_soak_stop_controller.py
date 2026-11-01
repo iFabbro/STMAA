@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from src.utils.paper_soak_monitor import PaperSoakMonitor
-from src.utils.sqlite_logger import db_conn
+from src.utils.sqlite_logger import db_conn, log_event
 
 MAX_CONSECUTIVE_API_FAILURES = 3
 MAX_HEARTBEAT_AGE_SECONDS = 120.0
@@ -97,12 +97,13 @@ class PaperSoakStopController:
             return "unknown_or_invalid_signal:api_consecutive_failures"
 
         heartbeat_age = snapshot.heartbeat_age_seconds
-        if (
-            isinstance(heartbeat_age, bool)
-            or not isinstance(heartbeat_age, (int, float))
-            or not math.isfinite(float(heartbeat_age))
-            or heartbeat_age < 0
-        ):
+        if isinstance(heartbeat_age, bool) or not isinstance(heartbeat_age, (int, float)):
+            return "unknown_or_invalid_signal:heartbeat_age_seconds"
+        try:
+            finite_heartbeat_age = math.isfinite(float(heartbeat_age))
+        except (OverflowError, ValueError):
+            finite_heartbeat_age = False
+        if not finite_heartbeat_age or heartbeat_age < 0:
             return "unknown_or_invalid_signal:heartbeat_age_seconds"
         return None
 
@@ -152,9 +153,11 @@ class PaperSoakStopController:
         # permit this process to continue as though the session were healthy.
         self._stopped = True
         try:
-            self.monitor.record_event(
-                "stop_triggered",
-                "Paper soak automatic stop threshold triggered",
+            log_event(
+                self.monitor.run_id,
+                source="paper_soak_stop_controller",
+                event_type="stop_triggered",
+                message="Paper soak automatic stop threshold triggered",
                 level="ERROR",
                 payload={
                     "reason": reason,
@@ -162,6 +165,7 @@ class PaperSoakStopController:
                     "max_consecutive_api_failures": MAX_CONSECUTIVE_API_FAILURES,
                     "max_heartbeat_age_seconds": MAX_HEARTBEAT_AGE_SECONDS,
                 },
+                db_path=self.monitor.db_path,
             )
         except Exception as exc:
             raise StopPersistenceError(

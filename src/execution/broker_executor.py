@@ -2206,7 +2206,6 @@ class BrokerExecutor:
                 )
 
             pending_reduction = False
-            execution_snapshot_verified = False
             for ticker in execution_tickers:
                 target_weight = float(target_weight_by_ticker.get(ticker, 0.0))
                 if ticker in open_order_symbols:
@@ -2271,9 +2270,10 @@ class BrokerExecutor:
                 if qty < 0.000001:
                     continue
 
-                if not execution_snapshot_verified:
-                    self._verify_execution_snapshot(account, positions, open_orders)
-                    execution_snapshot_verified = True
+                # Every rebalance cycle submits at most one order. The next cycle
+                # must rebuild account, positions, open orders, and prices from fresh
+                # broker snapshots before another symbol can be submitted.
+                self._verify_execution_snapshot(account, positions, open_orders)
 
                 client_order_id = str(uuid.uuid4())
                 # Persist intent before calling the broker: a lost response must not
@@ -2336,6 +2336,9 @@ class BrokerExecutor:
                                 0.0, available_buying_power - abs(order_notional)
                             )
                     self.logger.info(f"  {side.value.upper()} {qty:.4f} {ticker} @ ~${price:.2f}")
+                    # A successful submission changes broker exposure/order state.
+                    # Stop here; a later rebalance cycle will use fresh broker data.
+                    break
                 except Exception as e:
                     # An exception does not prove that the broker rejected the order.
                     # Restore the durable intent even if a post-submit state write failed.

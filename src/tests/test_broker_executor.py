@@ -4024,3 +4024,106 @@ def test_emergency_liquidation_stops_if_new_open_order_cannot_be_cancelled(
 
     assert fake.closed == ["AAPL"]
     assert fake.cancelled == ["manual-open-2"]
+
+
+def test_accepted_emergency_close_survives_post_accept_persistence_failure_and_restart(
+    alpaca_env, monkeypatch
+):
+    """A broker-accepted close must be recovered from the durable intent after a failed state commit."""
+    from datetime import datetime
+    from types import SimpleNamespace
+    import json
+    import src.execution.broker_executor as broker_executor_module
+
+    first = BrokerExecutor()
+    original_replace = broker_executor_module.os.replace
+    replace_calls = {"count": 0}
+
+    def fail_second_replace(source, destination):
+        replace_calls["count"] += 1
+        if replace_calls["count"] == 2:
+            raise OSError("simulated state commit failure after broker acceptance")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(broker_executor_module.os, "replace", fail_second_replace)
+
+    class FirstBroker:
+        def __init__(self):
+            self.close_calls = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id="accepted-close-after-write-failure", status="accepted")
+
+    first_broker = FirstBroker()
+    first.trading_client = first_broker
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+
+    with pytest.raises(
+        OSError,
+        match="simulated state commit failure after broker acceptance",
+    ):
+        first._liquidate_all_positions([])
+
+    assert first_broker.close_calls == ["AAPL"]
+    persisted_after_failure = json.loads(
+        first.state_file.read_text(encoding="utf-8")
+    )
+    intent = persisted_after_failure["emergency_liquidation_unresolved"]["AAPL"]
+    assert intent["requested_qty"] == 1.0
+    assert intent["expected_side"] == "sell"
+    assert persisted_after_failure["emergency_liquidation_pending"] == {}
+
+    # A fresh process sees the durable pre-submit intent and reconciles the
+    # accepted broker order from history instead of submitting a duplicate.
+    resumed = BrokerExecutor()
+    broker_created_at = datetime.fromisoformat(intent["created_at"])
+
+    class ResumedBroker:
+        def __init__(self):
+            self.close_calls = []
+            self.history_reads = 0
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, **kwargs):
+            self.history_reads += 1
+            return [
+                SimpleNamespace(
+                    id="accepted-close-after-write-failure",
+                    symbol="AAPL",
+                    side="sell",
+                    qty="1",
+                    created_at=broker_created_at,
+                    status="accepted",
+                    replaced_by=None,
+                )
+            ]
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            raise AssertionError("restart must not submit a duplicate emergency close")
+
+    resumed_broker = ResumedBroker()
+    resumed.trading_client = resumed_broker
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+
+    assert resumed._liquidate_all_positions([]) == []
+    assert resumed_broker.history_reads == 1
+    assert resumed_broker.close_calls == []
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "accepted-close-after-write-failure"
+    }
+    assert resumed.state["emergency_liquidation_unresolved"] == {}
+
+    persisted_after_recovery = json.loads(
+        resumed.state_file.read_text(encoding="utf-8")
+    )
+    assert persisted_after_recovery["emergency_liquidation_pending"] == {
+        "AAPL": "accepted-close-after-write-failure"
+    }
+    assert persisted_after_recovery["emergency_liquidation_unresolved"] == {}

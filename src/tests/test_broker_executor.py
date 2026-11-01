@@ -3957,10 +3957,12 @@ def test_emergency_liquidation_refreshes_positions_and_open_orders_before_each_c
     fake = FakeTradingClient()
     executor.trading_client = fake
     appearing_order = SimpleNamespace(id="manual-open-1", symbol="NVDA")
+    aapl_close = SimpleNamespace(id="close-AAPL", symbol="AAPL")
+    tsla_close = SimpleNamespace(id="close-TSLA", symbol="TSLA")
     snapshots = iter([
-        [], [], [],                  # initial pass and AAPL pre/post checks
-        [appearing_order], [],       # new order appears before TSLA close; cancellation confirmed
-        [], [],                      # MSFT pre/post checks
+        [], [], [],  # initial pass and AAPL pre/post checks
+        [aapl_close, appearing_order], [aapl_close],
+        [aapl_close, tsla_close], [aapl_close, tsla_close],
     ])
     monkeypatch.setattr(
         executor, "_get_open_orders", lambda: next(snapshots, [])

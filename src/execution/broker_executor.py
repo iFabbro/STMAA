@@ -1254,13 +1254,15 @@ class BrokerExecutor:
             pending_order_symbols[normalized_order_id] = normalized_symbol
 
         processed_symbols = set()
+        refresh_before_next_candidate = False
         while True:
-            # Never reuse the position snapshot from the previous close. Refresh
-            # after every broker mutation and discover symbols that appeared
-            # while liquidation was in progress.
-            positions = validate_positions_snapshot(
-                self.trading_client.get_all_positions()
-            )
+            # Reuse the already-validated snapshot for the first candidate. After
+            # each close, fetch a new snapshot before selecting the next symbol.
+            if refresh_before_next_candidate:
+                positions = validate_positions_snapshot(
+                    self.trading_client.get_all_positions()
+                )
+                refresh_before_next_candidate = False
             candidate_symbol = None
             for position in positions:
                 symbol = str(getattr(position, "symbol", "")).strip()
@@ -1290,6 +1292,7 @@ class BrokerExecutor:
             # cancellation pass. Cancel it and require a second broker snapshot
             # to prove that no unrelated active order remains before closing.
             current_open_orders = self._get_open_orders()
+            cancelled_new_order = False
             for order in current_open_orders:
                 order_id = str(getattr(order, "id", "") or "").strip()
                 if not order_id:
@@ -1304,6 +1307,7 @@ class BrokerExecutor:
                         )
                     continue
                 self.trading_client.cancel_order_by_id(order_id)
+                cancelled_new_order = True
 
             verified_open_orders = self._get_open_orders()
             for order in verified_open_orders:
@@ -1320,11 +1324,14 @@ class BrokerExecutor:
 
             # Cancellation can race with fills. Re-read positions after the
             # cancellation check and derive the close intent from this snapshot.
-            latest_positions = validate_positions_snapshot(
-                self.trading_client.get_all_positions()
-            )
+            if cancelled_new_order:
+                # A cancellation may race with fills, so only a post-cancel
+                # position snapshot can authorize the close in this branch.
+                positions = validate_positions_snapshot(
+                    self.trading_client.get_all_positions()
+                )
             matching_positions = [
-                position for position in latest_positions
+                position for position in positions
                 if str(getattr(position, "symbol", "")).strip() == candidate_symbol
             ]
             if len(matching_positions) > 1:
@@ -1385,6 +1392,7 @@ class BrokerExecutor:
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()
             processed_symbols.add(candidate_symbol)
+            refresh_before_next_candidate = True
         return liquidations
 
     def get_positions(self) -> Dict[str, Dict]:

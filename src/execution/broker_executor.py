@@ -1035,7 +1035,14 @@ class BrokerExecutor:
                     else:
                         replacement_parent_by_child[child_id] = parent_id
 
-            def has_valid_replacement_ancestry(order):
+            def has_valid_replacement_ancestry(
+                order,
+                *,
+                order_index,
+                duplicate_ids,
+                parent_by_child,
+                conflicting_children,
+            ):
                 """Require every child->parent and parent->child edge to agree."""
                 visited = set()
                 current = order
@@ -1044,13 +1051,13 @@ class BrokerExecutor:
                     if not current_id_raw:
                         return False
                     current_id = str(current_id_raw)
-                    if current_id in visited or current_id in duplicate_order_ids:
+                    if current_id in visited or current_id in duplicate_ids:
                         return False
                     visited.add(current_id)
 
                     raw_parent_id = getattr(current, "replaces", None)
-                    expected_parent_id = replacement_parent_by_child.get(current_id)
-                    if current_id in conflicting_replacement_children:
+                    expected_parent_id = parent_by_child.get(current_id)
+                    if current_id in conflicting_children:
                         return False
                     if not raw_parent_id:
                         # A purported child must not be accepted if the history
@@ -1059,7 +1066,7 @@ class BrokerExecutor:
                     parent_id = str(raw_parent_id)
                     if expected_parent_id != parent_id:
                         return False
-                    parent = orders_by_id.get(parent_id)
+                    parent = order_index.get(parent_id)
                     if parent is None:
                         return False
                     if str(getattr(parent, "replaced_by", "") or "") != current_id:
@@ -1081,7 +1088,13 @@ class BrokerExecutor:
                     continue
                 if getattr(order, "replaced_by", None):
                     continue
-                if not has_valid_replacement_ancestry(order):
+                if not has_valid_replacement_ancestry(
+                    order,
+                    order_index=orders_by_id,
+                    duplicate_ids=duplicate_order_ids,
+                    parent_by_child=replacement_parent_by_child,
+                    conflicting_children=conflicting_replacement_children,
+                ):
                     continue
                 try:
                     order_qty = float(raw_qty)

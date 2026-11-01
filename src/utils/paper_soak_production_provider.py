@@ -161,6 +161,17 @@ class ProductionPaperSoakObservationProvider:
                     raise RuntimeError(
                         f"Pending order symbol is outside the configured PPO universe: {symbol}"
                     )
+                raw_side = getattr(order, "side", None)
+                side_value = getattr(raw_side, "value", raw_side)
+                side = str(side_value or "").strip().lower().rsplit(".", 1)[-1]
+                if side not in {"buy", "sell"}:
+                    raise RuntimeError(
+                        f"Pending order side is missing or invalid for {symbol}"
+                    )
+                # Exposure is deliberately side-agnostic: every active order is
+                # treated as potentially gross-increasing. This upper bound avoids
+                # relying on position/order netting while broker snapshots can lag
+                # partial fills. The estimator reserves the original order size.
                 order_notional = float(estimate_reader(order, prices=prices))
                 if not math.isfinite(order_notional) or order_notional < 0:
                     raise RuntimeError(

@@ -595,6 +595,9 @@ class BrokerExecutor:
                 "account_data_source": "alpaca_account",
                 "account_snapshot_at": datetime.now(timezone.utc).isoformat(),
                 "account_id": str(getattr(account, "id", "") or "") or None,
+                "account_identity_verified": bool(
+                    str(getattr(account, "id", "") or "").strip()
+                ),
             }
             stored_account_id = self.state.get("account_id")
             if stored_account_id and data["account_id"] and stored_account_id != data["account_id"]:
@@ -1931,6 +1934,15 @@ class BrokerExecutor:
                 "timestamp": datetime.now().isoformat(),
                 "metrics": self.metrics.get_all_metrics(),
             }
+
+        # Financial freshness and account identity are separate guarantees.
+        # A fresh account response without its ID may support unlinked metrics,
+        # but it must not authorize a new allocation against persisted broker state.
+        # Explicit emergency liquidation above remains a distinct risk-reducing path.
+        if account.get("account_identity_verified") is False:
+            raise RuntimeError(
+                "Cannot verify current broker account identity; refusing new target execution"
+            )
 
         positions = self.get_positions()
         # Enforce corporate-action reconciliation at the broker execution

@@ -1626,7 +1626,13 @@ def test_filled_pending_close_is_preserved_while_position_snapshot_is_stale(
             return [SimpleNamespace(symbol="AAPL", qty="2")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="filled",
+                qty="1",
+                filled_qty="1",
+            )
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1663,7 +1669,13 @@ def test_terminal_pending_liquidation_is_persisted_when_no_positions_remain(
             return []
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="filled",
+                qty="1",
+                filled_qty="1",
+            )
 
     executor.trading_client = FakeTradingClient()
     executor._get_open_orders = lambda: []
@@ -1698,7 +1710,13 @@ def test_filled_pending_close_is_retained_until_position_snapshot_is_flat(
             return [SimpleNamespace(symbol="AAPL", qty="1")]
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="filled",
+                qty="1",
+                filled_qty="1",
+            )
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -1860,7 +1878,13 @@ def test_emergency_filled_close_stays_pending_until_positions_confirm_flat(
             return self.positions
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="filled",
+                qty="1",
+                filled_qty="1",
+            )
 
         def close_position(self, symbol):
             self.closed.append(symbol)
@@ -2393,7 +2417,11 @@ def test_liquidation_normalizes_enum_status_values(
         def get_order_by_id(self, order_id):
             # Simulate an SDK string-valued Enum: str(status) need not equal status.value.
             return SimpleNamespace(
-                id=order_id, symbol="AAPL", status=SimpleNamespace(value=broker_status)
+                id=order_id,
+                symbol="AAPL",
+                status=SimpleNamespace(value=broker_status),
+                qty="1",
+                filled_qty="1" if broker_status == "filled" else "0",
             )
 
         def close_position(self, symbol):
@@ -2438,7 +2466,13 @@ def test_filled_close_uses_fresh_positions_snapshot_before_clearing_pending(
             return snapshot
 
         def get_order_by_id(self, order_id):
-            return SimpleNamespace(id=order_id, symbol="AAPL", status="filled")
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="filled",
+                qty="1",
+                filled_qty="1",
+            )
 
         def close_position(self, symbol):
             self.close_calls.append(symbol)

@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pandas as pd
 import pytest
 
@@ -47,6 +49,9 @@ class FakeExecutor:
             }
         }
         self.open_orders = []
+
+    def execution_lock(self):
+        return nullcontext()
 
     def get_account_status(self):
         return self.account

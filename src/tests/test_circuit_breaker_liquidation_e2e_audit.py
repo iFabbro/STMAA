@@ -227,8 +227,9 @@ def test_partial_fill_after_canceled_pending_close_retries_only_residual_quantit
 
         def get_all_positions(self):
             self.position_reads += 1
-            # The first read can be stale; after terminal-order reconciliation,
-            # the second read is authoritative and shows a partial fill.
+            # The first read can be stale; the second read after terminal-order
+            # reconciliation shows the residual. A third read verifies the
+            # post-close refresh used to discover newly appearing positions.
             qty = 10 if self.position_reads == 1 else 4
             return [SimpleNamespace(symbol="AAPL", qty=str(qty))]
 
@@ -246,7 +247,7 @@ def test_partial_fill_after_canceled_pending_close_retries_only_residual_quantit
 
     result = executor._liquidate_all_positions([])
 
-    assert broker.position_reads == 2
+    assert broker.position_reads == 3
     assert broker.close_calls == ["AAPL"]
     assert result[0]["order_id"] == "close-2"
     assert result[0]["quantity"] == pytest.approx(4.0)

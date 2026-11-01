@@ -53,10 +53,6 @@ def executor_env(monkeypatch, tmp_path):
             SimpleNamespace(id="calculated-order", symbol="AAPL", status="calculated"),
             id="completed-calculation-is-not-active",
         ),
-        pytest.param(
-            SimpleNamespace(id="stopped-order", symbol="AAPL", status="stopped"),
-            id="stopped-order-is-not-active",
-        ),
     ],
 )
 def test_inconsistent_open_order_snapshot_blocks_rebalance_before_submission(
@@ -157,3 +153,29 @@ def test_duplicate_or_malformed_open_order_snapshot_blocks_before_positions(
 
     assert submitted == []
     assert positions_reads == []
+
+
+@pytest.mark.parametrize("status", ["stopped", "done_for_day", "held"])
+def test_nonterminal_alpaca_order_statuses_are_reserved_as_active(
+    executor_env, monkeypatch, status
+):
+    executor = executor_env
+    order = SimpleNamespace(
+        id=f"active-{status}",
+        symbol="MSFT",
+        status=status,
+        qty="10",
+        filled_qty="0",
+        limit_price="100",
+        notional=None,
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "get_orders",
+        lambda **kwargs: [order],
+    )
+
+    open_orders = executor._get_open_orders()
+
+    assert open_orders == [order]
+    assert executor._get_reserved_notional(open_orders, prices={}) == 1000.0

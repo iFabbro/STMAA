@@ -1008,6 +1008,24 @@ class BrokerExecutor:
                 )
                 continue
 
+            # Build the replacement graph from broker history. A replacement
+            # child is valid evidence only when its "replaces" points back to
+            # the parent whose "replaced_by" points to that exact child.
+            # If history contains a replacement chain, only its terminal child
+            # can be considered below; unrelated same-shape orders are excluded.
+            replacement_parent_by_child = {}
+            conflicting_replacement_links = False
+            for historical_order in orders:
+                parent_id = getattr(historical_order, "id", None)
+                child_id = getattr(historical_order, "replaced_by", None)
+                if parent_id and child_id:
+                    child_id = str(child_id)
+                    parent_id = str(parent_id)
+                    previous_parent = replacement_parent_by_child.get(child_id)
+                    if previous_parent is not None and previous_parent != parent_id:
+                        conflicting_replacement_links = True
+                    replacement_parent_by_child[child_id] = parent_id
+
             candidates = []
             for order in orders:
                 order_symbol = str(getattr(order, "symbol", "") or "").strip()
@@ -1016,10 +1034,26 @@ class BrokerExecutor:
                 raw_qty = getattr(order, "qty", None)
                 raw_created_at = getattr(order, "created_at", None)
                 order_id = getattr(order, "id", None)
-                # A replaced parent is not the live close request. Prefer its
-                # replacement child when that child independently matches the
-                # persisted intent; if it is absent, keep the intent unresolved.
+                # A replaced parent is not the live close request. If the
+                # history contains a replacement edge, require both sides of
+                # that edge to agree; otherwise a coincidental order with the
+                # same symbol/side/quantity/time could be mis-associated.
                 if getattr(order, "replaced_by", None):
+                    continue
+                if conflicting_replacement_links:
+                    continue
+                if replacement_parent_by_child:
+                    expected_parent_id = replacement_parent_by_child.get(str(order_id))
+                    actual_parent_id = getattr(order, "replaces", None)
+                    if (
+                        expected_parent_id is None
+                        or not actual_parent_id
+                        or str(actual_parent_id) != expected_parent_id
+                    ):
+                        continue
+                elif getattr(order, "replaces", None):
+                    # A child without its parent link in the queried history
+                    # cannot be independently verified; retain the intent.
                     continue
                 if not order_id or order_symbol != symbol or order_side != expected_side:
                     continue

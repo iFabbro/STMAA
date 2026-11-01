@@ -1237,24 +1237,105 @@ class BrokerExecutor:
         if active_pending or active_pending != pending:
             self._save_state()
         unresolved = self._reconcile_unresolved_liquidation_intents(positions, active_pending)
-        for position in positions:
-            symbol = str(getattr(position, "symbol", "")).strip()
+        processed_symbols = set()
+        while True:
+            # Never reuse the position snapshot from the previous close. Refresh
+            # after every broker mutation and discover symbols that appeared
+            # while liquidation was in progress.
+            positions = validate_positions_snapshot(
+                self.trading_client.get_all_positions()
+            )
+            candidate_symbol = None
+            for position in positions:
+                symbol = str(getattr(position, "symbol", "")).strip()
+                try:
+                    quantity = float(getattr(position, "qty", 0) or 0)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        "Cannot safely liquidate a position with invalid symbol/quantity"
+                    ) from exc
+                if not symbol or not np.isfinite(quantity):
+                    raise RuntimeError(
+                        "Cannot safely liquidate a position with invalid symbol/quantity"
+                    )
+                if (
+                    quantity != 0
+                    and symbol not in processed_symbols
+                    and symbol not in active_pending
+                    and symbol not in unresolved
+                ):
+                    candidate_symbol = symbol
+                    break
+
+            if candidate_symbol is None:
+                break
+
+            # A new/manual opening order may have appeared after the initial
+            # cancellation pass. Cancel it and require a second broker snapshot
+            # to prove that no unrelated active order remains before closing.
+            current_open_orders = self._get_open_orders()
+            for order in current_open_orders:
+                order_id = str(getattr(order, "id", "") or "").strip()
+                if not order_id:
+                    raise RuntimeError(
+                        "Cannot safely liquidate while an open order has no ID"
+                    )
+                if order_id in pending_order_symbols:
+                    order_symbol = str(getattr(order, "symbol", "") or "").strip()
+                    if order_symbol != pending_order_symbols[order_id]:
+                        raise RuntimeError(
+                            "Persisted pending liquidation order ID does not match broker order symbol"
+                        )
+                    continue
+                self.trading_client.cancel_order_by_id(order_id)
+
+            verified_open_orders = self._get_open_orders()
+            for order in verified_open_orders:
+                order_id = str(getattr(order, "id", "") or "").strip()
+                if order_id not in pending_order_symbols:
+                    raise RuntimeError(
+                        "Cannot safely liquidate until broker confirms unrelated open orders are cancelled"
+                    )
+                order_symbol = str(getattr(order, "symbol", "") or "").strip()
+                if order_symbol != pending_order_symbols[order_id]:
+                    raise RuntimeError(
+                        "Persisted pending liquidation order ID does not match broker order symbol"
+                    )
+
+            # Cancellation can race with fills. Re-read positions after the
+            # cancellation check and derive the close intent from this snapshot.
+            latest_positions = validate_positions_snapshot(
+                self.trading_client.get_all_positions()
+            )
+            matching_positions = [
+                position for position in latest_positions
+                if str(getattr(position, "symbol", "")).strip() == candidate_symbol
+            ]
+            if len(matching_positions) > 1:
+                raise RuntimeError(
+                    "Cannot safely liquidate with duplicate broker position rows"
+                )
+            if not matching_positions:
+                processed_symbols.add(candidate_symbol)
+                continue
             try:
-                quantity = float(getattr(position, "qty", 0) or 0)
+                quantity = float(getattr(matching_positions[0], "qty", None))
             except (TypeError, ValueError) as exc:
-                raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity") from exc
-            if not symbol or not np.isfinite(quantity):
-                raise RuntimeError("Cannot safely liquidate a position with invalid symbol/quantity")
-            # An unresolved intent is deliberately fail-closed across process restarts.
-            # Without a broker order ID, automatically retrying could duplicate a close
-            # that the broker accepted but whose response was lost or malformed.
-            if quantity == 0 or symbol in active_pending or symbol in unresolved:
+                raise RuntimeError(
+                    "Cannot safely liquidate a position with invalid symbol/quantity"
+                ) from exc
+            if not np.isfinite(quantity):
+                raise RuntimeError(
+                    "Cannot safely liquidate a position with invalid symbol/quantity"
+                )
+            if quantity == 0 or candidate_symbol in active_pending or candidate_symbol in unresolved:
+                processed_symbols.add(candidate_symbol)
                 continue
 
-            # Persist intent before sending the broker request. If the process dies or
-            # the response is ambiguous, the next run will require reconciliation
-            # rather than blindly submitting a second close for this symbol.
-            unresolved[symbol] = {
+            # Persist the exact latest quantity/side before sending the request.
+            # The close-position endpoint closes the broker's current full
+            # position; this quantity is evidence for later reconciliation.
+            unresolved[candidate_symbol] = {
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "requested_qty": abs(quantity),
                 "expected_side": "sell" if quantity > 0 else "buy",
@@ -1263,32 +1344,30 @@ class BrokerExecutor:
             self.state["emergency_liquidation_unresolved"] = unresolved
             self._save_state()
 
-            order = self.trading_client.close_position(symbol)
+            order = self.trading_client.close_position(candidate_symbol)
             order_id = getattr(order, "id", None)
             if order_id is None:
                 raise RuntimeError(
-                    f"Broker close request for {symbol} returned no order ID; manual reconciliation required"
+                    f"Broker close request for {candidate_symbol} returned no order ID; manual reconciliation required"
                 )
             status = self._status_text(getattr(order, "status", None), default="submitted")
             liquidations.append({
-                "ticker": symbol,
+                "ticker": candidate_symbol,
                 "side": "close_position",
                 "quantity": abs(quantity),
                 "order_id": str(order_id),
                 "status": status,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "price": None,
             })
-            unresolved.pop(symbol, None)
+            unresolved.pop(candidate_symbol, None)
             self.state["emergency_liquidation_unresolved"] = unresolved
-            # Keep every returned order ID pending for at least one reconciliation
-            # cycle, including terminal statuses. Canceled/expired/rejected orders
-            # can contain partial fills, and the current positions snapshot predates
-            # this close response. The next invocation must refresh positions before
-            # deciding whether a residual close is needed.
-            active_pending[symbol] = str(order_id)
+            # Every acknowledged close remains pending through at least one
+            # later reconciliation cycle, even if its initial status is terminal.
+            active_pending[candidate_symbol] = str(order_id)
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()
+            processed_symbols.add(candidate_symbol)
         return liquidations
 
     def get_positions(self) -> Dict[str, Dict]:

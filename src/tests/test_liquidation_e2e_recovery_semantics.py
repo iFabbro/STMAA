@@ -63,7 +63,7 @@ def test_rejected_or_cancelled_close_with_residual_position_can_retry(executor_e
     """A terminal close may have partially filled; retry only after fresh position read."""
     executor = executor_with_pending_close()
     client = ReconciliationClient(
-        position_responses=[[position()], [position()]],
+        position_responses=[[position()], [position()], [position()]],
         order_status="canceled",
     )
     executor.trading_client = client
@@ -71,7 +71,7 @@ def test_rejected_or_cancelled_close_with_residual_position_can_retry(executor_e
 
     result = executor._liquidate_all_positions([])
 
-    assert client.position_reads == 2
+    assert client.position_reads == 3
     assert client.close_calls == ["AAPL"]
     assert result[0]["order_id"] == "retry-AAPL"
     assert executor.state["emergency_liquidation_pending"]["AAPL"] == "retry-AAPL"

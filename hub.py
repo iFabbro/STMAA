@@ -15,6 +15,7 @@ load_dotenv()
 
 from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
 from src.utils.monitoring_state import HUB_STATE_PATH
+from src.utils.startup_config import load_tickers, load_hub_refresh_seconds
 
 RUN_ID = None
 HUB_STATE = HUB_STATE_PATH
@@ -117,9 +118,10 @@ def get_live_quotes(tickers):
 
 
 
-def render():
+def render(refresh_seconds=None):
     state = load_state()
-    tickers = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META"]
+    tickers = load_tickers()
+    refresh_seconds = load_hub_refresh_seconds() if refresh_seconds is None else refresh_seconds
 
     last_ts = state.get("timestamp")
     orders = state.get("orders", [])
@@ -268,13 +270,13 @@ def render():
     print_header("SYSTEM STATUS")
     print(f"  Snapshot verified at capture: {'yes' if snapshot_verified_at_capture else 'no'}")
     print(f"{Colors.TITLE}Tickers:{Colors.ENDC} {len(tickers)}")
-    print(f"{Colors.TITLE}Dashboard refresh:{Colors.ENDC} 30 seconds")
+    print(f"{Colors.TITLE}Dashboard refresh:{Colors.ENDC} {refresh_seconds} seconds")
     print(f"{Colors.TITLE}Configured capital:{Colors.ENDC} n/a (not persisted)")
     print(f"{Colors.TITLE}Environment:{Colors.ENDC} {mode}")
     print(f"{Colors.TITLE}Quote feed:{Colors.ENDC} {'available' if any(quote_sources) else 'unavailable'}")
 
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'=' * 72}{Colors.ENDC}")
-    print(f"{Colors.ACCENT}Next refresh in 30 seconds...{Colors.ENDC}")
+    print(f"{Colors.ACCENT}Next refresh in {refresh_seconds} seconds...{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{'=' * 72}{Colors.ENDC}\n")
 
 
@@ -284,9 +286,12 @@ def main():
     status = "failed"
     try:
         log_event(RUN_ID, "hub", "startup", "hub.py started")
+        refresh_seconds = load_hub_refresh_seconds()
         while True:
+            # Keep the public no-argument render() entry point compatible with
+            # callers and tests that replace it with a zero-argument callable.
             render()
-            time.sleep(30)
+            time.sleep(refresh_seconds)
     except KeyboardInterrupt:
         print("\nStopped.")
         status = "completed"

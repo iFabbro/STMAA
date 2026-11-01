@@ -4127,3 +4127,97 @@ def test_accepted_emergency_close_survives_post_accept_persistence_failure_and_r
         "AAPL": "accepted-close-after-write-failure"
     }
     assert persisted_after_recovery["emergency_liquidation_unresolved"] == {}
+
+def test_emergency_liquidation_resumes_remaining_symbols_after_mid_sequence_restart(
+    alpaca_env, monkeypatch
+):
+    """Restart must preserve an accepted close and continue with untouched symbols."""
+    from types import SimpleNamespace
+
+    first = BrokerExecutor()
+
+    class InterruptedBroker:
+        def __init__(self):
+            self.position_reads = 0
+            self.close_calls = []
+
+        def get_all_positions(self):
+            self.position_reads += 1
+            if self.position_reads == 1:
+                return [
+                    SimpleNamespace(symbol="AAPL", qty="1"),
+                    SimpleNamespace(symbol="TSLA", qty="2"),
+                ]
+            raise RuntimeError("simulated process interruption after first accepted close")
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id=f"close-{symbol}", status="accepted")
+
+    first_broker = InterruptedBroker()
+    first.trading_client = first_broker
+    monkeypatch.setattr(first, "_get_open_orders", lambda: [])
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated process interruption after first accepted close",
+    ):
+        first._liquidate_all_positions([])
+
+    assert first_broker.close_calls == ["AAPL"]
+    persisted = json.loads(first.state_file.read_text(encoding="utf-8"))
+    assert persisted["emergency_liquidation_pending"] == {"AAPL": "close-AAPL"}
+    assert persisted["emergency_liquidation_unresolved"] == {}
+
+    # A fresh executor must recognize the first close as still active, avoid
+    # resubmitting it, and continue with TSLA, which was never submitted.
+    resumed = BrokerExecutor()
+
+    class ResumedBroker:
+        def __init__(self):
+            self.close_calls = []
+            self.position_reads = 0
+            self.order_lookups = []
+
+        def get_all_positions(self):
+            self.position_reads += 1
+            return [
+                SimpleNamespace(symbol="AAPL", qty="1"),
+                SimpleNamespace(symbol="TSLA", qty="2"),
+            ]
+
+        def get_order_by_id(self, order_id):
+            self.order_lookups.append(order_id)
+            return SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                status="accepted",
+            )
+
+        def close_position(self, symbol):
+            self.close_calls.append(symbol)
+            return SimpleNamespace(id=f"close-{symbol}", status="accepted")
+
+    resumed_broker = ResumedBroker()
+    resumed.trading_client = resumed_broker
+    monkeypatch.setattr(resumed, "_get_open_orders", lambda: [])
+
+    liquidations = resumed._liquidate_all_positions([])
+
+    assert resumed_broker.order_lookups == ["close-AAPL"]
+    assert resumed_broker.close_calls == ["TSLA"]
+    assert [item["ticker"] for item in liquidations] == ["TSLA"]
+    assert resumed.state["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL",
+        "TSLA": "close-TSLA",
+    }
+    assert resumed.state["emergency_liquidation_unresolved"] == {}
+
+    persisted_after_resume = json.loads(
+        resumed.state_file.read_text(encoding="utf-8")
+    )
+    assert persisted_after_resume["emergency_liquidation_pending"] == {
+        "AAPL": "close-AAPL",
+        "TSLA": "close-TSLA",
+    }
+    assert persisted_after_resume["emergency_liquidation_unresolved"] == {}

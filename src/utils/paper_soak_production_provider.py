@@ -148,15 +148,52 @@ class ProductionPaperSoakObservationProvider:
             reserved_notional = float(reserved_reader(open_orders, prices=prices))
             if not math.isfinite(reserved_notional) or reserved_notional < 0:
                 raise RuntimeError("Pending-order exposure is not determinable")
+            estimate_reader = getattr(self.executor, "_estimate_order_notional", None)
+            if not callable(estimate_reader):
+                raise RuntimeError("Per-symbol pending-order exposure reader is unavailable")
+            pending_by_symbol: dict[str, float] = {}
+            for order in open_orders:
+                symbol = getattr(order, "symbol", None)
+                if not isinstance(symbol, str) or not symbol.strip():
+                    raise RuntimeError("Pending order has no verifiable symbol")
+                symbol = symbol.strip().upper()
+                if symbol not in self.bot.tickers:
+                    raise RuntimeError(
+                        f"Pending order symbol is outside the configured PPO universe: {symbol}"
+                    )
+                order_notional = float(estimate_reader(order, prices=prices))
+                if not math.isfinite(order_notional) or order_notional < 0:
+                    raise RuntimeError(
+                        f"Pending-order exposure is not determinable for {symbol}"
+                    )
+                pending_by_symbol[symbol] = (
+                    pending_by_symbol.get(symbol, 0.0) + order_notional
+                )
+            if not math.isclose(
+                sum(pending_by_symbol.values()), reserved_notional,
+                rel_tol=1e-8, abs_tol=0.01,
+            ):
+                raise RuntimeError(
+                    "Aggregate and per-symbol pending-order exposure estimates disagree"
+                )
             gross_exposure = position_gross + reserved_notional
             exposure_ratio = gross_exposure / equity
             if not math.isfinite(exposure_ratio):
                 raise RuntimeError("Aggregate broker exposure is not determinable")
             max_position_limit = float(self.bot.ppo_agent.max_position_size)
+            position_exposure_by_symbol: dict[str, float] = {}
+            for symbol, position in positions.items():
+                market_value = float(position["market_value"])
+                position_exposure_by_symbol[symbol] = (
+                    position_exposure_by_symbol.get(symbol, 0.0) + abs(market_value)
+                )
+            for symbol, pending_value in pending_by_symbol.items():
+                position_exposure_by_symbol[symbol] = (
+                    position_exposure_by_symbol.get(symbol, 0.0) + pending_value
+                )
             position_limits_consistent = all(
-                abs(float(position["market_value"])) / equity
-                <= max_position_limit + 1e-8
-                for position in positions.values()
+                value / equity <= max_position_limit + 1e-8
+                for value in position_exposure_by_symbol.values()
             )
     
             state = self.executor.state

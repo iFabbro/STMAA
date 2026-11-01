@@ -91,9 +91,74 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
         assert order_timestamp.utcoffset() == timedelta(0)
 
 
+@pytest.mark.parametrize("changed_snapshot", ["account", "positions", "open_orders"])
+def test_execute_weights_revalidates_broker_snapshot_before_first_submission(
+    alpaca_env, monkeypatch, changed_snapshot
+):
+    executor = BrokerExecutor(configured_symbols=["AAPL"])
+    account = {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_identity_verified": True,
+        "account_id": "paper-account",
+    }
+    account_reads = {"count": 0}
+
+    def get_account():
+        account_reads["count"] += 1
+        result = dict(account)
+        if changed_snapshot == "account" and account_reads["count"] > 1:
+            result["buying_power"] -= 100.0
+        return result
+
+    position_reads = {"count": 0}
+
+    def get_positions():
+        position_reads["count"] += 1
+        if changed_snapshot == "positions" and position_reads["count"] > 1:
+            return {"AAPL": {"qty": 1.0, "market_value": 100.0}}
+        return {}
+
+    order_reads = {"count": 0}
+
+    def get_open_orders():
+        order_reads["count"] += 1
+        if changed_snapshot == "open_orders" and order_reads["count"] > 1:
+            return [type("SnapshotOrder", (), {"id": "open-1", "symbol": "AAPL", "side": "buy", "status": "accepted", "qty": 1, "filled_qty": 0})()]
+        return []
+
+    monkeypatch.setattr(executor, "get_account_status", get_account)
+    monkeypatch.setattr(executor, "get_positions", get_positions)
+    monkeypatch.setattr(executor, "_get_open_orders", get_open_orders)
+    monkeypatch.setattr(
+        executor,
+        "_get_prices_from_bars",
+        lambda tickers: {"AAPL": 100.0},
+    )
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: pytest.fail("Broker order must not be submitted after snapshot drift"),
+    )
+
+    with pytest.raises(RuntimeError, match="changed after sizing"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.2]), tickers=["AAPL"])
+        )
+
+    assert account_reads["count"] == 2
+    assert position_reads["count"] == (1 if changed_snapshot == "account" else 2)
+    assert order_reads["count"] == (2 if changed_snapshot == "open_orders" else 1)
+
+
 class _FakeOrder:
     def __init__(self, status, qty=0, filled_qty=0, limit_price=None, notional=None, symbol="AAPL"):
+        self.id = f"fake-{symbol}-{status}"
         self.status = status
+        self.side = "buy"
         self.qty = qty
         self.filled_qty = filled_qty
         self.limit_price = limit_price
@@ -3063,6 +3128,12 @@ def test_execute_weights_metrics_use_post_execution_equity_without_duplicate_bas
             "account_data_source": "alpaca_account",
         },
         {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:30+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
             "cash": 9800.0, "portfolio_value": 19800.0, "buying_power": 19800.0,
             "equity": 9800.0, "account_data_fresh": True,
             "account_snapshot_at": "2026-10-24T12:01:00+00:00",
@@ -3100,6 +3171,12 @@ def test_execute_weights_does_not_append_metrics_when_post_snapshot_is_stale(
             "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
             "equity": 10000.0, "account_data_fresh": True,
             "account_snapshot_at": "2026-10-24T12:00:00+00:00",
+            "account_data_source": "alpaca_account",
+        },
+        {
+            "cash": 10000.0, "portfolio_value": 20000.0, "buying_power": 20000.0,
+            "equity": 10000.0, "account_data_fresh": True,
+            "account_snapshot_at": "2026-10-24T12:00:30+00:00",
             "account_data_source": "alpaca_account",
         },
         {

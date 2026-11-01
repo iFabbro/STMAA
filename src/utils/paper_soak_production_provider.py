@@ -167,6 +167,14 @@ class ProductionPaperSoakObservationProvider:
                 and not corporate_actions.get("unresolved_activity_ids")
                 and not corporate_actions.get("blocked_symbols")
             )
+            unresolved_execution_state = any(
+                not isinstance(state.get(field), dict) or bool(state.get(field))
+                for field in (
+                    "order_submission_unresolved",
+                    "emergency_liquidation_pending",
+                    "emergency_liquidation_unresolved",
+                )
+            )
             state_revision = state.get("state_revision")
             persisted_revision = getattr(self.executor, "_persisted_state_revision", None)
             persistence_healthy = (
@@ -207,6 +215,7 @@ class ProductionPaperSoakObservationProvider:
             broker_consistent = (
                 identity_consistent
                 and corporate_actions_consistent
+                and not unresolved_execution_state
                 and exposure_within_limit
             )
             snapshot_complete = (
@@ -255,6 +264,7 @@ class ProductionPaperSoakObservationProvider:
                 "pending_order_count": len(open_orders),
                 "broker_account_id": account_id,
                 "broker_snapshot_at": account.get("account_snapshot_at"),
+                "unresolved_execution_state": unresolved_execution_state,
                 "order_submission": "disabled",
             }
             return PaperSoakShadowObservation(health=health, decision=decision)

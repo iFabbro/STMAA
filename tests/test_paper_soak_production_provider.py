@@ -18,6 +18,9 @@ class FakeExecutor:
             "account_id": "paper-account-1",
             "account_mode": "paper",
             "state_revision": 4,
+            "order_submission_unresolved": {},
+            "emergency_liquidation_pending": {},
+            "emergency_liquidation_unresolved": {},
             "risk_peak_portfolio_value": 100_000.0,
             "risk_peak_equity_source": "alpaca_account",
             "risk_peak_account_mode": "paper",
@@ -189,3 +192,15 @@ def test_provider_reports_unhealthy_persistence_without_claiming_it_is_healthy()
     observation = ProductionPaperSoakObservationProvider(bot)()
 
     assert observation.health.persistence_healthy is False
+
+
+def test_provider_stops_on_unresolved_persisted_broker_execution_state():
+    bot = FakeBot()
+    bot.executor.state["order_submission_unresolved"] = {
+        "client-order-ambiguous": {"symbol": "AAPL"}
+    }
+
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    assert observation.health.broker_state_consistent is False
+    assert observation.decision["unresolved_execution_state"] is True

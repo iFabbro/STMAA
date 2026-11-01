@@ -1,10 +1,19 @@
 # Paper soak heartbeat monitor
 
-The broker-independent monitor records the lifecycle of a planned Paper soak and
-periodic process heartbeats in the existing SQLite event database
+The Paper soak monitor records a planned session lifecycle, periodic
+heartbeats, and shadow observations in the existing SQLite event database
 (`logs/stmaa.db` by default).
 
-## Run
+## Components
+
+- `PaperSoakMonitor`: session lifecycle and heartbeat persistence.
+- `PaperSoakStopController`: fail-closed evaluation of broker, exposure,
+  market-data, persistence, and heartbeat health observations.
+- `PaperSoakShadowRunner`: invokes an injected observation provider, records
+  hypothetical strategy decisions, and connects each health observation to
+  the stop controller.
+
+## Run the broker-independent heartbeat monitor
 
 From the repository root, with the project environment active:
 
@@ -12,9 +21,9 @@ From the repository root, with the project environment active:
 PYTHONPATH=. python -m src.utils.paper_soak_monitor
 ```
 
-The default duration is 48 hours and the default heartbeat interval is 60 seconds.
-For a short local smoke test, use an explicit shorter duration and a temporary
-database:
+The default duration is 48 hours and the default heartbeat interval is 60
+seconds. For a short local smoke test, use an explicit shorter duration and a
+temporary database:
 
 ```bash
 PYTHONPATH=. python -m src.utils.paper_soak_monitor \
@@ -23,55 +32,60 @@ PYTHONPATH=. python -m src.utils.paper_soak_monitor \
   --db-path /tmp/stmaa-paper-soak-monitor.db
 ```
 
-The monitor prints its run ID and terminal status when it exits. Events are
-persisted in the SQLite `runs` and `events` tables and can be inspected using
-the existing SQLite tooling.
+## Shadow runner integration contract
 
-## Scope and safety boundary
+The shadow runner is a library component; it is not yet wired to the production
+`PaperTradingBot` or its PPO inference path. The caller supplies a zero-argument
+observation provider returning `PaperSoakShadowObservation`, containing:
 
-This component only writes monitor lifecycle and heartbeat events to SQLite.
-It does not import or initialize an Alpaca client, read broker credentials,
-query account/order/position endpoints, or submit, replace, cancel, or close
-orders. It does not start a trading process.
+- a complete `PaperSoakHealthSnapshot`;
+- a JSON-serializable `decision` payload representing a hypothetical strategy
+  decision (for example, target weights and a decision label).
 
-A completed heartbeat session is **not** evidence that broker connectivity,
-market-data freshness, exposure, risk, or persisted broker state remained
-healthy. Broker polling, automatic stop thresholds, restart recovery, and final
-soak acceptance criteria are separate implementation steps. Until those steps
-are implemented and reviewed, this component alone must not be treated as a
-48-hour soak controller or as authorization to start the soak.
+The provider is an explicit trust boundary. Any future concrete provider must
+use read-only market/account/order/position observations and strategy inference
+only. It must not call `execute_trade`, broker order submission, replacement,
+cancellation, liquidation, or any other broker mutation. The runner itself
+does not import, instantiate, or receive a broker executor/client, and has no
+credentials or network access.
 
-An interrupted or failed process records a failed run when it can still write
-to SQLite. A hard process or host failure may leave a run in `running` state;
-recovery and interpretation of such runs are addressed separately.
+Example wiring with an application-owned read-only provider:
 
+```python
+from src.utils.paper_soak_monitor import PaperSoakMonitor
+from src.utils.paper_soak_shadow_runner import (
+    PaperSoakShadowObservation,
+    PaperSoakShadowRunner,
+)
 
-## Automatic stop controller (PR 3)
+def read_only_observation_provider() -> PaperSoakShadowObservation:
+    # Implement using approved read-only data and inference dependencies.
+    # Return a complete health snapshot and a hypothetical decision.
+    raise NotImplementedError
 
-`PaperSoakStopController` evaluates a complete `PaperSoakHealthSnapshot`
-provided by a caller. It has no broker client and performs no broker reads or
-order mutations. It is a policy component only; this PR does not yet connect
-it to a broker-polling loop or start a soak.
+monitor = PaperSoakMonitor()
+runner = PaperSoakShadowRunner(
+    monitor,
+    observation_provider=read_only_observation_provider,
+)
+run_id = runner.run()
+```
 
-The controller stops on any of the following:
-- a non-Paper broker endpoint;
-- any attempted broker order mutation;
-- broker/local state mismatch or indeterminable exposure;
-- invalid or stale market data;
-- persistence/lock failure or incomplete broker snapshot;
-- three consecutive broker API failures;
-- heartbeat age greater than 120 seconds.
+The runner records each observation and hypothetical decision, evaluates the
+stop controller, emits a heartbeat, and terminates the session as failed when
+a stop threshold is reached. Missing or malformed observations fail closed.
+The stop is sticky and cannot be reset within the same monitor session.
 
-Every required health field must be explicitly supplied with the expected type.
-Missing or malformed telemetry triggers a stop rather than being treated as
-healthy. The stop is sticky for the session, is recorded as a
-`stop_triggered` event, and is restored when the controller is recreated for
-the same monitor run. A healthy later observation cannot clear it. If durable
-event recording fails, the controller remains stopped in memory and raises
-`StopPersistenceError`; the caller must terminate the session.
+## Safety boundary and current limitations
 
-The controller does not cancel, close, replace, or otherwise modify orders.
-There is no automatic resume/reset API. A new soak requires a separately
-created monitor session and a deliberate operational decision. Broker polling,
-monitor-loop integration, recovery policy, and final acceptance reporting
-remain separate steps.
+The runner does not itself poll Alpaca or obtain market data, account equity,
+positions, open orders, persisted broker state, or VIX. A completed run using
+a test or placeholder provider is **not** evidence that the production
+strategy, broker state, or market-data pipeline was healthy. In particular,
+the production `PaperTradingBot`/PPO path has not yet been connected to this
+runner. A concrete read-only provider, restart recovery, final soak acceptance
+report, and operational preflight remain outstanding.
+
+No component described here submits, replaces, cancels, or closes broker
+orders. The 48-hour soak has not been started, and this implementation is not
+authorization to start it.

@@ -85,9 +85,9 @@ class ProductionPaperSoakObservationProvider:
         return max(peak, equity)
 
     def __call__(self) -> PaperSoakShadowObservation:
-        # These calls are the existing production data and strategy inference
-        # path. generate_weights performs account/position reads and corporate-
-        # action reconciliation before invoking PPOAgent.predict_weights.
+        # Market data and VIX use the production feeds. One broker snapshot is
+        # then collected under the execution lock and passed into generate_weights,
+        # which performs corporate-action reconciliation and PPO inference.
         market_data = self.bot.get_market_data()
         vix = self.bot.get_vix_value()
         execution_lock = getattr(self.executor, "execution_lock", None)

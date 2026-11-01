@@ -4276,3 +4276,144 @@ def test_emergency_liquidation_resumes_remaining_symbols_after_mid_sequence_rest
         "TSLA": "close-TSLA",
     }
     assert persisted_after_resume["emergency_liquidation_unresolved"] == {}
+
+
+@pytest.mark.parametrize(
+    "history, expected_order_id",
+    [
+        (
+            [
+                ("close-a", "close-b", None, "replaced", 1),
+                ("close-b", "close-c", "close-a", "replaced", 2),
+                ("close-c", None, "close-b", "accepted", 3),
+            ],
+            "close-c",
+        ),
+        (
+            [
+                # An unrelated replacement chain with a different side/size
+                # must not suppress the independent matching close order.
+                ("unrelated-a", "unrelated-b", None, "replaced", 1, "buy", "9"),
+                ("unrelated-b", None, "unrelated-a", "accepted", 2, "buy", "9"),
+                ("independent-close", None, None, "accepted", 3, "sell", "1"),
+            ],
+            "independent-close",
+        ),
+    ],
+)
+def test_unresolved_liquidation_validates_complete_replacement_ancestry(
+    alpaca_env, monkeypatch, history, expected_order_id
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    orders = []
+    for entry in history:
+        order_id, replaced_by, replaces, status, offset, *rest = entry
+        side, qty = rest if rest else ("sell", "1")
+        orders.append(
+            SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                side=side,
+                qty=qty,
+                status=status,
+                replaced_by=replaced_by,
+                replaces=replaces,
+                created_at=created_at + timedelta(seconds=offset),
+            )
+        )
+
+    class FakeTradingClient:
+        def get_orders(self, filter):
+            return orders
+
+    executor.trading_client = FakeTradingClient()
+    active_pending = {}
+
+    unresolved = executor._reconcile_unresolved_liquidation_intents({}, active_pending)
+
+    assert unresolved == {}
+    assert active_pending == {"AAPL": expected_order_id}
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        # The child points to a parent absent from the queried history.
+        [("child", None, "missing-parent", "accepted", 1)],
+        # The parent points to a child absent from the queried history.
+        [("parent", "missing-child", None, "replaced", 1)],
+        # Two parents claim the same child.
+        [
+            ("parent-a", "child", None, "replaced", 1),
+            ("parent-b", "child", None, "replaced", 2),
+            ("child", None, "parent-a", "accepted", 3),
+        ],
+        # Parent and child disagree about the replacement relationship.
+        [
+            ("parent", "child", None, "replaced", 1),
+            ("child", None, "different-parent", "accepted", 2),
+        ],
+        # A cycle in the replacement ancestry must never be accepted.
+        [
+            ("parent-a", "child", "child", "replaced", 1),
+            ("child", "parent-a", "parent-a", "replaced", 2),
+        ],
+    ],
+)
+def test_unresolved_liquidation_keeps_incomplete_or_conflicting_replacement_chain_unresolved(
+    alpaca_env, monkeypatch, history
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    intent = {
+        "created_at": created_at.isoformat(),
+        "requested_qty": 1.0,
+        "expected_side": "sell",
+        "reason": "close_submission_outcome_unconfirmed",
+    }
+    executor.state["emergency_liquidation_unresolved"] = {"AAPL": intent}
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    orders = []
+    for order_id, replaced_by, replaces, status, offset in history:
+        orders.append(
+            SimpleNamespace(
+                id=order_id,
+                symbol="AAPL",
+                side="sell",
+                qty="1",
+                status=status,
+                replaced_by=replaced_by,
+                replaces=replaces,
+                created_at=created_at + timedelta(seconds=offset),
+            )
+        )
+
+    class FakeTradingClient:
+        def get_orders(self, filter):
+            return orders
+
+    executor.trading_client = FakeTradingClient()
+    active_pending = {}
+
+    unresolved = executor._reconcile_unresolved_liquidation_intents({}, active_pending)
+
+    assert unresolved == {"AAPL": intent}
+    assert active_pending == {}

@@ -1008,23 +1008,70 @@ class BrokerExecutor:
                 )
                 continue
 
-            # Build the replacement graph from broker history. A replacement
-            # child is valid evidence only when its "replaces" points back to
-            # the parent whose "replaced_by" points to that exact child.
-            # If history contains a replacement chain, only its terminal child
-            # can be considered below; unrelated same-shape orders are excluded.
+            # Index the returned history and validate each candidate's complete
+            # replacement ancestry. Unrelated replacement chains must not suppress
+            # an otherwise valid independent candidate; ambiguity is handled by the
+            # existing unique-candidate requirement below.
+            orders_by_id = {}
+            duplicate_order_ids = set()
             replacement_parent_by_child = {}
-            conflicting_replacement_links = False
+            conflicting_replacement_children = set()
             for historical_order in orders:
-                parent_id = getattr(historical_order, "id", None)
-                child_id = getattr(historical_order, "replaced_by", None)
-                if parent_id and child_id:
-                    child_id = str(child_id)
-                    parent_id = str(parent_id)
+                raw_parent_id = getattr(historical_order, "id", None)
+                if raw_parent_id:
+                    parent_id = str(raw_parent_id)
+                    if parent_id in orders_by_id:
+                        duplicate_order_ids.add(parent_id)
+                    else:
+                        orders_by_id[parent_id] = historical_order
+
+                raw_child_id = getattr(historical_order, "replaced_by", None)
+                if raw_parent_id and raw_child_id:
+                    parent_id = str(raw_parent_id)
+                    child_id = str(raw_child_id)
                     previous_parent = replacement_parent_by_child.get(child_id)
                     if previous_parent is not None and previous_parent != parent_id:
-                        conflicting_replacement_links = True
-                    replacement_parent_by_child[child_id] = parent_id
+                        conflicting_replacement_children.add(child_id)
+                    else:
+                        replacement_parent_by_child[child_id] = parent_id
+
+            def has_valid_replacement_ancestry(
+                order,
+                *,
+                order_index,
+                duplicate_ids,
+                parent_by_child,
+                conflicting_children,
+            ):
+                """Require every child->parent and parent->child edge to agree."""
+                visited = set()
+                current = order
+                while True:
+                    current_id_raw = getattr(current, "id", None)
+                    if not current_id_raw:
+                        return False
+                    current_id = str(current_id_raw)
+                    if current_id in visited or current_id in duplicate_ids:
+                        return False
+                    visited.add(current_id)
+
+                    raw_parent_id = getattr(current, "replaces", None)
+                    expected_parent_id = parent_by_child.get(current_id)
+                    if current_id in conflicting_children:
+                        return False
+                    if not raw_parent_id:
+                        # A purported child must not be accepted if the history
+                        # says that a parent points to it but its back-link is absent.
+                        return expected_parent_id is None
+                    parent_id = str(raw_parent_id)
+                    if expected_parent_id != parent_id:
+                        return False
+                    parent = order_index.get(parent_id)
+                    if parent is None:
+                        return False
+                    if str(getattr(parent, "replaced_by", "") or "") != current_id:
+                        return False
+                    current = parent
 
             candidates = []
             for order in orders:
@@ -1034,28 +1081,20 @@ class BrokerExecutor:
                 raw_qty = getattr(order, "qty", None)
                 raw_created_at = getattr(order, "created_at", None)
                 order_id = getattr(order, "id", None)
-                # A replaced parent is not the live close request. If the
-                # history contains a replacement edge, require both sides of
-                # that edge to agree; otherwise a coincidental order with the
-                # same symbol/side/quantity/time could be mis-associated.
+                # Replaced parents are not live candidates. A terminal candidate
+                # with a replaces link is accepted only when its entire ancestry
+                # is present and bidirectionally consistent.
+                if not order_id or order_symbol != symbol or order_side != expected_side:
+                    continue
                 if getattr(order, "replaced_by", None):
                     continue
-                if conflicting_replacement_links:
-                    continue
-                if replacement_parent_by_child:
-                    expected_parent_id = replacement_parent_by_child.get(str(order_id))
-                    actual_parent_id = getattr(order, "replaces", None)
-                    if (
-                        expected_parent_id is None
-                        or not actual_parent_id
-                        or str(actual_parent_id) != expected_parent_id
-                    ):
-                        continue
-                elif getattr(order, "replaces", None):
-                    # A child without its parent link in the queried history
-                    # cannot be independently verified; retain the intent.
-                    continue
-                if not order_id or order_symbol != symbol or order_side != expected_side:
+                if not has_valid_replacement_ancestry(
+                    order,
+                    order_index=orders_by_id,
+                    duplicate_ids=duplicate_order_ids,
+                    parent_by_child=replacement_parent_by_child,
+                    conflicting_children=conflicting_replacement_children,
+                ):
                     continue
                 try:
                     order_qty = float(raw_qty)

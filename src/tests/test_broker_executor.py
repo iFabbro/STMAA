@@ -1996,6 +1996,61 @@ def test_unresolved_liquidation_reconciles_replacement_child_not_replaced_parent
     assert executor.state["emergency_liquidation_unresolved"] == {}
 
 
+def test_unresolved_replacement_child_requires_bidirectional_parent_link(
+    alpaca_env, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    executor._save_state()
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.closed = []
+
+        def get_all_positions(self):
+            return [SimpleNamespace(symbol="AAPL", qty="1")]
+
+        def get_orders(self, filter):
+            return [
+                SimpleNamespace(
+                    id="old-close", symbol="AAPL", side="sell", qty="1",
+                    status="replaced", replaced_by="replacement-close",
+                    created_at=created_at + timedelta(seconds=1),
+                ),
+                # Same symbol, side, quantity and time, and the ID matches
+                # replaced_by, but its replaces link points to another parent.
+                SimpleNamespace(
+                    id="replacement-close", symbol="AAPL", side="sell", qty="1",
+                    status="accepted", replaces="different-parent",
+                    created_at=created_at + timedelta(seconds=2),
+                ),
+            ]
+
+        def close_position(self, symbol):
+            self.closed.append(symbol)
+            return SimpleNamespace(id="duplicate-close", status="accepted")
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+
+    assert executor._liquidate_all_positions([]) == []
+    assert fake.closed == []
+    assert executor.state["emergency_liquidation_unresolved"]["AAPL"]
+    assert executor.state.get("emergency_liquidation_pending", {}) == {}
+
+
 def test_unresolved_replaced_order_without_visible_child_stays_fail_closed(
     alpaca_env, monkeypatch
 ):

@@ -597,7 +597,7 @@ class BrokerExecutor:
                 "account_id": str(getattr(account, "id", "") or "") or None,
             }
             stored_account_id = self.state.get("account_id")
-            if stored_account_id and stored_account_id != data["account_id"]:
+            if stored_account_id and data["account_id"] and stored_account_id != data["account_id"]:
                 raise ValueError("Broker account ID differs from persisted state; refusing to mix account history")
             numeric_values = (data["cash"], data["portfolio_value"], data["buying_power"], data["equity"])
             if not all(np.isfinite(value) for value in numeric_values):

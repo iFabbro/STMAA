@@ -147,8 +147,9 @@ PYTHONPATH=. python -m src.utils.paper_soak_production_provider \
 
 The command validates the startup configuration, uses the production market
 data contract and PPO inference path, reads the Paper account, positions and
-open orders, reconciles corporate-action activity, estimates gross exposure
-including pending orders, validates the latest completed-session VIX close,
+open orders, reconciles corporate-action activity, estimates aggregate and
+per-symbol gross exposure including pending orders, rejects pending orders
+outside the configured PPO universe, validates the latest completed-session VIX close,
 and applies the existing risk overlay to a hypothetical target. A missing or
 incompatible model, stale/invalid data, unreadable broker state, unknown
 pending-order notional, inconsistent account identity, persistence failure or

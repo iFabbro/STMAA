@@ -1831,7 +1831,7 @@ class BrokerExecutor:
                 )
         before_account_id = str(account.get("account_id") or "").strip()
         after_account_id = str(latest_account.get("account_id") or "").strip()
-        if before_account_id and after_account_id != before_account_id:
+        if before_account_id != after_account_id:
             raise RuntimeError("Broker account identity changed before order submission")
         if account.get("account_identity_verified") is True and latest_account.get(
             "account_identity_verified"

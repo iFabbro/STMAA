@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -51,7 +52,7 @@ class FakeExecutor:
                 "unrealized_pl": 1_000.0,
             }
         }
-        self.open_orders = []
+        self.open_orders = [SimpleNamespace(symbol="AAPL", notional=reserved_notional)]
         self.lock_active = False
 
     @contextmanager
@@ -80,6 +81,10 @@ class FakeExecutor:
         assert orders is self.open_orders
         assert prices == {"AAPL": 1000.0}
         return self.reserved_notional
+
+    def _estimate_order_notional(self, order, prices=None):
+        assert self.lock_active is True
+        return float(order.notional)
 
 
 class FakeBot:
@@ -170,6 +175,34 @@ def test_provider_marks_broker_state_inconsistent_when_pending_exposure_exceeds_
     assert observation.health.exposure_determinable is True
     assert observation.health.broker_state_consistent is False
     assert observation.decision["gross_exposure_ratio"] == pytest.approx(0.7)
+
+
+def test_pending_order_counts_toward_per_symbol_position_limit():
+    bot = FakeBot(reserved_notional=15_000.0)
+
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    # Current AAPL position is 10% of equity and its pending order adds 15%.
+    # Aggregate exposure remains below 50%, but the per-symbol cap is 20%.
+    assert observation.decision["gross_exposure_ratio"] == pytest.approx(0.25)
+    assert observation.decision["position_exposure_by_symbol"] == {
+        "AAPL": pytest.approx(0.25)
+    }
+    assert observation.decision["pending_order_exposure_by_symbol"] == {
+        "AAPL": 15_000.0
+    }
+    assert observation.decision["position_limits_consistent"] is False
+    assert observation.health.broker_state_consistent is False
+
+
+def test_provider_fails_closed_for_pending_order_outside_configured_universe():
+    bot = FakeBot()
+    bot.executor.open_orders = [
+        SimpleNamespace(symbol="TSLA", notional=5_000.0)
+    ]
+
+    with pytest.raises(RuntimeError, match="outside the configured PPO universe"):
+        ProductionPaperSoakObservationProvider(bot)()
 
 
 def test_provider_fails_closed_when_account_snapshot_is_stale():

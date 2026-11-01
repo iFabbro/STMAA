@@ -1766,6 +1766,94 @@ class BrokerExecutor:
                         "Unable to release broker execution lock; execution state requires review"
                     ) from exc
 
+    @staticmethod
+    def _positions_snapshot_signature(positions: Dict[str, Dict]) -> Dict[str, float]:
+        """Canonicalize broker position quantities for pre-submit comparison."""
+        if not isinstance(positions, dict):
+            raise RuntimeError("Cannot verify broker position snapshot before order submission")
+        signature = {}
+        for raw_symbol, position in positions.items():
+            symbol = str(raw_symbol).strip().upper()
+            if not symbol or symbol in signature or not isinstance(position, dict):
+                raise RuntimeError("Broker position snapshot is ambiguous before order submission")
+            try:
+                quantity = float(position.get("qty"))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("Broker position quantity is invalid before order submission") from exc
+            if not np.isfinite(quantity):
+                raise RuntimeError("Broker position quantity is non-finite before order submission")
+            signature[symbol] = quantity
+        return signature
+
+    def _open_orders_snapshot_signature(self, orders) -> tuple:
+        """Canonicalize active broker orders, including fields affecting exposure."""
+        if not isinstance(orders, (list, tuple)):
+            raise RuntimeError("Cannot verify broker open-order snapshot before order submission")
+        signature = []
+        seen_ids = set()
+        for order in orders:
+            order_id = str(getattr(order, "id", "") or "").strip()
+            symbol = str(getattr(order, "symbol", "") or "").strip().upper()
+            side_value = getattr(order, "side", "")
+            side = str(getattr(side_value, "value", side_value) or "").strip().lower()
+            status = self._status_text(getattr(order, "status", None), default="")
+            if not order_id or not symbol or not status or order_id in seen_ids:
+                raise RuntimeError("Broker open-order snapshot is ambiguous before order submission")
+            seen_ids.add(order_id)
+            raw_qty = getattr(order, "qty", None)
+            raw_filled = getattr(order, "filled_qty", None)
+            signature.append((order_id, symbol, side, str(raw_qty), str(raw_filled), status))
+        return tuple(sorted(signature))
+
+    def _verify_execution_snapshot(
+        self, account: Dict, positions: Dict[str, Dict], open_orders
+    ) -> None:
+        """Re-read broker state immediately before the first order and fail on drift.
+
+        Alpaca exposes account, positions, and orders through separate reads rather
+        than one atomic portfolio snapshot. This detects observable changes between
+        sizing and submission; it cannot eliminate the final API/network race.
+        """
+        latest_account = self.get_account_status()
+        if not isinstance(latest_account, dict) or latest_account.get("account_data_fresh") is not True:
+            raise RuntimeError("Broker account snapshot became stale before order submission")
+        for field in ("equity", "portfolio_value", "buying_power"):
+            try:
+                before = float(account[field])
+                after = float(latest_account[field])
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError(
+                    f"Cannot verify broker {field} before order submission"
+                ) from exc
+            if not np.isfinite(before) or not np.isfinite(after) or abs(before - after) > 0.01:
+                raise RuntimeError(
+                    f"Broker {field} changed after sizing; refusing order submission"
+                )
+        before_account_id = str(account.get("account_id") or "").strip()
+        after_account_id = str(latest_account.get("account_id") or "").strip()
+        if before_account_id and after_account_id != before_account_id:
+            raise RuntimeError("Broker account identity changed before order submission")
+        if account.get("account_identity_verified") is True and latest_account.get(
+            "account_identity_verified"
+        ) is not True:
+            raise RuntimeError("Broker account identity is no longer verified before order submission")
+
+        latest_positions = self.get_positions()
+        if self._positions_snapshot_signature(positions) != self._positions_snapshot_signature(
+            latest_positions
+        ):
+            raise RuntimeError(
+                "Broker positions changed after sizing; refusing order submission"
+            )
+
+        latest_orders = self._get_open_orders()
+        if self._open_orders_snapshot_signature(
+            open_orders
+        ) != self._open_orders_snapshot_signature(latest_orders):
+            raise RuntimeError(
+                "Broker open orders changed after sizing; refusing order submission"
+            )
+
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         """Run the complete broker execution cycle under the shared OS lock."""
         with self.execution_lock():
@@ -2118,6 +2206,7 @@ class BrokerExecutor:
                 )
 
             pending_reduction = False
+            execution_snapshot_verified = False
             for ticker in execution_tickers:
                 target_weight = float(target_weight_by_ticker.get(ticker, 0.0))
                 if ticker in open_order_symbols:
@@ -2181,6 +2270,10 @@ class BrokerExecutor:
                 qty = round(abs(order_notional) / price, 6)
                 if qty < 0.000001:
                     continue
+
+                if not execution_snapshot_verified:
+                    self._verify_execution_snapshot(account, positions, open_orders)
+                    execution_snapshot_verified = True
 
                 client_order_id = str(uuid.uuid4())
                 # Persist intent before calling the broker: a lost response must not

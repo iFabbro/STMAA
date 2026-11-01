@@ -1039,3 +1039,44 @@ def test_generate_weights_blocks_unconfigured_corporate_action_position(monkeypa
         bot.generate_weights(
             pd.DataFrame({"Close_AAPL": [100.0], "Close_MSFT": [100.0]})
         )
+
+
+def test_generate_weights_reuses_supplied_verified_broker_snapshots(monkeypatch):
+    observed = {}
+
+    class SnapshotPPO:
+        max_position_size = 0.2
+        max_gross_exposure = 0.5
+
+        def predict_weights(self, market_data, current_weights=None):
+            observed["current_weights"] = np.asarray(current_weights, dtype=float)
+            return np.array([0.1])
+
+    class SnapshotExecutor:
+        def get_account_status(self):
+            raise AssertionError("must reuse the supplied account snapshot")
+
+        def get_positions(self):
+            raise AssertionError("must reuse the supplied positions snapshot")
+
+        def reconcile_corporate_actions(self, configured_symbols, positions=None):
+            observed["reconciled_positions"] = positions
+            return {"new_activity_count": 0, "blocked_symbols": []}
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL"]
+    bot.ppo_agent = SnapshotPPO()
+    bot.executor = SnapshotExecutor()
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+    account = {"equity": 10000.0, "account_data_fresh": True}
+    positions = {"AAPL": {"market_value": 2000.0, "qty": 2.0}}
+
+    result = bot.generate_weights(
+        pd.DataFrame({"Close_AAPL": [100.0]}),
+        account_snapshot=account,
+        positions_snapshot=positions,
+    )
+
+    np.testing.assert_allclose(observed["current_weights"], np.array([0.2]))
+    assert observed["reconciled_positions"] is positions
+    np.testing.assert_allclose(result.weights, np.array([0.1]))

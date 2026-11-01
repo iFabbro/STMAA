@@ -44,9 +44,17 @@ operational acceptance report.
 
 ## Shadow runner integration contract
 
-The shadow runner is a library component; it is not yet wired to the production
-`PaperTradingBot` or its PPO inference path. The caller supplies a zero-argument
-observation provider returning `PaperSoakShadowObservation`, containing:
+The shadow runner is a library component. A concrete production provider is
+available in `src.utils.paper_soak_production_provider`; it reuses
+`PaperTradingBot.get_market_data()`, `PaperTradingBot.generate_weights()`
+and `PPOAgent.predict_weights()`, with the same verified account and positions
+snapshot passed into inference. It then reads open orders, estimates pending
+order exposure, validates VIX and applies the production risk overlay to produce
+a hypothetical risk-adjusted decision. It does not invoke the trading loop or
+any order-execution method.
+
+The generic runner still accepts a zero-argument observation provider returning
+`PaperSoakShadowObservation`, containing:
 
 - a complete `PaperSoakHealthSnapshot`;
 - a JSON-serializable `decision` payload representing a hypothetical strategy
@@ -122,6 +130,42 @@ reconstructed against the same active run. A latched stop remains authoritative
 even if subsequent health observations are healthy. A confirmed-dead process
 causes the owning run to be finalized as failed rather than re-opened.
 
+## Production read-only provider
+
+After configuring a valid Alpaca Paper account and installing a compatible PPO
+artifact plus its metadata, run the production provider from the repository
+root:
+
+```bash
+PYTHONPATH=. python -m src.utils.paper_soak_production_provider \
+  --branch main \
+  --commit-sha <40-character-commit-sha> \
+  --duration-hours 48 \
+  --interval-seconds 60 \
+  --db-path logs/stmaa.db
+```
+
+The command validates the startup configuration, uses the production market
+data contract and PPO inference path, reads the Paper account, positions and
+open orders, reconciles corporate-action activity, estimates gross exposure
+including pending orders, validates the latest completed-session VIX close,
+and applies the existing risk overlay to a hypothetical target. A missing or
+incompatible model, stale/invalid data, unreadable broker state, unknown
+pending-order notional, inconsistent account identity, persistence failure or
+exposure above the configured gross limit fails closed.
+
+The provider uses broker GET/read operations only. Account refresh and
+corporate-action reconciliation can update STMAA's local persisted execution
+metadata; they do not submit, replace, cancel or close broker orders. The
+hypothetical decision is recorded in SQLite. It does not call
+`PaperTradingBot.execute_trade()` or `BrokerExecutor.execute_weights()`.
+
+Use a short duration and a temporary database for a local smoke test before
+considering an operational run. This command does not start automatically, and
+the 48-hour soak remains deferred until the provider, model artifact, Paper
+account, and operational preflight have been independently reviewed. Do not
+interpret a successful short smoke test as a completed soak.
+
 ## Automated acceptance report
 
 Generate a JSON report for the latest run:
@@ -191,13 +235,14 @@ an evidence summary, not a certification or authorization to trade live.
 
 ## Safety boundary and current limitations
 
-The runner does not itself poll Alpaca or obtain market data, account equity,
-positions, open orders, persisted broker state, or VIX. A completed run using
-a test or placeholder provider is **not** evidence that the production
-strategy, broker state, or market-data pipeline was healthy. In particular,
-the production `PaperTradingBot`/PPO path has not yet been connected to this
-runner. A concrete read-only provider, reconnect policy, and operational
-preflight remain outstanding.
+The generic runner does not itself poll Alpaca or obtain market data, account
+equity, positions, open orders, persisted broker state, or VIX; those operations
+are supplied by the concrete production provider described above. A completed
+run using a test or placeholder provider is **not** evidence that the
+production strategy, broker state, or market-data pipeline was healthy. The
+production provider is read-only and intentionally terminates on a provider
+error; it does not implement an automatic reconnect policy. Operational
+preflight and independent review remain outstanding.
 
 No component described here submits, replaces, cancels, or closes broker
 orders. The 48-hour soak has not been started, and this implementation is not

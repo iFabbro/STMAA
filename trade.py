@@ -118,7 +118,12 @@ class PaperTradingBot:
         print(f"✅ Dati: {len(data)} righe, {len(self.tickers)} tickers")
         return data
 
-    def generate_weights(self, market_data: pd.DataFrame) -> PortfolioWeights:
+    def generate_weights(
+        self,
+        market_data: pd.DataFrame,
+        account_snapshot: Dict | None = None,
+        positions_snapshot: Dict | None = None,
+    ) -> PortfolioWeights:
         """Generate target weights with PPO; fail closed when inference is unavailable."""
         if not PPO_AVAILABLE or self.ppo_agent is None:
             raise RuntimeError(
@@ -127,14 +132,22 @@ class PaperTradingBot:
 
         # The PPO observation includes current holdings so the policy can account
         # for turnover. Obtain a verified account snapshot and pass current weights.
-        account = self.executor.get_account_status()
-        if account.get("account_data_fresh") is not True:
+        if (account_snapshot is None) != (positions_snapshot is None):
+            raise ValueError(
+                "account_snapshot and positions_snapshot must be supplied together"
+            )
+        if account_snapshot is None:
+            account = self.executor.get_account_status()
+            positions = self.executor.get_positions()
+        else:
+            account = account_snapshot
+            positions = positions_snapshot
+        if not isinstance(account, dict) or account.get("account_data_fresh") is not True:
             raise RuntimeError("Cannot verify current broker account equity for PPO inference")
         portfolio_value = float(account.get("equity", 0.0))
         if not np.isfinite(portfolio_value) or portfolio_value <= 0:
             raise RuntimeError("Cannot calculate current PPO holdings weights from invalid broker equity")
 
-        positions = self.executor.get_positions()
         if not isinstance(positions, dict):
             raise RuntimeError("Cannot verify current broker positions for PPO inference")
         corporate_action_reconcile = getattr(

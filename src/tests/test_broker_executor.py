@@ -882,7 +882,7 @@ def test_portfolio_manager_symbol_limit_blocks_execution(alpaca_env, monkeypatch
     assert result["orders"] == []
 
 
-def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure(
+def test_multi_symbol_rebalance_submits_one_order_per_cycle_within_gross_exposure_cap(
     alpaca_env, monkeypatch
 ):
     from types import SimpleNamespace
@@ -912,7 +912,8 @@ def test_multi_symbol_rebalance_reserves_submitted_orders_against_gross_exposure
         PortfolioWeights(weights=np.full(len(tickers), 0.1), tickers=tickers)
     )
 
-    assert len(result["orders"]) == 5
+    assert len(result["orders"]) == 1
+    assert len(submitted) == 1
     total_submitted_notional = sum(order.qty * 100.0 for order in submitted)
     assert total_submitted_notional <= 5000.0 + 1e-6
 

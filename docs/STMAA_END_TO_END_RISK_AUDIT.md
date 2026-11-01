@@ -2,17 +2,19 @@
 
 **Audit snapshot:** 2026-11-01  
 **Repository:** `iFabbro/STMAA`  
-**Latest verified commit:** `75bb342b639000e7a2ca768c332afb5fd832cf4d` (merge PR #255)  
+**Latest verified commit:** `f3b4b0b73491b6c80adf44bd7b4361069ec5ca1a` (merge PR #256)  
 **Scope:** broker order lifecycle, emergency liquidation, restart/idempotency, persisted-state integrity, concurrency, portfolio exposure/risk gates, post-liquidation metrics, and market-data validity.
 
 ## Executive status
 
-The reviewed code and automated regression suite contain fail-closed controls for the scenarios listed below. The four required post-merge workflows on commit `75bb342b639000e7a2ca768c332afb5fd832cf4d` completed successfully:
+The reviewed code and automated regression suite contain fail-closed controls for the scenarios listed below. The four required post-merge workflows on the PR #256 merge commit `f3b4b0b73491b6c80adf44bd7b4361069ec5ca1a` completed successfully:
 
-- [CI](https://github.com/iFabbro/STMAA/actions/runs/41302416928)
-- [Tests / pytest](https://github.com/iFabbro/STMAA/actions/runs/41302416955)
-- [Lint / ruff](https://github.com/iFabbro/STMAA/actions/runs/41302416950)
-- [Secrets scan / gitleaks](https://github.com/iFabbro/STMAA/actions/runs/41302417000)
+- [CI](https://github.com/iFabbro/STMAA/actions/runs/41304087051)
+- [Tests / pytest](https://github.com/iFabbro/STMAA/actions/runs/41304087042)
+- [Lint / ruff](https://github.com/iFabbro/STMAA/actions/runs/41304087072)
+- [Secrets scan / gitleaks](https://github.com/iFabbro/STMAA/actions/runs/41304087060)
+
+PR #256 updated this audit record only; it made no production-code changes and performed no broker operations.
 
 This is evidence of the configured tests passing on the stated commit. It is **not** a live-trading safety certification, proof of strategy profitability, or proof that every possible broker or infrastructure failure has been covered.
 
@@ -85,6 +87,20 @@ Relevant files:
 - Terminal liquidation evidence is checked for quantity consistency before a flat position can be accepted.
 - Persisted-state writes reject stale revisions and fail closed on durability errors.
 - A fresh quote is checked immediately before order submission; sizing is recalculated from that verified quote.
+
+## Audit closure against the agreed code-audit scope
+
+**Status: complete — 100% of the bounded code-audit scope agreed for this review.** This percentage refers only to the defined repository review and regression-evidence work; it does not mean 100% assurance, zero software risk, or production/live-trading certification.
+
+The agreed exit criteria have been met on the reviewed `main` history through PR #256:
+
+- No outstanding P0/P1 finding was identified in the reviewed scope.
+- The defined safety cases for order lifecycle/liquidation, restart and persistence, concurrency, risk/exposure gates, market-data freshness, and post-liquidation metrics have corresponding regression coverage.
+- The four required workflows (CI, pytest, ruff, gitleaks) are green on the latest merged commit recorded above.
+- Broker reconciliation and local persisted-state behavior are covered for the defined mocked and read-only cases; no live orders were sent during this code audit.
+- Remaining limitations and operational prerequisites are explicitly listed below.
+
+The code audit is closed at this boundary. Reopen it only for a concrete vulnerability, regression, failed control, or newly identified unmet safety requirement. Paper soak, real-broker fault injection, independent risk review, and live authorization are separate operational/certification workstreams, not unfinished items in this bounded code audit.
 
 ## Residual risks and work outside this code audit
 

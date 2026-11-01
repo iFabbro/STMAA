@@ -3449,6 +3449,69 @@ def test_execute_weights_blocks_new_position_when_quote_is_stale(
     assert submitted == []
 
 
+
+@pytest.mark.parametrize(
+    ("second_price", "second_age_minutes", "error"),
+    [
+        (100.0, 10, "Cannot safely rebalance; valid prices unavailable for: AAPL"),
+        (101.0, 0, "Market quote changed after sizing for AAPL"),
+    ],
+)
+def test_execute_weights_revalidates_quote_after_broker_preflight(
+    alpaca_env, monkeypatch, second_price, second_age_minutes, error
+):
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    account = {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+        "account_id": "account-A",
+        "account_identity_verified": True,
+        "account_snapshot_at": datetime.now(timezone.utc).isoformat(),
+    }
+    monkeypatch.setattr(executor, "get_account_status", lambda: dict(account))
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    monkeypatch.setattr(executor, "reconcile_corporate_actions", lambda *args, **kwargs: {})
+    now = datetime.now(timezone.utc)
+    quote_reads = {"count": 0}
+
+    def latest_quotes(tickers):
+        quote_reads["count"] += 1
+        if quote_reads["count"] == 1:
+            price = 100.0
+            timestamp = now
+        else:
+            price = second_price
+            timestamp = now - timedelta(minutes=second_age_minutes)
+        return {
+            ticker: {"price": price, "timestamp": timestamp.isoformat()}
+            for ticker in tickers
+        }
+
+    monkeypatch.setattr(executor.alpaca_feed, "get_latest_quotes", latest_quotes)
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request) or SimpleNamespace(
+            id="must-not-submit", status="accepted"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert quote_reads["count"] == 2
+    assert submitted == []
+
+
 def test_open_order_snapshot_api_failure_blocks_before_market_data_or_submission(
     alpaca_env, monkeypatch
 ):

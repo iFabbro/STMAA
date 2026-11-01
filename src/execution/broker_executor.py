@@ -1237,6 +1237,22 @@ class BrokerExecutor:
         if active_pending or active_pending != pending:
             self._save_state()
         unresolved = self._reconcile_unresolved_liquidation_intents(positions, active_pending)
+        # Include orders reconciled during this invocation in the allowlist;
+        # otherwise a later per-position safety pass could cancel our own close.
+        for symbol, order_id in active_pending.items():
+            normalized_order_id = str(order_id or "").strip()
+            normalized_symbol = str(symbol or "").strip()
+            if not normalized_order_id or not normalized_symbol:
+                raise RuntimeError(
+                    "Cannot safely liquidate with an invalid reconciled pending order mapping"
+                )
+            existing_symbol = pending_order_symbols.get(normalized_order_id)
+            if existing_symbol is not None and existing_symbol != normalized_symbol:
+                raise RuntimeError(
+                    "Pending liquidation order ID maps to conflicting symbols"
+                )
+            pending_order_symbols[normalized_order_id] = normalized_symbol
+
         processed_symbols = set()
         while True:
             # Never reuse the position snapshot from the previous close. Refresh
@@ -1365,6 +1381,7 @@ class BrokerExecutor:
             # Every acknowledged close remains pending through at least one
             # later reconciliation cycle, even if its initial status is terminal.
             active_pending[candidate_symbol] = str(order_id)
+            pending_order_symbols[str(order_id)] = candidate_symbol
             self.state["emergency_liquidation_pending"] = active_pending
             self._save_state()
             processed_symbols.add(candidate_symbol)

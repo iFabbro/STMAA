@@ -39,6 +39,19 @@ class ProductionPaperSoakObservationProvider:
     def __init__(self, bot: Any) -> None:
         self.bot = bot
         self.executor = bot.executor
+        state = self.executor.state
+        self._prior_state_has_account_history = any(
+            (
+                bool(state.get("account_id")),
+                bool(state.get("last_execution_time")),
+                bool(state.get("total_orders")),
+                bool(state.get("equity_history")),
+                bool(state.get("order_submission_unresolved")),
+                bool(state.get("order_submission_confirmed")),
+                bool(state.get("emergency_liquidation_pending")),
+                bool(state.get("emergency_liquidation_unresolved")),
+            )
+        )
 
     @staticmethod
     def _finite_positive(value: Any, field: str) -> float:
@@ -55,18 +68,7 @@ class ProductionPaperSoakObservationProvider:
     def _risk_peak(self, equity: float, account_id: str) -> float:
         state = self.executor.state
         account_mode = "paper"
-        has_history = any(
-            (
-                bool(state.get("account_id")),
-                bool(state.get("last_execution_time")),
-                bool(state.get("total_orders")),
-                bool(state.get("equity_history")),
-                bool(state.get("order_submission_unresolved")),
-                bool(state.get("order_submission_confirmed")),
-                bool(state.get("emergency_liquidation_pending")),
-                bool(state.get("emergency_liquidation_unresolved")),
-            )
-        )
+        has_history = self._prior_state_has_account_history
         stored_peak = state.get("risk_peak_portfolio_value")
         provenance_matches = (
             state.get("risk_peak_equity_source") == "alpaca_account"
@@ -87,9 +89,6 @@ class ProductionPaperSoakObservationProvider:
         # path. generate_weights performs account/position reads and corporate-
         # action reconciliation before invoking PPOAgent.predict_weights.
         market_data = self.bot.get_market_data()
-        raw_weights = self.bot.generate_weights(market_data)
-        vix = self.bot.get_vix_value()
-
         account = self.executor.get_account_status()
         if account.get("account_data_fresh") is not True:
             raise RuntimeError("Fresh Alpaca account snapshot unavailable")
@@ -104,6 +103,12 @@ class ProductionPaperSoakObservationProvider:
         positions = self.executor.get_positions()
         if not isinstance(positions, dict):
             raise RuntimeError("Broker positions snapshot is incomplete")
+        raw_weights = self.bot.generate_weights(
+            market_data,
+            account_snapshot=account,
+            positions_snapshot=positions,
+        )
+        vix = self.bot.get_vix_value()
         open_orders_reader = getattr(self.executor, "_get_open_orders", None)
         reserved_reader = getattr(self.executor, "_get_reserved_notional", None)
         if not callable(open_orders_reader) or not callable(reserved_reader):

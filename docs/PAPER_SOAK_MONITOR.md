@@ -20,7 +20,9 @@ heartbeats, and shadow observations in the existing SQLite event database
 From the repository root, with the project environment active:
 
 ```bash
-PYTHONPATH=. python -m src.utils.paper_soak_monitor
+PYTHONPATH=. python -m src.utils.paper_soak_monitor \
+  --branch main \
+  --commit-sha <40-character-commit-sha>
 ```
 
 The default duration is 48 hours and the default heartbeat interval is 60
@@ -31,8 +33,14 @@ temporary database:
 PYTHONPATH=. python -m src.utils.paper_soak_monitor \
   --duration-hours 0.01 \
   --heartbeat-seconds 5 \
+  --branch main \
+  --commit-sha <40-character-commit-sha> \
   --db-path /tmp/stmaa-paper-soak-monitor.db
 ```
+
+This CLI command runs only the broker-independent heartbeat monitor. It does
+not produce shadow observations and therefore cannot by itself pass the
+operational acceptance report.
 
 ## Shadow runner integration contract
 
@@ -65,13 +73,27 @@ def read_only_observation_provider() -> PaperSoakShadowObservation:
     # Return a complete health snapshot and a hypothetical decision.
     raise NotImplementedError
 
-monitor = PaperSoakMonitor()
+monitor = PaperSoakMonitor(
+    branch="main",
+    commit_sha="<40-character-commit-sha>",
+    run_metadata={
+        "provider_name": "name of the concrete provider",
+        "provider_kind": "production_read_only",
+        "production_strategy_inference": True,
+    },
+)
 runner = PaperSoakShadowRunner(
     monitor,
     observation_provider=read_only_observation_provider,
 )
 run_id = runner.run()
 ```
+
+The provider metadata is an explicit declaration by the caller, not proof of
+the provider's implementation. The production provider must be independently
+reviewed and tested. Keep the monitor heartbeat interval at least as frequent
+as the runner observation interval so that the report can verify expected
+sampling coverage.
 
 The runner records each observation and hypothetical decision, evaluates the
 stop controller, emits a heartbeat, and terminates the session as failed when
@@ -114,12 +136,15 @@ Select a specific run with `--run-id <uuid>`. The command reads the SQLite
 database in read-only mode and does not contact Alpaca, submit orders, or call
 GitHub. Exit codes are: `0=PASS`, `1=FAIL`, `2=INCOMPLETE`, `3=NOT_RUN`.
 
-The report checks terminal run state, continuous elapsed duration, presence
-and safety of every shadow observation, all mandatory health signals, stop and
-error events, disabled order submission, provider declaration, and source
-commit SHA. Missing mandatory health telemetry or a failed safety control is
-a failure. An active, short, unobserved, or insufficiently identified run is
-incomplete. No matching run is `NOT_RUN`.
+The report checks terminal run state, configured continuous elapsed duration,
+heartbeat and observation coverage at the configured interval, every shadow
+observation, mandatory health signals, stop and error events, disabled order
+submission, provider declaration, and source commit SHA. It requires at least
+`ceil(duration_seconds / heartbeat_interval_seconds)` heartbeat events and
+shadow observations, with the terminal heartbeat count matching the persisted
+heartbeat events. Missing mandatory health telemetry or a failed safety
+control is a failure. An active, short, under-sampled, unobserved, or
+insufficiently identified run is incomplete. No matching run is `NOT_RUN`.
 
 ### CI evidence input
 
@@ -156,13 +181,13 @@ operator-provided snapshot, not a cryptographically verified GitHub attestation.
 Verify the workflow conclusions directly on GitHub before relying on the report.
 
 A `PASS` requires all checks to pass, including a completed continuous
-48-hour run with shadow observations, a declared production read-only provider,
-production strategy inference, a recorded source commit, and green CI evidence
-for that same commit. The provider declaration is metadata and does not prove
-the provider's implementation is safe; code review and independent integration
-tests remain necessary. A test or placeholder provider cannot establish
-operational acceptance. The report is an evidence summary, not a certification
-or authorization to trade live.
+48-hour run with adequate heartbeat and shadow-observation coverage, a declared
+production read-only provider, production strategy inference, a recorded source
+commit, and green CI evidence for that same commit. The provider declaration
+is metadata and does not prove the provider's implementation is safe; code
+review and independent integration tests remain necessary. A test or
+placeholder provider cannot establish operational acceptance. The report is
+an evidence summary, not a certification or authorization to trade live.
 
 ## Safety boundary and current limitations
 

@@ -7,17 +7,27 @@ stop thresholds, restart recovery, and final soak assessment are separate stages
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import re
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from src.utils.sqlite_logger import DB_PATH, end_run, log_event, start_run
 
 DEFAULT_DURATION_SECONDS = 48 * 60 * 60
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60
 MONITOR_SCHEMA_VERSION = 1
+_RESERVED_METADATA = {
+    "component",
+    "monitor_schema_version",
+    "duration_seconds",
+    "heartbeat_interval_seconds",
+    "broker_access",
+    "order_submission",
+}
 
 
 def _positive_finite_seconds(value: float, field: str) -> float:
@@ -41,6 +51,9 @@ class PaperSoakMonitor:
         duration_seconds: float = DEFAULT_DURATION_SECONDS,
         heartbeat_interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        run_metadata: Mapping[str, Any] | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.duration_seconds = _positive_finite_seconds(
@@ -49,6 +62,31 @@ class PaperSoakMonitor:
         self.heartbeat_interval_seconds = _positive_finite_seconds(
             heartbeat_interval_seconds, "heartbeat_interval_seconds"
         )
+        if branch is not None and (not isinstance(branch, str) or not branch.strip()):
+            raise ValueError("branch must be a non-empty string or None")
+        if commit_sha is not None and (
+            not isinstance(commit_sha, str)
+            or not re.fullmatch(r"[0-9a-fA-F]{40}", commit_sha)
+        ):
+            raise ValueError("commit_sha must be a 40-character hexadecimal SHA or None")
+        if run_metadata is None:
+            run_metadata = {}
+        if not isinstance(run_metadata, Mapping):
+            raise TypeError("run_metadata must be a mapping")
+        metadata = dict(run_metadata)
+        reserved = _RESERVED_METADATA.intersection(metadata)
+        if reserved:
+            raise ValueError(
+                f"run_metadata cannot override reserved fields: {', '.join(sorted(reserved))}"
+            )
+        try:
+            json.dumps(metadata, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("run_metadata must contain finite JSON values") from exc
+
+        self.branch = branch
+        self.commit_sha = commit_sha
+        self.run_metadata = metadata
         self._clock = clock
         self.run_id: str | None = None
         self._started_at: float | None = None
@@ -66,7 +104,10 @@ class PaperSoakMonitor:
         self._started_at = self._clock()
         self.run_id = start_run(
             mode="paper_soak_read_only",
+            branch=self.branch,
+            commit_sha=self.commit_sha,
             meta={
+                **self.run_metadata,
                 "component": "paper_soak_monitor",
                 "monitor_schema_version": MONITOR_SCHEMA_VERSION,
                 "duration_seconds": self.duration_seconds,
@@ -194,6 +235,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         help="heartbeat interval in seconds (default: 60)",
     )
+    parser.add_argument("--branch", help="source branch recorded for this run")
+    parser.add_argument("--commit-sha", help="40-character source commit SHA")
     parser.add_argument(
         "--db-path",
         type=Path,
@@ -213,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
             db_path=args.db_path,
             duration_seconds=duration_seconds,
             heartbeat_interval_seconds=args.heartbeat_seconds,
+            branch=args.branch,
+            commit_sha=args.commit_sha,
         )
         run_id = monitor.run()
     except KeyboardInterrupt:

@@ -146,3 +146,48 @@ def test_monitor_rejects_events_after_session_is_finalized(tmp_path):
 
     with pytest.raises(ValueError, match="not active"):
         monitor.heartbeat()
+
+
+def test_monitor_persists_provider_and_source_identity(tmp_path):
+    database = tmp_path / "paper-soak.db"
+    monitor = PaperSoakMonitor(
+        db_path=database,
+        branch="main",
+        commit_sha="a" * 40,
+        run_metadata={
+            "provider_name": "read-only integration",
+            "provider_kind": "production_read_only",
+            "production_strategy_inference": True,
+        },
+    )
+    run_id = monitor.start()
+
+    with db_conn(database) as conn:
+        run = conn.execute(
+            "SELECT branch, commit_sha, meta FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+
+    metadata = json.loads(run["meta"])
+    assert run["branch"] == "main"
+    assert run["commit_sha"] == "a" * 40
+    assert metadata["provider_name"] == "read-only integration"
+    assert metadata["provider_kind"] == "production_read_only"
+    assert metadata["production_strategy_inference"] is True
+    assert metadata["order_submission"] == "disabled"
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"commit_sha": "not-a-sha"}, "40-character"),
+        ({"branch": " "}, "branch"),
+        ({"run_metadata": {"order_submission": "enabled"}}, "reserved fields"),
+        ({"run_metadata": {"invalid": float("nan")}}, "finite JSON"),
+    ],
+)
+def test_monitor_rejects_invalid_run_identity_or_metadata(
+    tmp_path, kwargs, message
+):
+    with pytest.raises((TypeError, ValueError), match=message):
+        PaperSoakMonitor(db_path=tmp_path / "paper-soak.db", **kwargs)

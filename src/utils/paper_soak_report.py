@@ -132,7 +132,12 @@ def build_report(
         return report
 
     report["run_id"] = run["run_id"]
-    metadata = _load_json(run["meta"], field="runs.meta")
+    try:
+        metadata = _load_json(run["meta"], field="runs.meta")
+    except ValueError:
+        metadata = {}
+        report["failures"].append("malformed_run_metadata")
+
     parsed_events: list[tuple[str, str, dict[str, Any]]] = []
     for event in events:
         try:
@@ -150,13 +155,29 @@ def build_report(
         }
     ]
     observations = [item[2] for item in parsed_events if item[0] == "shadow_observation"]
+    heartbeats = [item[2] for item in parsed_events if item[0] == "heartbeat"]
     finish_events = [item[2] for item in parsed_events if item[0] == "session_finished"]
     finish = finish_events[-1] if finish_events else {}
     duration = metadata.get("duration_seconds")
+    interval = metadata.get("heartbeat_interval_seconds")
     elapsed = finish.get("elapsed_seconds")
     target_valid = _finite_number(duration) and duration > 0
+    interval_valid = _finite_number(interval) and interval > 0
     elapsed_valid = _finite_number(elapsed) and elapsed >= 0
     duration_met = bool(target_valid and elapsed_valid and elapsed >= duration)
+    expected_samples = (
+        math.ceil(duration / interval)
+        if target_valid and interval_valid
+        else None
+    )
+    heartbeat_count = finish.get("heartbeat_count")
+    heartbeat_coverage = bool(
+        expected_samples is not None
+        and type(heartbeat_count) is int
+        and heartbeat_count == len(heartbeats)
+        and len(heartbeats) >= expected_samples
+        and len(observations) >= expected_samples
+    )
 
     provider_name = metadata.get("provider_name")
     provider_kind = metadata.get("provider_kind")
@@ -170,17 +191,12 @@ def build_report(
     commit_valid = isinstance(commit_sha, str) and bool(
         re.fullmatch(r"[0-9a-fA-F]{40}", commit_sha)
     )
-    report["ci"]["soak_commit_sha"] = commit_sha if commit_valid else None
 
     ci_workflows = report["ci"].get("workflows", {})
     ci_sha = report["ci"].get("commit_sha")
     ci_sha_matches = bool(
         commit_valid and isinstance(ci_sha, str) and ci_sha.lower() == commit_sha.lower()
     )
-    ci_missing = [
-        name for name in REQUIRED_CI_WORKFLOWS
-        if ci_workflows.get(name) != "success"
-    ]
     ci_failed = [
         name for name in REQUIRED_CI_WORKFLOWS
         if ci_workflows.get(name) in {"failure", "cancelled", "timed_out", "action_required"}
@@ -189,7 +205,7 @@ def build_report(
         ci_evidence is not None
         and not ci_evidence.get("_invalid")
         and ci_sha_matches
-        and not ci_missing
+        and all(ci_workflows.get(name) == "success" for name in REQUIRED_CI_WORKFLOWS)
     )
     if ci_evidence is not None and not ci_evidence.get("_invalid"):
         if ci_failed or (ci_sha and not ci_sha_matches):
@@ -234,6 +250,7 @@ def build_report(
             or failures >= 3
             or heartbeat_age > 120
             or observation.get("stop_triggered") is not False
+            or not isinstance(observation.get("hypothetical_decision"), dict)
         )
         if unsafe:
             observation_failures.append(f"observation_{index}_failed_safety_control")
@@ -241,8 +258,10 @@ def build_report(
     checks = {
         "run_completed": run["status"] == "completed" and run["ended_at"] is not None,
         "duration_configuration_valid": target_valid,
+        "heartbeat_interval_valid": interval_valid,
         "duration_met": duration_met,
         "terminal_event_present": bool(finish_events),
+        "heartbeat_and_observation_coverage_sufficient": heartbeat_coverage,
         "no_stop_triggered": not stop_events,
         "no_error_events": not error_events,
         "observations_present": bool(observations),
@@ -299,6 +318,10 @@ def build_report(
     if not duration_met:
         report["limitations"].append(
             "The configured continuous soak duration has not been demonstrated by the terminal event."
+        )
+    if not heartbeat_coverage:
+        report["limitations"].append(
+            "Heartbeat and shadow-observation counts do not prove continuous sampling at the configured interval."
         )
     if not commit_valid:
         report["limitations"].append(

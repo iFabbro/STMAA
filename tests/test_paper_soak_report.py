@@ -34,7 +34,8 @@ def create_run(database, *, metadata=None, status="completed", observation=True)
         branch="main",
         commit_sha=COMMIT_SHA,
         meta={
-            "duration_seconds": 172800,
+            "duration_seconds": 3,
+            "heartbeat_interval_seconds": 1,
             "order_submission": "disabled",
             "provider_name": "STMAA read-only provider",
             "provider_kind": "production_read_only",
@@ -51,18 +52,27 @@ def create_run(database, *, metadata=None, status="completed", observation=True)
         db_path=database,
     )
     if observation:
-        log_event(
-            run_id,
-            source="paper_soak_shadow_runner",
-            event_type="shadow_observation",
-            message="observation",
-            payload={
-                "health": HEALTHY,
-                "hypothetical_decision": {"action": "hold"},
-                "stop_triggered": False,
-            },
-            db_path=database,
-        )
+        for sequence in range(1, 4):
+            log_event(
+                run_id,
+                source="paper_soak_shadow_runner",
+                event_type="shadow_observation",
+                message="observation",
+                payload={
+                    "health": HEALTHY,
+                    "hypothetical_decision": {"action": "hold"},
+                    "stop_triggered": False,
+                },
+                db_path=database,
+            )
+            log_event(
+                run_id,
+                source="paper_soak_monitor",
+                event_type="heartbeat",
+                message="heartbeat",
+                payload={"sequence": sequence, "elapsed_seconds": sequence - 1},
+                db_path=database,
+            )
     if status == "completed":
         log_event(
             run_id,
@@ -71,8 +81,8 @@ def create_run(database, *, metadata=None, status="completed", observation=True)
             message="finished",
             payload={
                 "status": "completed",
-                "elapsed_seconds": 172800,
-                "heartbeat_count": 2880,
+                "elapsed_seconds": 3,
+                "heartbeat_count": 3 if observation else 0,
             },
             db_path=database,
         )
@@ -143,13 +153,14 @@ def test_unhealthy_observation_fails_closed(tmp_path):
         payload={
             "health": {**HEALTHY, "exposure_determinable": False},
             "stop_triggered": True,
+            "hypothetical_decision": {},
         },
         db_path=database,
     )
     report = build_report(database)
     assert report["overall_status"] == "FAIL"
     assert "stop_triggered" in report["failures"]
-    assert "observation_1_failed_safety_control" in report["failures"]
+    assert "observation_3_failed_safety_control" in report["failures"]
 
 
 def test_unknown_mandatory_signal_fails_closed(tmp_path):
@@ -167,12 +178,13 @@ def test_unknown_mandatory_signal_fails_closed(tmp_path):
                 if key != "market_data_fresh"
             },
             "stop_triggered": False,
+            "hypothetical_decision": {},
         },
         db_path=database,
     )
     report = build_report(database)
     assert report["overall_status"] == "FAIL"
-    assert "observation_1_unknown_signal:market_data_fresh" in report["failures"]
+    assert "observation_3_unknown_signal:market_data_fresh" in report["failures"]
 
 
 def test_provider_placeholder_cannot_pass_operational_acceptance(tmp_path):
@@ -207,8 +219,26 @@ def test_complete_evidence_passes_and_matches_ci_commit(tmp_path):
     assert report["overall_status"] == "PASS"
     assert report["soak_status"] == "PASS"
     assert report["checks"]["duration_met"] is True
+    assert report["checks"]["heartbeat_and_observation_coverage_sufficient"] is True
     assert report["ci"]["status"] == "PASS"
     assert report["ci"]["soak_commit_sha"] == COMMIT_SHA
+
+
+def test_insufficient_heartbeat_coverage_is_incomplete(tmp_path):
+    database = tmp_path / "soak.db"
+    run_id = create_run(database)
+    # Remove the final sample and heartbeat while retaining a claimed duration.
+    from src.utils.sqlite_logger import db_conn
+
+    with db_conn(database) as conn:
+        conn.execute(
+            "DELETE FROM events WHERE id = (SELECT MAX(id) FROM events "
+            "WHERE run_id = ? AND event_type = 'heartbeat')",
+            (run_id,),
+        )
+    report = build_report(database, ci_evidence_path=write_ci_evidence(tmp_path))
+    assert report["overall_status"] == "INCOMPLETE"
+    assert report["checks"]["heartbeat_and_observation_coverage_sufficient"] is False
 
 
 def test_ci_evidence_for_different_commit_fails(tmp_path):

@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from contextlib import contextmanager
 
 import pandas as pd
 import pytest
@@ -49,20 +49,31 @@ class FakeExecutor:
             }
         }
         self.open_orders = []
+        self.lock_active = False
 
+    @contextmanager
     def execution_lock(self):
-        return nullcontext()
+        assert self.lock_active is False
+        self.lock_active = True
+        try:
+            yield
+        finally:
+            self.lock_active = False
 
     def get_account_status(self):
+        assert self.lock_active is True
         return self.account
 
     def get_positions(self):
+        assert self.lock_active is True
         return self.positions
 
     def _get_open_orders(self):
+        assert self.lock_active is True
         return self.open_orders
 
     def _get_reserved_notional(self, orders, prices=None):
+        assert self.lock_active is True
         assert orders is self.open_orders
         assert prices == {"AAPL": 1000.0}
         return self.reserved_notional

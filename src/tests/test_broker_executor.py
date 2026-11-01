@@ -1042,7 +1042,8 @@ def test_positions_omitted_from_target_weights_are_closed(alpaca_env, monkeypatc
         PortfolioWeights(weights=np.array([0.0]), tickers=["MSFT"])
     )
 
-    assert requested == ["MSFT", "AAPL"]
+    # The omitted position is also re-quoted immediately before its close order.
+    assert requested == ["MSFT", "AAPL", "AAPL"]
     assert len(result["orders"]) == 1
     assert submitted[0].symbol == "AAPL"
     assert submitted[0].qty == pytest.approx(10.0)

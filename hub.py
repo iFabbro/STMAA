@@ -288,7 +288,9 @@ def main():
         log_event(RUN_ID, "hub", "startup", "hub.py started")
         refresh_seconds = load_hub_refresh_seconds()
         while True:
-            render(refresh_seconds=refresh_seconds)
+            # Keep the public no-argument render() entry point compatible with
+            # callers and tests that replace it with a zero-argument callable.
+            render()
             time.sleep(refresh_seconds)
     except KeyboardInterrupt:
         print("\nStopped.")

@@ -3453,7 +3453,7 @@ def test_execute_weights_blocks_new_position_when_quote_is_stale(
 @pytest.mark.parametrize(
     ("second_price", "second_age_minutes", "error"),
     [
-        (100.0, 10, "Cannot safely rebalance; valid prices unavailable for: AAPL"),
+        (100.0, 10, "Cannot verify a fresh market quote for AAPL immediately before submission"),
         (101.0, 0, "Market quote changed after sizing for AAPL"),
     ],
 )

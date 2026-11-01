@@ -307,6 +307,11 @@ class ProductionPaperSoakObservationProvider:
                 "gross_exposure_limit": gross_limit,
                 "max_position_size_limit": max_position_limit,
                 "position_limits_consistent": position_limits_consistent,
+                "position_exposure_by_symbol": {
+                    symbol: value / equity
+                    for symbol, value in position_exposure_by_symbol.items()
+                },
+                "pending_order_exposure_by_symbol": pending_by_symbol,
                 "pending_order_count": len(open_orders),
                 "broker_account_id": account_id,
                 "broker_snapshot_at": account.get("account_snapshot_at"),

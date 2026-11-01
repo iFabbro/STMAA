@@ -75,7 +75,7 @@ def _base_report(run_id: str | None) -> dict[str, Any]:
             "CI evidence is an operator-supplied snapshot; verify it against GitHub for the recorded commit.",
             "A declared provider identity is metadata, not an independent security attestation.",
         ],
-        "ci": {"status": "NOT_CAPTURED", "commit_sha": None, "workflows": {}},
+        "ci": {"status": "NOT_CAPTURED", "commit_sha": None, "soak_commit_sha": None, "workflows": {}},
     }
 
 
@@ -188,6 +188,7 @@ def build_report(
         and production_inference is True
     )
     commit_sha = run["commit_sha"] or metadata.get("commit_sha")
+    report["ci"]["soak_commit_sha"] = commit_sha
     commit_valid = isinstance(commit_sha, str) and bool(
         re.fullmatch(r"[0-9a-fA-F]{40}", commit_sha)
     )

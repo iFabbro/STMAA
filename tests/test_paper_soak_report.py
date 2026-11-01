@@ -28,7 +28,9 @@ GREEN_CI = {
 }
 
 
-def create_run(database, *, metadata=None, status="completed", observation=True):
+def create_run(
+    database, *, metadata=None, status="completed", observation=True, finalize=True
+):
     run_id = start_run(
         mode="paper_soak_read_only",
         branch="main",
@@ -73,6 +75,12 @@ def create_run(database, *, metadata=None, status="completed", observation=True)
                 payload={"sequence": sequence, "elapsed_seconds": sequence - 1},
                 db_path=database,
             )
+    if finalize:
+        finalize_run(run_id, database, status=status, observation=observation)
+    return run_id
+
+
+def finalize_run(run_id, database, *, status="completed", observation=True):
     if status == "completed":
         log_event(
             run_id,
@@ -98,8 +106,6 @@ def create_run(database, *, metadata=None, status="completed", observation=True)
             db_path=database,
         )
         end_run(run_id, status="failed", db_path=database)
-    return run_id
-
 
 def write_ci_evidence(tmp_path, evidence=None):
     path = tmp_path / "ci-evidence.json"
@@ -144,7 +150,7 @@ def test_missing_observation_is_incomplete_not_pass(tmp_path):
 
 def test_unhealthy_observation_fails_closed(tmp_path):
     database = tmp_path / "soak.db"
-    run_id = create_run(database)
+    run_id = create_run(database, finalize=False)
     log_event(
         run_id,
         source="paper_soak_stop_controller",
@@ -166,6 +172,7 @@ def test_unhealthy_observation_fails_closed(tmp_path):
         },
         db_path=database,
     )
+    finalize_run(run_id, database)
     report = build_report(database)
     assert report["overall_status"] == "FAIL"
     assert "stop_triggered" in report["failures"]
@@ -174,7 +181,7 @@ def test_unhealthy_observation_fails_closed(tmp_path):
 
 def test_unknown_mandatory_signal_fails_closed(tmp_path):
     database = tmp_path / "soak.db"
-    run_id = create_run(database)
+    run_id = create_run(database, finalize=False)
     log_event(
         run_id,
         source="paper_soak_shadow_runner",
@@ -191,6 +198,7 @@ def test_unknown_mandatory_signal_fails_closed(tmp_path):
         },
         db_path=database,
     )
+    finalize_run(run_id, database)
     report = build_report(database)
     assert report["overall_status"] == "FAIL"
     assert "observation_3_unknown_signal:market_data_fresh" in report["failures"]

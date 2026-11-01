@@ -1273,6 +1273,14 @@ class BrokerExecutor:
                         "Pending liquidation order ID does not match broker order symbol"
                     )
                 if recorded_status == "filled":
+                    # A terminal "filled" status is not sufficient evidence by
+                    # itself: reject contradictory or incomplete broker fill data
+                    # before a missing position snapshot can be treated as flat.
+                    self._validate_broker_execution_state(
+                        recorded_status,
+                        getattr(recorded_order, "filled_qty", None),
+                        getattr(recorded_order, "qty", None),
+                    )
                     # Defer the flat-position decision until a fresh positions
                     # snapshot is fetched below. The first snapshot may predate
                     # the fill or omit a residual position due to propagation lag.

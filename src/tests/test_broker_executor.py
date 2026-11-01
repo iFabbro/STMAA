@@ -4417,3 +4417,113 @@ def test_unresolved_liquidation_keeps_incomplete_or_conflicting_replacement_chai
 
     assert unresolved == {"AAPL": intent}
     assert active_pending == {}
+
+
+@pytest.mark.parametrize(
+    "order_created_at, expected_match",
+    [
+        # Both endpoints of the documented reconciliation window are inclusive.
+        ("lower-bound", True),
+        ("upper-bound", True),
+        ("before-window", False),
+        ("after-window", False),
+        ("equivalent-offset", True),
+        ("naive", False),
+        ("malformed", False),
+    ],
+)
+def test_unresolved_liquidation_requires_aware_timestamp_inside_exact_window(
+    alpaca_env, monkeypatch, order_created_at, expected_match
+):
+    """Only timezone-aware broker timestamps inside the inclusive window can resolve an intent."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    executor = BrokerExecutor()
+    created_at = datetime(2026, 10, 30, 12, 0, 0, tzinfo=timezone.utc)
+    candidates = {
+        "lower-bound": created_at - timedelta(seconds=5),
+        "upper-bound": created_at + timedelta(minutes=5),
+        "before-window": created_at - timedelta(seconds=5, microseconds=1),
+        "after-window": created_at + timedelta(minutes=5, microseconds=1),
+        "equivalent-offset": (
+            created_at + timedelta(seconds=1)
+        ).astimezone(timezone(timedelta(hours=2))),
+        "naive": (created_at + timedelta(seconds=1)).replace(tzinfo=None),
+        "malformed": "not-a-broker-timestamp",
+    }
+    executor.state["emergency_liquidation_unresolved"] = {
+        "AAPL": {
+            "created_at": created_at.isoformat(),
+            "requested_qty": 1.0,
+            "expected_side": "sell",
+            "reason": "close_submission_outcome_unconfirmed",
+        }
+    }
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    order = SimpleNamespace(
+        id="timestamp-candidate",
+        symbol="AAPL",
+        side="sell",
+        qty="1",
+        status="accepted",
+        replaced_by=None,
+        replaces=None,
+        created_at=candidates[order_created_at],
+    )
+
+    class FakeTradingClient:
+        def get_orders(self, filter):
+            return [order]
+
+    executor.trading_client = FakeTradingClient()
+    active_pending = {}
+    unresolved = executor._reconcile_unresolved_liquidation_intents({}, active_pending)
+
+    if expected_match:
+        assert unresolved == {}
+        assert active_pending == {"AAPL": "timestamp-candidate"}
+    else:
+        assert unresolved["AAPL"]["created_at"] == created_at.isoformat()
+        assert active_pending == {}
+
+
+@pytest.mark.parametrize(
+    "intent_created_at",
+    [
+        "2026-10-30T12:00:00",  # Naive local/UTC interpretation is ambiguous.
+        "not-a-valid-intent-timestamp",
+    ],
+)
+def test_unresolved_liquidation_keeps_intent_with_naive_or_malformed_intent_timestamp(
+    alpaca_env, monkeypatch, intent_created_at
+):
+    """An ambiguous persisted intent timestamp must never trigger broker-history matching."""
+    executor = BrokerExecutor()
+    intent = {
+        "created_at": intent_created_at,
+        "requested_qty": 1.0,
+        "expected_side": "sell",
+        "reason": "close_submission_outcome_unconfirmed",
+    }
+    executor.state["emergency_liquidation_unresolved"] = {"AAPL": intent}
+    monkeypatch.setattr(executor, "_save_state", lambda: None)
+
+    class FakeTradingClient:
+        def __init__(self):
+            self.history_reads = 0
+
+        def get_orders(self, filter):
+            self.history_reads += 1
+            return []
+
+    fake = FakeTradingClient()
+    executor.trading_client = fake
+    active_pending = {}
+
+    unresolved = executor._reconcile_unresolved_liquidation_intents({}, active_pending)
+
+    assert unresolved == {"AAPL": intent}
+    assert active_pending == {}
+    assert fake.history_reads == 0

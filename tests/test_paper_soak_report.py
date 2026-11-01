@@ -147,6 +147,15 @@ def test_unhealthy_observation_fails_closed(tmp_path):
     run_id = create_run(database)
     log_event(
         run_id,
+        source="paper_soak_stop_controller",
+        event_type="stop_triggered",
+        message="unsafe condition",
+        level="ERROR",
+        payload={"reason": "exposure_not_determinable"},
+        db_path=database,
+    )
+    log_event(
+        run_id,
         source="paper_soak_shadow_runner",
         event_type="shadow_observation",
         message="unsafe observation",
@@ -227,7 +236,6 @@ def test_complete_evidence_passes_and_matches_ci_commit(tmp_path):
 def test_insufficient_heartbeat_coverage_is_incomplete(tmp_path):
     database = tmp_path / "soak.db"
     run_id = create_run(database)
-    # Remove the final sample and heartbeat while retaining a claimed duration.
     from src.utils.sqlite_logger import db_conn
 
     with db_conn(database) as conn:

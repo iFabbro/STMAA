@@ -3762,7 +3762,6 @@ def test_account_status_rejects_boolean_financial_values(
     assert persisted["account_data_fresh"] is False
 
 
-
 def _attempt_execution_lock_in_child_process(state_file, result_queue):
     """Acquire the same OS lock from an independent process."""
     import threading

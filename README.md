@@ -153,6 +153,12 @@ Per avviare il flusso Alpaca Paper dopo aver generato e verificato un modello co
 uv run --locked python trade.py
 ```
 
+Avviare l'hub di monitoraggio da terminale in una finestra separata:
+
+```bash
+uv run --locked python hub.py
+```
+
 L'avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati. STMAA resta alpha/sperimentale e non va configurato per operare con capitale reale.
 
 ### Feed dati Alpaca e ritardo

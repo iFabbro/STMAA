@@ -1307,6 +1307,7 @@ def test_ppo_prune_preserves_future_dated_generations_and_staging_files(tmp_path
         "missing_tickers",
         "wrong_state_dim",
         "missing_action_contract",
+        "missing_observation_contract",
         "invalid_market_data_contract",
         "wrong_cost_parameter",
     ],
@@ -1343,6 +1344,8 @@ def test_ppo_prune_rejects_incompatible_manifest_without_deleting_recovery_gener
         manifest["state_dim"] = 999
     elif manifest_mutation == "missing_action_contract":
         manifest.pop("action_contract")
+    elif manifest_mutation == "missing_observation_contract":
+        manifest.pop("observation_contract")
     elif manifest_mutation == "invalid_market_data_contract":
         manifest["market_data_contract"] = {}
     elif manifest_mutation == "wrong_cost_parameter":

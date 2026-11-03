@@ -183,3 +183,16 @@ def test_training_git_worktree_clean_is_boolean_or_none():
 
     clean = training_git_worktree_clean()
     assert clean is None or isinstance(clean, bool)
+
+
+
+def test_training_git_provenance_returns_none_when_git_is_unavailable(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("git executable not found")
+
+    monkeypatch.setattr(train.subprocess, "run", unavailable)
+
+    from train import training_git_commit, training_git_worktree_clean
+
+    assert training_git_commit() is None
+    assert training_git_worktree_clean() is None

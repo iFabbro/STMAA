@@ -1,6 +1,6 @@
 """Versioned market-data and feature contract shared by training and inference.
 
-Provider-adjusted Alpaca IEX daily OHLCV is the sole input contract. Changes to
+Provider-adjusted Alpaca SIP daily OHLCV is the sole model input contract. Changes to
 provider semantics, feature formulas, parameters, or warm-up policy require a
 contract bump and model retraining/revalidation.
 """
@@ -11,9 +11,10 @@ from typing import Any
 
 import pandas as pd
 
-DATA_CONTRACT_VERSION = 2
+DATA_CONTRACT_VERSION = 3
 DATA_PROVIDER = "alpaca"
-DATA_FEED = "iex"
+DATA_FEED = "sip"
+DATA_QUOTE_FEED = "delayed_sip"
 DATA_TIMEFRAME = "1Day"
 DATA_ADJUSTMENT = "all"
 DATA_FEATURE_VERSION = 1
@@ -69,7 +70,7 @@ def validate_market_data_contract(metadata: Any) -> None:
     if not isinstance(metadata, dict) or metadata != market_data_contract():
         raise ValueError(
             "Model market-data contract is missing or incompatible; retrain with "
-            "the current Alpaca IEX daily adjustment and feature contract"
+            "the current Alpaca SIP daily adjustment and feature contract"
         )
 
 

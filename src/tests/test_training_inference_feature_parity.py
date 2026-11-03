@@ -94,6 +94,15 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
 
     # Inference path: get_bars, with identical provider bars/configuration.
     inference = feed.get_bars(tickers, days=len(sessions))
+    for ticker in tickers:
+        expected_open = raw_bars.xs(ticker, level="symbol")["open"].copy()
+        expected_open.index = pd.to_datetime(expected_open.index, utc=True).tz_localize(None)
+        pd.testing.assert_series_equal(
+            inference[f"Open_{ticker}"].reindex(expected_open.index),
+            expected_open.rename(f"Open_{ticker}"),
+            check_names=True,
+            check_freq=False,
+        )
 
     # Both callers must request the same versioned Alpaca data configuration.
     assert len(feed.client.requests) == 2

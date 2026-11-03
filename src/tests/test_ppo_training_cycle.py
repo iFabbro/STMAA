@@ -1,9 +1,11 @@
 """Integration coverage for the complete experimental PPO training workflow."""
 
+import json
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import torch
 
 import train
 from src.agents.ppo_agent import PPOAgent
@@ -27,8 +29,9 @@ def synthetic_market_data(size: int = 40, ticker: str = "AAA") -> pd.DataFrame:
     return frame
 
 
-def test_ppo_training_validation_save_reload_and_inference_cycle(tmp_path):
+def test_ppo_training_validation_save_reload_and_inference_cycle(tmp_path, monkeypatch):
     """Exercise real SB3 learning and the persisted-artifact restart path on CPU."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     data = synthetic_market_data(size=40)
     training = data.iloc[:30].copy()
     validation = data.iloc[30:].copy()
@@ -67,7 +70,7 @@ def test_ppo_training_validation_save_reload_and_inference_cycle(tmp_path):
 
     manifest_path = tmp_path / "integration_model.zip.metadata.json"
     assert manifest_path.is_file()
-    manifest = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifact_path = tmp_path / manifest["artifact_file"]
     assert artifact_path.is_file()
     assert manifest["training"]["test_run"] is True

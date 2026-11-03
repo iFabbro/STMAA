@@ -175,3 +175,11 @@ def test_training_git_commit_is_a_sha_or_none():
         len(commit) == 40
         and all(character in "0123456789abcdef" for character in commit)
     )
+
+
+
+def test_training_git_worktree_clean_is_boolean_or_none():
+    from train import training_git_worktree_clean
+
+    clean = training_git_worktree_clean()
+    assert clean is None or isinstance(clean, bool)

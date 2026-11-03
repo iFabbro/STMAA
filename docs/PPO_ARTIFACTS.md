@@ -45,12 +45,12 @@ The standard `train.py` entry point records:
 - effective PPO hyperparameters: `learning_rate`, `n_steps`, `batch_size`, `n_epochs` and `gamma`;
 - initial capital and random seed;
 - SHA-256 fingerprint of the processed feature DataFrame passed to PPO, including its index, column names and values;
-- source Git commit when training runs from a Git checkout;
+- source Git commit and whether the Git working tree is clean;
 - validation metrics returned by the evaluation environment.
 
-The dataset fingerprint is calculated from a deterministic CSV representation of the processed frame after cleaning and feature calculation. It identifies the exact in-memory training/validation input but does not archive the underlying dataset. `git_commit` is `null` when Git provenance is unavailable (for example, when running from a source archive). Lower-level `PPOAgent.save()` calls still emit the hyperparameter and capital fields; dataset fingerprint and Git commit are `null` unless supplied by the caller.
+The dataset fingerprint is calculated from a deterministic CSV representation of the processed frame after cleaning and feature calculation. It identifies the exact in-memory training/validation input but does not archive the underlying dataset. `git_commit` and `git_worktree_clean` are `null` when Git provenance is unavailable (for example, when running from a source archive). A non-clean working tree is explicitly identified; the recorded commit alone does not capture uncommitted modifications. Lower-level `PPOAgent.save()` calls emit the hyperparameter and capital fields; dataset fingerprint and Git provenance are `null` unless supplied by the caller.
 
-The holdout is later in time than the training interval. Its metrics are diagnostic, not an automatic profitability gate or a guarantee of future performance. A manifest written through the lower-level `PPOAgent.save()` API may contain a smaller caller-supplied `training` object.
+The holdout is later in time than the training interval. Its metrics are diagnostic, not an automatic profitability gate or a guarantee of future performance. Lower-level `PPOAgent.save()` calls include the standard provenance defaults and merge any caller-supplied `training` metadata.
 
 ## Compatibility
 

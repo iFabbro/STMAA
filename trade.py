@@ -39,6 +39,7 @@ from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
 from src.data.alpaca_feed import AlpacaFeed
 from src.config import TRANSACTION_COST, SLIPPAGE
+from src.utils.model_path import resolve_model_path
 try:
     from src.agents.ppo_agent import PPOAgent  # <-- Fase 2
     PPO_AVAILABLE = True
@@ -66,8 +67,10 @@ class PaperTradingBot:
                  api_secret: str | None = None, base_url: str = "https://paper-api.alpaca.markets",
                  max_position_size: float = 0.2, transaction_cost: float = TRANSACTION_COST,
                  slippage: float = SLIPPAGE, vix_threshold_high: float = 30.0,
-                 vix_threshold_low: float = 15.0):
+                 vix_threshold_low: float = 15.0,
+                 model_path: str | Path | None = None):
         self.tickers = tickers
+        self.model_path = resolve_model_path(model_path)
         self.initial_capital = initial_capital
         self.max_gross_exposure = float(max_gross_exposure)
         self.liquidate_on_drawdown = liquidate_on_drawdown
@@ -103,6 +106,7 @@ class PaperTradingBot:
         self.ppo_agent = PPOAgent(
             tickers=tickers,
             initial_capital=initial_capital,
+            model_path=str(self.model_path),
             transaction_cost=transaction_cost,
             slippage=slippage,
             max_position_size=max_position_size,

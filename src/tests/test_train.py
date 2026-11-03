@@ -196,3 +196,60 @@ def test_training_git_provenance_returns_none_when_git_is_unavailable(monkeypatc
 
     assert training_git_commit() is None
     assert training_git_worktree_clean() is None
+
+
+def _run_training_main_for_model_path(monkeypatch, model_path_args):
+    from types import SimpleNamespace
+
+    history = pd.DataFrame(
+        {
+            "Open_AAA": np.linspace(99.0, 110.0, 100),
+            "Close_AAA": np.linspace(100.0, 111.0, 100),
+            "RSI_AAA": np.full(100, 50.0),
+            "MACD_AAA": np.zeros(100),
+            "BB_middle_AAA": np.linspace(99.0, 110.0, 100),
+            "ATR_AAA": np.ones(100),
+        },
+        index=pd.date_range("2024-01-01", periods=100, freq="D"),
+    )
+    config = SimpleNamespace(
+        tickers=("AAA",), initial_capital=1_000.0, transaction_cost=0.001,
+        slippage=0.0005, max_position_size=0.2, max_gross_exposure=0.5,
+    )
+    captured = {}
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self, *args, **kwargs):
+            return {"final_value": 1_000.0}
+
+    monkeypatch.setattr(train, "DataProcessor", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(train, "prepare_historical_data", lambda *_args, **_kwargs: history)
+    monkeypatch.setattr(train, "PPOAgent", FakeAgent)
+    monkeypatch.setattr(train, "load_training_config", lambda overrides=None: config)
+    monkeypatch.setattr(train, "training_data_source", lambda: "synthetic_test_data")
+    monkeypatch.setattr(train, "training_git_commit", lambda: None)
+    monkeypatch.setattr(train, "training_git_worktree_clean", lambda: None)
+    train.main([
+        "--start-date", "2024-01-01", "--end-date", "2024-04-10",
+        "--total-timesteps", "8", *model_path_args,
+    ])
+    return captured
+
+
+def test_train_cli_uses_environment_model_path_when_option_is_omitted(tmp_path, monkeypatch):
+    target = tmp_path / "environment-model.zip"
+    monkeypatch.setenv("STMAA_MODEL_PATH", str(target))
+    captured = _run_training_main_for_model_path(monkeypatch, [])
+    assert captured["model_path"] == str(target)
+
+
+def test_train_cli_explicit_model_path_overrides_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("STMAA_MODEL_PATH", str(tmp_path / "environment-model.zip"))
+    explicit = tmp_path / "explicit-model.zip"
+    captured = _run_training_main_for_model_path(
+        monkeypatch, ["--model-path", str(explicit)]
+    )
+    assert captured["model_path"] == str(explicit)

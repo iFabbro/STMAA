@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import sys
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -14,12 +16,69 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = REPOSITORY_ROOT / "logs" / "stmaa.db"
 
 
+class _DarwinProcBsdInfo(ctypes.Structure):
+    """Stable proc_bsdinfo fields returned by macOS proc_pidinfo(PROC_PIDTBSDINFO)."""
+
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+
+def _read_macos_process_start_time(pid: int) -> Optional[str]:
+    """Read the kernel process start timestamp using macOS libproc."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        proc_pidinfo = libc.proc_pidinfo
+    except (AttributeError, OSError):
+        return None
+
+    proc_pidinfo.argtypes = [
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
+    proc_pidinfo.restype = ctypes.c_int
+    info = _DarwinProcBsdInfo()
+    size = proc_pidinfo(
+        int(pid), 3, 0, ctypes.byref(info), ctypes.sizeof(info)
+    )
+    if size != ctypes.sizeof(info) or info.pbi_pid != int(pid):
+        return None
+    return f"{info.pbi_start_tvsec}:{info.pbi_start_tvusec}"
+
+
 def _read_process_start_ticks(pid: int) -> Optional[str]:
-    """Read Linux /proc process start ticks; None means identity is unverifiable."""
+    """Read a kernel start-time token; None means identity is unverifiable."""
+    if sys.platform == "darwin":
+        return _read_macos_process_start_time(pid)
+    if not sys.platform.startswith("linux"):
+        return None
+
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
     except OSError:
         return None
 
@@ -41,33 +100,28 @@ def current_process_identity() -> tuple[int, Optional[str]]:
 
 
 def process_identity_is_alive(pid: int, start_ticks: str) -> Optional[bool]:
-    """True/False when /proc proves identity alive/dead; None when unverifiable."""
+    """True/False when the kernel verifies identity; None when unverifiable."""
     try:
         pid = int(pid)
     except (TypeError, ValueError):
         return None
     if pid <= 0 or not isinstance(start_ticks, str) or not start_ticks:
         return None
-    # Without procfs, a missing PID path is not evidence that the process died.
-    if not Path("/proc").is_dir():
-        return None
 
+    observed_start = _read_process_start_ticks(pid)
+    if observed_start is not None:
+        # A different token proves PID reuse; an equal token proves this process.
+        return observed_start == start_ticks
+
+    # A missing process can be proven dead even when its metadata is unavailable.
+    # Permission errors and unsupported platforms remain unknown (fail-closed).
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-    except FileNotFoundError:
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return False
-    except OSError:
+    except (PermissionError, OSError):
         return None
-
-    closing_paren = stat.rfind(")")
-    if closing_paren < 0:
-        return None
-    fields = stat[closing_paren + 1 :].strip().split()
-    if len(fields) <= 19:
-        return None
-    if fields[0] in {"Z", "X"}:
-        return False
-    return fields[19] == start_ticks
+    return None
 
 
 def now_utc() -> str:

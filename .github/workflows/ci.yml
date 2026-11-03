@@ -48,19 +48,8 @@ jobs:
       - name: Verify installed dependency consistency
         run: uv pip check
 
-      - name: Run full test suite (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run full cross-platform test suite
         run: uv run --locked pytest src/tests tests -q
-
-      - name: Run macOS regression suite
-        if: startsWith(matrix.os, 'macos-')
-        run: >-
-          uv run --locked pytest src/tests tests -q
-          -k "not test_start_run_persists_verifiable_process_identity
-          and not test_forcibly_terminated_process_run_is_recovered_as_failed
-          and not test_orphan_recovery_preserves_another_live_process_run
-          and not test_process_identity_mismatch_detects_pid_reuse
-          and not test_process_restart_recovers_orphaned_session_as_failed_and_blocks_late_writes"
 
   lint:
     name: Ruff

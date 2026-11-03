@@ -5,6 +5,7 @@ from src.data.market_data_contract import (
     DATA_ADJUSTMENT,
     DATA_ADJUSTMENT_EVENTS,
     DATA_FEED,
+    DATA_QUOTE_FEED,
     DATA_PROVIDER,
     DATA_TIMEFRAME,
     market_data_contract,
@@ -44,8 +45,9 @@ def test_training_and_inference_share_one_alpaca_adjustment_contract():
         "corporate_actions": ["split", "dividend", "spin-off"],
     }
     assert (DATA_PROVIDER, DATA_FEED, DATA_TIMEFRAME, DATA_ADJUSTMENT) == (
-        "alpaca", "iex", "1Day", "all"
+        "alpaca", "sip", "1Day", "all"
     )
+    assert DATA_QUOTE_FEED == "delayed_sip"
 
 
 @pytest.mark.parametrize("event", ["split", "dividend", "spin-off"])

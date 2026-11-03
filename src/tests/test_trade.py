@@ -1150,6 +1150,8 @@ def test_generate_weights_reuses_supplied_verified_broker_snapshots(monkeypatch)
 
 
 def _build_bot_for_model_path_tests(monkeypatch, model_path=None, *, real_agent=False):
+    if real_agent:
+        from src.agents.ppo_agent import PPOAgent
     monkeypatch.setattr(trade, "load_equity_curve", lambda: [])
     monkeypatch.setattr(trade, "BrokerExecutor", DummyExecutor)
     monkeypatch.setattr(trade, "AlpacaFeed", DummyFeed)

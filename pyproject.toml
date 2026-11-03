@@ -14,6 +14,7 @@ dependencies = [
     "requests",
     "stable-baselines3",
     "tabulate",
+    "yfinance",
 ]
 
 [dependency-groups]

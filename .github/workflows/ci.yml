@@ -9,13 +9,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-\${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  tests:
+    name: Tests (\${{ matrix.os }})
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -24,11 +29,68 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-          cache: pip
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+
+      - name: Resolve or verify dependency lock
+        run: |
+          if [ -f uv.lock ]; then
+            uv lock --check
+          else
+            uv lock
+          fi
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Verify installed dependency consistency
+        run: uv run --locked pip check
 
       - name: Run tests
-        run: python -m pytest src/tests tests -q
+        run: uv run --locked pytest src/tests tests -q
 
+      - name: Upload generated lock file (bootstrap only)
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uv-lock-bootstrap
+          path: uv.lock
+          if-no-files-found: ignore
+          retention-days: 3
+
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+
+      - name: Resolve or verify dependency lock
+        run: |
+          if [ -f uv.lock ]; then
+            uv lock --check
+          else
+            uv lock
+          fi
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Ruff check
+        run: uv run --locked ruff check .

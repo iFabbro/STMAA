@@ -21,6 +21,7 @@ from agents.ppo_agent import PPOAgent
 from data.data_processor import DataProcessor
 from src.data.market_data_contract import market_data_contract
 from src.utils.startup_config import load_strategy_config
+from src.utils.model_path import resolve_model_path
 
 
 MODEL_PATH = MODELS_DIR / "ppo_trading_model.zip"
@@ -188,7 +189,7 @@ def main(argv=None):
     parser.add_argument("--n-epochs", type=int, default=10)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
-    parser.add_argument("--model-path", type=Path, default=MODEL_PATH)
+    parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--initial-capital", type=float, default=None)
     parser.add_argument("--max-position-size", type=float, default=None)
     parser.add_argument("--max-gross-exposure", type=float, default=None)
@@ -221,6 +222,10 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
     tickers = list(strategy_config.tickers)
+    try:
+        resolved_model_path = resolve_model_path(args.model_path)
+    except (TypeError, ValueError, OSError) as exc:
+        parser.error(str(exc))
 
     processor = DataProcessor(DATA_DIR)
     history = prepare_historical_data(
@@ -231,7 +236,7 @@ def main(argv=None):
     agent = PPOAgent(
         tickers=tickers,
         initial_capital=strategy_config.initial_capital,
-        model_path=str(args.model_path),
+        model_path=str(resolved_model_path),
         transaction_cost=strategy_config.transaction_cost,
         slippage=strategy_config.slippage,
         max_position_size=strategy_config.max_position_size,
@@ -274,7 +279,7 @@ def main(argv=None):
         training_metadata=metadata,
     )
     print("PPO training and chronological holdout evaluation completed.")
-    print(f"Model: {args.model_path}")
+    print(f"Model: {resolved_model_path}")
     print(f"Training tickers: {tickers}")
     print(f"Initial capital: {strategy_config.initial_capital:.2f}")
     print(f"Maximum gross exposure: {strategy_config.max_gross_exposure:.4f}")

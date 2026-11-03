@@ -135,3 +135,64 @@ def test_training_and_inference_share_neutral_ppo_artifact_base_path():
     agent = PPOAgent(tickers=["A"], load_existing_model=False)
     assert train.MODEL_PATH.name == "ppo_trading_model.zip"
     assert agent.model_path == "models/ppo_trading_model.zip"
+
+
+
+def test_training_dataset_sha256_is_stable_and_sensitive_to_data_and_timestamps():
+    from train import training_dataset_sha256
+
+    index = pd.date_range("2024-01-02", periods=3, freq="D")
+    frame = pd.DataFrame({"Close_AAA": [100.0, 101.25, 99.5]}, index=index)
+
+    first = training_dataset_sha256(frame)
+    assert first == training_dataset_sha256(frame.copy())
+    assert len(first) == 64
+    assert all(character in "0123456789abcdef" for character in first)
+
+    changed_value = frame.copy()
+    changed_value.iloc[1, 0] += 0.01
+    assert training_dataset_sha256(changed_value) != first
+
+    changed_timestamp = frame.copy()
+    changed_timestamp.index = changed_timestamp.index + pd.Timedelta(days=1)
+    assert training_dataset_sha256(changed_timestamp) != first
+
+
+def test_training_dataset_sha256_rejects_empty_or_non_dataframe_input():
+    from train import training_dataset_sha256
+
+    with pytest.raises(ValueError, match="non-empty DataFrame"):
+        training_dataset_sha256(pd.DataFrame())
+    with pytest.raises(ValueError, match="non-empty DataFrame"):
+        training_dataset_sha256(None)
+
+
+def test_training_git_commit_is_a_sha_or_none():
+    from train import training_git_commit
+
+    commit = training_git_commit()
+    assert commit is None or (
+        len(commit) == 40
+        and all(character in "0123456789abcdef" for character in commit)
+    )
+
+
+
+def test_training_git_worktree_clean_is_boolean_or_none():
+    from train import training_git_worktree_clean
+
+    clean = training_git_worktree_clean()
+    assert clean is None or isinstance(clean, bool)
+
+
+
+def test_training_git_provenance_returns_none_when_git_is_unavailable(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("git executable not found")
+
+    monkeypatch.setattr(train.subprocess, "run", unavailable)
+
+    from train import training_git_commit, training_git_worktree_clean
+
+    assert training_git_commit() is None
+    assert training_git_worktree_clean() is None

@@ -663,6 +663,19 @@ class PPOAgent:
             published_model_path = model_path.with_name(
                 f"{model_path.stem}.{model_digest}{model_path.suffix or '.zip'}"
             )
+            training = {
+                "learning_rate": float(self.learning_rate),
+                "n_steps": int(self.n_steps),
+                "batch_size": int(self.batch_size),
+                "n_epochs": int(self.n_epochs),
+                "gamma": float(self.gamma),
+                "initial_capital": self.initial_capital,
+                "dataset_sha256": None,
+                "git_commit": None,
+                "git_worktree_clean": None,
+                "seed": self.seed,
+            }
+            training.update(training_metadata or {})
             metadata = {
                 "contract_version": MODEL_CONTRACT_VERSION,
                 "tickers": self.tickers,
@@ -677,7 +690,7 @@ class PPOAgent:
                 "market_data_contract": market_data_contract(),
                 "model_sha256": model_digest,
                 "artifact_file": published_model_path.name,
-                "training": training_metadata or {},
+                "training": training,
             }
             with metadata_temp_path.open("w", encoding="utf-8") as metadata_file:
                 metadata_file.write(json.dumps(metadata, indent=2))

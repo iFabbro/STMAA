@@ -7,7 +7,7 @@ non è assunta come costante e dipende dal feed configurato.
 """
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import List, Optional
 
 import numpy as np
@@ -20,12 +20,12 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 try:
     from src.data.market_data_contract import (
-        DATA_ADJUSTMENT, DATA_FEED, market_data_contract, market_data_fingerprint,
+        DATA_ADJUSTMENT, DATA_FEED, DATA_QUOTE_FEED, market_data_contract, market_data_fingerprint,
     )
     from src.data.feature_engineering import calculate_features
 except ModuleNotFoundError:
     from data.market_data_contract import (
-        DATA_ADJUSTMENT, DATA_FEED, market_data_contract, market_data_fingerprint,
+        DATA_ADJUSTMENT, DATA_FEED, DATA_QUOTE_FEED, market_data_contract, market_data_fingerprint,
     )
     from data.feature_engineering import calculate_features
 
@@ -63,6 +63,27 @@ class AlpacaFeed:
     # ------------------------------------------------------------------
     # Dati storici (bars giornalieri)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _historical_request_end(now=None):
+        """Return a SIP-safe end bound, excluding an in-progress daily bar."""
+        current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+        if current.tzinfo is None:
+            current = current.tz_localize("UTC")
+        current = current.tz_convert("UTC")
+        cutoff = current - pd.Timedelta(minutes=20)
+        ny_date = current.tz_convert("America/New_York").date().isoformat()
+        schedule = mcal.get_calendar("NYSE").schedule(
+            start_date=ny_date, end_date=ny_date
+        )
+        if not schedule.empty:
+            market_open = pd.Timestamp(schedule.iloc[0]["market_open"]).tz_convert("UTC")
+            market_close = pd.Timestamp(schedule.iloc[0]["market_close"]).tz_convert("UTC")
+            if market_open <= current < market_close:
+                return pd.Timestamp(ny_date).tz_localize(
+                    "America/New_York"
+                ).tz_convert("UTC").to_pydatetime()
+        return cutoff.to_pydatetime()
 
     @staticmethod
     def _latest_completed_nyse_session_date(now=None):
@@ -282,7 +303,8 @@ class AlpacaFeed:
         if len(set(tickers)) != len(tickers):
             raise ValueError("tickers must contain unique symbols")
 
-        end = datetime.now(timezone.utc)
+        end = self._historical_request_end()
+        latest_completed_session = self._latest_completed_nyse_session_date(end)
         start = end - timedelta(days=days + 60)  # buffer per indicatori
 
         request = StockBarsRequest(
@@ -291,7 +313,7 @@ class AlpacaFeed:
             start=start,
             end=end,
             limit=None,
-            feed=DATA_FEED,  # Versioned contract: IEX feed
+            feed=DATA_FEED,  # Versioned contract: consolidated SIP historical bars
             adjustment=DATA_ADJUSTMENT,
         )
 
@@ -329,7 +351,7 @@ class AlpacaFeed:
             if ticker_bars.empty:
                 raise RuntimeError(f"AlpacaFeed: no market bars received for {ticker}")
             if timeframe == _DAILY_TIMEFRAME:
-                expected_session = self._latest_completed_nyse_session_date(end)
+                expected_session = latest_completed_session
                 latest_date = ticker_bars.index[-1].date()
                 if latest_date != expected_session:
                     raise RuntimeError(
@@ -415,9 +437,9 @@ class AlpacaFeed:
     def get_latest_quotes(self, tickers: List[str]) -> dict:
         """Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
 
-        Usa feed='iex' per free-tier.
+        Usa delayed SIP per le quotazioni recenti sul piano gratuito.
         """
-        request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed='iex')
+        request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed=DATA_QUOTE_FEED)
         try:
             quotes = self.client.get_stock_latest_quote(request)
         except Exception as e:
@@ -460,7 +482,12 @@ class AlpacaFeed:
 
         # Tenta di arricchire con variazione % usando barre intraday
         try:
-            prev = self._get_prev_close(tickers)
+            prev = self._get_prev_close(
+                tickers,
+                quote_timestamps={
+                    ticker: result[ticker]["timestamp"] for ticker in tickers
+                },
+            )
             for ticker in tickers:
                 if ticker in prev and prev[ticker] > 0:
                     cur = result[ticker]["price"]
@@ -472,8 +499,8 @@ class AlpacaFeed:
 
         return result
 
-    def _get_prev_close(self, tickers: List[str]) -> dict:
-        end = datetime.now(timezone.utc)
+    def _get_prev_close(self, tickers: List[str], quote_timestamps=None) -> dict:
+        end = self._historical_request_end()
         start = end - timedelta(days=5)
         request = StockBarsRequest(
             symbol_or_symbols=tickers,
@@ -489,8 +516,25 @@ class AlpacaFeed:
             return {}
         bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
         result = {}
+        quote_timestamps = quote_timestamps or {}
         for ticker in tickers:
-            sub = bars[bars["Symbol"] == ticker]["Close"]
-            if len(sub) >= 2:
-                result[ticker] = float(sub.iloc[-2])
+            ticker_bars = bars[bars["Symbol"] == ticker]
+            sub = ticker_bars["Close"]
+            if not sub.empty:
+                last_bar_date = pd.to_datetime(
+                    ticker_bars["timestamp"].iloc[-1], utc=True
+                ).tz_convert("America/New_York").date()
+                quote_timestamp = quote_timestamps.get(ticker)
+                quote_date = (
+                    pd.Timestamp(quote_timestamp).tz_convert("America/New_York").date()
+                    if quote_timestamp is not None
+                    else None
+                )
+                # Compare the delayed quote's session with the latest returned
+                # daily bar. If they match, that bar is today's close and the
+                # prior close is the penultimate bar; otherwise use the latest
+                # bar as the previous close.
+                position = -2 if quote_date == last_bar_date else -1
+                if len(sub) >= abs(position):
+                    result[ticker] = float(sub.iloc[position])
         return result

@@ -206,7 +206,7 @@ def test_ppo_environment_execution_costs_match_backtest_engine():
         initial_capital=1000.0, transaction_cost=0.001, slippage=0.0005
     )
     result = backtest.run_backtest(
-        data[["Close_A"]],
+        data[["Open_A", "Close_A"]],
         lambda _timestamp, _row: np.array([1.0]),
         tickers,
     )

@@ -383,10 +383,11 @@ class AlpacaFeed:
         # Costruisce DataFrame flat atteso dalla pipeline
         result = pd.DataFrame()
         for ticker in tickers:
-            sub = bars[bars["Symbol"] == ticker][["Close", "High", "Low", "Volume"]].copy()
+            sub = bars[bars["Symbol"] == ticker][["Open", "Close", "High", "Low", "Volume"]].copy()
             # Preserve the full available history for rolling features; trim output only after indicators are computed.
             sub = sub.sort_index()
 
+            result[f"Open_{ticker}"] = sub["Open"]
             result[f"Close_{ticker}"] = sub["Close"]
 
             indicators = self._calculate_features(sub)
@@ -400,7 +401,7 @@ class AlpacaFeed:
         # A fresh final OHLCV bar is not sufficient if the strategy features
         # computed from the rolling history are missing or non-finite. Refuse
         # to pass an incomplete final observation into target-weight inference.
-        required_latest_features = ("Close", "RSI", "MACD", "BB_middle", "ATR")
+        required_latest_features = ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
         if result.empty:
             raise RuntimeError("AlpacaFeed: no usable strategy features were produced")
         for ticker in tickers:

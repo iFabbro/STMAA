@@ -64,6 +64,35 @@ def test_target_weight_action_earns_next_close_to_close_return():
     "action",
     [np.array([-1.0, -1.0]), np.array([-0.2, -0.8]), np.array([0.0, 0.0])],
 )
+def test_policy_does_not_capture_overnight_gap_before_next_open_fill():
+    data, tickers = market_data(prices_a=(100.0, 220.0))
+    data.loc[1, "Open_A"] = 200.0
+    env = StockTradingEnv(
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0, lookback=0,
+    )
+    env.reset()
+    _, reward, terminated, _, info = env.step(np.array([1.0]))
+    assert info["execution_price"][0] == pytest.approx(200.0)
+    assert info["total_asset"] == pytest.approx(1100.0)
+    assert reward == pytest.approx(0.10)
+    assert terminated is True
+
+
+def test_existing_holdings_bear_overnight_gap_before_next_open_rebalance():
+    data, tickers = market_data(prices_a=(100.0, 200.0))
+    env = StockTradingEnv(
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0, lookback=0,
+    )
+    env.reset(options={"initial_weights": np.array([0.5])})
+    _, reward, terminated, _, info = env.step(np.array([0.0]))
+    assert info["target_weights"][0] == pytest.approx(0.0)
+    assert info["total_asset"] == pytest.approx(1500.0)
+    assert reward == pytest.approx(0.50)
+    assert terminated is True
+
+
 def test_action_contract_maps_non_positive_scores_to_cash(action):
     weights = StockTradingEnv.action_to_weights(action, 2)
     np.testing.assert_allclose(weights, np.zeros(2))

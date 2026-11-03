@@ -7,7 +7,7 @@ non è assunta come costante e dipende dal feed configurato.
 """
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import List, Optional
 
 import numpy as np

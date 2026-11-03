@@ -17,7 +17,7 @@ from typing import List, Dict
 sys.path.append(str(Path(__file__).parent / "src"))
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).absolute().parent / ".env", override=False)
 
 from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
 from src.utils.monitoring_state import (

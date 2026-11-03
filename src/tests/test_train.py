@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from train import chronological_split, flatten_processed_data
+from train import chronological_split, flatten_processed_data, training_data_source
+from src.data.market_data_contract import market_data_contract
 
 
 def test_flatten_processed_alpaca_field_ticker_columns_to_ppo_feature_contract():
@@ -73,3 +74,12 @@ def test_flatten_processed_single_ticker_flat_columns():
         "Close_AAA", "RSI_AAA", "MACD_AAA", "BB_middle_AAA", "ATR_AAA"
     ]
     np.testing.assert_allclose(flattened["Close_AAA"], data["Close"])
+
+
+def test_training_data_source_matches_active_sip_contract():
+    contract = market_data_contract()
+    assert training_data_source() == "alpaca_sip_adjusted_ohlcv"
+    assert training_data_source() == (
+        f"{contract['provider']}_{contract['feed']}_adjusted_ohlcv"
+    )
+    assert contract["feed"] == "sip"

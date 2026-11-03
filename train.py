@@ -27,6 +27,12 @@ MODEL_PATH = MODELS_DIR / "ppo_trading_model_v3.zip"
 REQUIRED_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
 
 
+def training_data_source() -> str:
+    """Return provenance metadata derived from the active market-data contract."""
+    contract = market_data_contract()
+    return f"{contract['provider']}_{contract['feed']}_adjusted_ohlcv"
+
+
 def flatten_processed_data(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """Convert provider field/ticker columns into the PPO feature contract."""
     if not isinstance(data, pd.DataFrame) or data.empty:
@@ -147,7 +153,7 @@ def main(argv=None):
         verbose=1,
     )
     metadata = {
-        "data_source": "alpaca_iex_adjusted_ohlcv",
+        "data_source": training_data_source(),
         "market_data_contract": market_data_contract(),
         "start_date": str(history.index.min()),
         "end_date": str(history.index.max()),

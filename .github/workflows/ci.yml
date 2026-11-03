@@ -51,7 +51,7 @@ jobs:
           fi
 
       - name: Commit bootstrapped lock file
-        if: matrix.os == 'ubuntu-latest' && steps.lock.outputs.created == 'true' && github.event_name == 'pull_request'
+        if: matrix.os == 'ubuntu-latest' && steps.lock.outputs.created == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

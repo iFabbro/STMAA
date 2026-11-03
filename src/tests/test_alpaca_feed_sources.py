@@ -1,5 +1,8 @@
 """Regression tests for endpoint-specific Alpaca market-data feeds."""
 import pandas as pd
+from types import SimpleNamespace
+
+from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 
 from src.data.alpaca_feed import AlpacaFeed
 from src.data.market_data_contract import DATA_FEED, DATA_QUOTE_FEED
@@ -32,3 +35,49 @@ def test_historical_end_includes_completed_session_after_delay():
     now = pd.Timestamp("2026-11-03T21:30:00Z")
     actual = pd.Timestamp(AlpacaFeed._historical_request_end(now))
     assert actual == now - pd.Timedelta(minutes=20)
+
+def test_historical_request_uses_sip(monkeypatch):
+    feed = object.__new__(AlpacaFeed)
+    captured = {}
+
+    dates = pd.to_datetime(
+        ["2018-01-02T05:00:00Z", "2018-01-03T05:00:00Z", "2018-01-04T05:00:00Z"],
+        utc=True,
+    )
+    index = pd.MultiIndex.from_arrays(
+        [["AAPL"] * len(dates), dates], names=["symbol", "timestamp"]
+    )
+    frame = pd.DataFrame(
+        {
+            "open": [10.0, 11.0, 12.0],
+            "high": [11.0, 12.0, 13.0],
+            "low": [9.0, 10.0, 11.0],
+            "close": [10.5, 11.5, 12.5],
+            "volume": [100.0, 110.0, 120.0],
+        },
+        index=index,
+    )
+
+    class Client:
+        def get_stock_bars(self, request):
+            captured["feed"] = getattr(request.feed, "value", request.feed)
+            return SimpleNamespace(df=frame)
+
+    feed.client = Client()
+    feed.get_historical_ohlcv(["AAPL"], "2018-01-02", "2018-01-05")
+    assert captured["feed"] == "sip"
+
+
+def test_latest_quote_request_uses_delayed_sip():
+    feed = object.__new__(AlpacaFeed)
+    captured = {}
+
+    class Client:
+        def get_stock_latest_quote(self, request):
+            captured["feed"] = getattr(request.feed, "value", request.feed)
+            return {}
+
+    feed.client = Client()
+    feed._get_prev_close = lambda tickers, quote_timestamps=None: {}
+    feed.get_latest_quotes(["AAPL"])
+    assert captured["feed"] == "delayed_sip"

@@ -218,10 +218,17 @@ class PaperTradingBot:
         ):
             raise RuntimeError("PPO returned target weights outside the configured position/gross-exposure limits")
 
+        # Preserve the source market-bar timestamp when available. The run loop
+        # independently requires a valid DatetimeIndex before claiming a decision.
+        weights_timestamp = (
+            self._daily_bar_timestamp(market_data)
+            if isinstance(getattr(market_data, "index", None), pd.DatetimeIndex)
+            else datetime.now().isoformat()
+        )
         portfolio_weights = PortfolioWeights(
             weights=weights,
             tickers=self.tickers,
-            timestamp=datetime.now().isoformat(),
+            timestamp=weights_timestamp,
         )
         print(f" PPO target weights: {portfolio_weights.to_dict()}")
         return portfolio_weights
@@ -516,6 +523,44 @@ class PaperTradingBot:
             self.update_hub_state(result)
             return result
 
+    @staticmethod
+    def _daily_bar_timestamp(market_data: pd.DataFrame) -> str:
+        """Return the latest unique daily-bar timestamp in canonical UTC form."""
+        if not isinstance(market_data, pd.DataFrame) or market_data.empty:
+            raise RuntimeError("Daily decision blocked: market data is empty or invalid")
+        if not isinstance(market_data.index, pd.DatetimeIndex):
+            raise RuntimeError("Daily decision blocked: market data index is not a DatetimeIndex")
+        if market_data.index.has_duplicates or not market_data.index.is_monotonic_increasing:
+            raise RuntimeError("Daily decision blocked: daily-bar timestamps are duplicated or unordered")
+        latest = pd.Timestamp(market_data.index[-1])
+        if latest.tzinfo is None:
+            latest = latest.tz_localize("UTC")
+        else:
+            latest = latest.tz_convert("UTC")
+        return latest.isoformat()
+
+    def generate_and_execute_daily_cycle(self, market_data: pd.DataFrame):
+        """Run at most one PPO decision per daily bar with a durable pre-inference claim."""
+        bar_timestamp = self._daily_bar_timestamp(market_data)
+        reconcile = getattr(self.executor, "reconcile_daily_decision_if_required", None)
+        claim = getattr(self.executor, "claim_daily_decision", None)
+        complete = getattr(self.executor, "complete_daily_decision", None)
+        if not all(callable(method) for method in (reconcile, claim, complete)):
+            raise RuntimeError("Daily decision guard is unavailable; refusing PPO inference and broker execution")
+
+        # If the prior process stopped mid-cycle, this path performs read-only
+        # order/position reconciliation. It never retries the interrupted bar.
+        reconcile()
+        if not claim(bar_timestamp, self.tickers):
+            print(f"Daily bar {bar_timestamp}: decision already processed; skipping PPO and execution")
+            return {"daily_decision_skipped": True, "daily_bar_timestamp": bar_timestamp, "orders": []}
+
+        # A failure deliberately leaves the durable marker in 'started'. The
+        # next process must reconcile broker state before another decision.
+        result = self.generate_and_execute_cycle(market_data)
+        complete(bar_timestamp)
+        return result
+
     def generate_and_execute_cycle(self, market_data: pd.DataFrame):
         """Keep the holdings snapshot, PPO inference, and execution in one locked cycle."""
         execution_lock = getattr(self.executor, "execution_lock", None)
@@ -543,7 +588,7 @@ class PaperTradingBot:
 
             try:
                 market_data = self.get_market_data()
-                self.generate_and_execute_cycle(market_data)
+                self.generate_and_execute_daily_cycle(market_data)
 
                 status = self.executor.get_account_status()
                 if status.get("account_data_fresh") is not True:

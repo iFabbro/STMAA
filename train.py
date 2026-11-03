@@ -122,13 +122,16 @@ def training_dataset_sha256(data: pd.DataFrame) -> str:
 
 def training_git_commit() -> str | None:
     """Return the checked-out source commit, or None outside a Git checkout."""
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=BASE_DIR,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
     commit = result.stdout.strip().lower()
     if result.returncode == 0 and len(commit) == 40 and all(
         character in "0123456789abcdef" for character in commit
@@ -139,13 +142,16 @@ def training_git_commit() -> str | None:
 
 def training_git_worktree_clean() -> bool | None:
     """Report whether the Git checkout has no tracked or untracked changes."""
-    result = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
-        cwd=BASE_DIR,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     return not result.stdout.strip()

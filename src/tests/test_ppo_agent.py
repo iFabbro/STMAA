@@ -432,6 +432,7 @@ def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, mo
         "initial_capital": pytest.approx(100000.0),
         "dataset_sha256": None,
         "git_commit": None,
+        "git_worktree_clean": None,
         "seed": 42,
     }
     assert not model_path.exists()

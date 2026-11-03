@@ -15,6 +15,7 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     tickers = ["A"]
     for ticker, prices in [("A", prices_a)]:
         data[f"Close_{ticker}"] = prices
+        data[f"Open_{ticker}"] = np.concatenate(([prices[0]], np.asarray(prices[:-1], dtype=float)))
         data[f"RSI_{ticker}"] = np.full(size, 50.0)
         data[f"MACD_{ticker}"] = np.zeros(size)
         data[f"BB_middle_{ticker}"] = np.asarray(prices, dtype=float)

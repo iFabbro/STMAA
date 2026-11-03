@@ -124,8 +124,10 @@ def test_training_cli_orchestrates_chronological_pipeline_without_external_servi
         max_gross_exposure=0.5,
     )
     calls = {}
+    real_data_processor = train.DataProcessor
 
     class FakeProcessor:
+        _field_level = staticmethod(real_data_processor._field_level)
         def __init__(self, _data_dir):
             pass
 

@@ -1,7 +1,18 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 from src.backtest.backtest_engine import ExecutionConsistentBacktest
+
+
+def bars(closes, opens=None):
+    closes = np.asarray(closes, dtype=float)
+    if opens is None:
+        opens = np.concatenate(([closes[0]], closes[:-1]))
+    return pd.DataFrame(
+        {"Open_A": opens, "Close_A": closes},
+        index=pd.date_range("2024-01-01", periods=len(closes), freq="D"),
+    )
 
 
 def test_backtest_engine_creation():
@@ -25,107 +36,111 @@ def test_metrics_calculation():
     assert "cumulative_return" in metrics
 
 
-def test_multi_asset_returns_are_temporal_not_cross_sectional():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 110.0, 121.0], "Close_B": [100.0, 90.0, 81.0]},
+def test_signal_after_close_executes_next_open_and_earns_intraday_return():
+    data = pd.DataFrame(
+        {
+            "Open_A": [100.0, 100.0, 110.0],
+            "Close_A": [100.0, 110.0, 121.0],
+            "Open_B": [100.0, 100.0, 90.0],
+            "Close_B": [100.0, 90.0, 81.0],
+        },
         index=pd.date_range("2024-01-01", periods=3, freq="D"),
     )
     engine = ExecutionConsistentBacktest(
         initial_capital=10000, transaction_cost=0, slippage=0
     )
     result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([1.0, 0.0]), ["A", "B"]
+        data, lambda _ts, _row: np.array([1.0, 0.0]), ["A", "B"]
     )
-    assert result["portfolio_values"].iloc[0] == pytest.approx(10000)
-    assert result["portfolio_values"].iloc[1] == pytest.approx(11000)
-    assert result["portfolio_values"].iloc[2] == pytest.approx(12100)
+    assert result["portfolio_values"].tolist() == pytest.approx([11000, 12100])
+    assert result["portfolio_values"].index.tolist() == data.index[1:].tolist()
     assert result["final_value"] == pytest.approx(12100)
 
 
-def test_turnover_costs_are_charged_on_rebalance_not_as_weight_scaling():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 100.0, 100.0]},
-        index=pd.date_range("2024-01-01", periods=3, freq="D"),
-    )
-    engine = ExecutionConsistentBacktest(
-        initial_capital=10000, transaction_cost=0.01, slippage=0.02
-    )
-    result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([0.5]), ["A"]
-    )
-    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
-    assert result["portfolio_values"].iloc[-1] == pytest.approx(9850.0)
-
-
-def test_max_drawdown_includes_initial_rebalance_cost():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 100.0]},
+def test_new_signal_does_not_capture_overnight_gap_before_next_open():
+    data = pd.DataFrame(
+        {"Open_A": [100.0, 200.0], "Close_A": [100.0, 220.0]},
         index=pd.date_range("2024-01-01", periods=2, freq="D"),
     )
     engine = ExecutionConsistentBacktest(
-        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+        initial_capital=10000, transaction_cost=0, slippage=0
     )
     result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([0.5]), ["A"]
+        data, lambda _ts, _row: np.array([1.0]), ["A"]
     )
+    # The signal is filled at 200; the preceding 100 -> 200 gap is earned in cash.
+    assert result["final_value"] == pytest.approx(11000)
+
+
+def test_turnover_costs_are_charged_at_next_open():
+    data = bars([100.0, 100.0, 100.0])
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(data, lambda _ts, _row: np.array([0.5]), ["A"])
+    assert result["portfolio_values"].tolist() == pytest.approx([9850.0, 9850.0])
+
+
+def test_max_drawdown_includes_initial_next_open_rebalance_cost():
+    data = bars([100.0, 100.0])
+    engine = ExecutionConsistentBacktest(
+        initial_capital=10000, transaction_cost=0.01, slippage=0.02
+    )
+    result = engine.run_backtest(data, lambda _ts, _row: np.array([0.5]), ["A"])
     assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
     assert result["metrics"]["max_drawdown"] == pytest.approx(-0.015)
 
 
 def test_turnover_uses_drifted_weights_after_market_returns():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 200.0]},
-        index=pd.date_range("2024-01-01", periods=2, freq="D"),
-    )
+    data = bars([100.0, 200.0, 200.0], opens=[100.0, 100.0, 200.0])
     engine = ExecutionConsistentBacktest(
         initial_capital=10000, transaction_cost=0.01, slippage=0.02
     )
     targets = iter([np.array([0.5]), np.array([2.0 / 3.0])])
-    result = engine.run_backtest(
-        prices, lambda _ts, _row: next(targets), ["A"]
-    )
-    # First rebalance costs 150; the 100% price rise drifts the holding to
-    # 2/3 of equity, so the matching second target creates no extra turnover.
-    assert result["portfolio_values"].iloc[0] == pytest.approx(9850.0)
-    assert result["portfolio_values"].iloc[-1] == pytest.approx(14775.0)
+    result = engine.run_backtest(data, lambda _ts, _row: next(targets), ["A"])
+    assert result["portfolio_values"].tolist() == pytest.approx([14775.0, 14775.0])
 
 
 def test_invalid_prices_or_weight_shapes_fail_explicitly():
     dates = pd.date_range("2024-01-01", periods=2, freq="D")
-    invalid_prices = pd.DataFrame({"Close_A": [100.0, np.nan]}, index=dates)
+    invalid_prices = pd.DataFrame(
+        {"Open_A": [100.0, 101.0], "Close_A": [100.0, np.nan]}, index=dates
+    )
     engine = ExecutionConsistentBacktest(transaction_cost=0, slippage=0)
     with pytest.raises(ValueError, match="Close prices"):
-        engine.run_backtest(
-            invalid_prices, lambda _ts, _row: np.array([1.0]), ["A"]
-        )
-    valid_prices = pd.DataFrame({"Close_A": [100.0, 101.0]}, index=dates)
+        engine.run_backtest(invalid_prices, lambda _ts, _row: np.array([1.0]), ["A"])
+    valid_prices = bars([100.0, 101.0])
     with pytest.raises(ValueError, match="Expected 1 target weights"):
-        engine.run_backtest(
-            valid_prices, lambda _ts, _row: np.array([0.5, 0.5]), ["A"]
-        )
+        engine.run_backtest(valid_prices, lambda _ts, _row: np.array([0.5, 0.5]), ["A"])
+
+
+def test_backtest_rejects_missing_open_execution_prices():
+    prices = pd.DataFrame(
+        {"Close_A": [100.0, 101.0]},
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    engine = ExecutionConsistentBacktest(transaction_cost=0, slippage=0)
+    with pytest.raises(ValueError, match="Missing open/close execution price"):
+        engine.run_backtest(prices, lambda _ts, _row: np.array([1.0]), ["A"])
 
 
 def test_backtest_rejects_unsorted_timestamps():
     dates = pd.to_datetime(["2024-01-02", "2024-01-01"])
-    prices = pd.DataFrame({"Close_A": [101.0, 100.0]}, index=dates)
+    prices = pd.DataFrame({"Open_A": [100.0, 100.0], "Close_A": [101.0, 100.0]}, index=dates)
     engine = ExecutionConsistentBacktest(transaction_cost=0, slippage=0)
     with pytest.raises(ValueError, match="chronological order"):
-        engine.run_backtest(
-            prices, lambda _ts, _row: np.array([1.0]), ["A"]
-        )
+        engine.run_backtest(prices, lambda _ts, _row: np.array([1.0]), ["A"])
 
 
 def test_sharpe_and_sortino_use_periodic_returns_not_cagr():
     engine = ExecutionConsistentBacktest(initial_capital=100.0)
     values = pd.Series([101.0, 100.0, 102.0])
     metrics = engine._calculate_metrics(values)
-
     equity = np.array([100.0, 101.0, 100.0, 102.0])
     returns = equity[1:] / equity[:-1] - 1.0
     expected_sharpe = returns.mean() / returns.std(ddof=1) * np.sqrt(252)
     downside = np.minimum(returns, 0.0)
     expected_sortino = returns.mean() / np.sqrt(np.mean(downside ** 2)) * np.sqrt(252)
-
     assert metrics["sharpe_ratio"] == pytest.approx(expected_sharpe)
     assert metrics["sortino_ratio"] == pytest.approx(expected_sortino)
     assert metrics["cumulative_return"] == pytest.approx(0.02)
@@ -133,8 +148,7 @@ def test_sharpe_and_sortino_use_periodic_returns_not_cagr():
 
 def test_metrics_use_configured_periods_per_year():
     engine = ExecutionConsistentBacktest(initial_capital=100.0, periods_per_year=3)
-    dates = pd.date_range("2024-01-01", periods=3, freq="D")
-    values = pd.Series([110.0, 99.0, 108.9], index=dates)
+    values = pd.Series([110.0, 99.0, 108.9])
     metrics = engine._calculate_metrics(values)
     assert metrics["cumulative_return"] == pytest.approx(0.089)
     assert metrics["annualized_return"] == pytest.approx(0.089)
@@ -149,63 +163,26 @@ def test_invalid_periods_per_year_is_rejected():
         ExecutionConsistentBacktest(periods_per_year=0)
 
 
-
-
 def test_result_equity_curve_includes_initial_capital_baseline():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 110.0]},
-        index=pd.date_range("2024-01-01", periods=2, freq="D"),
-    )
+    data = bars([100.0, 110.0])
     engine = ExecutionConsistentBacktest(
         initial_capital=10000, transaction_cost=0, slippage=0
     )
-    result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([1.0]), ["A"]
-    )
-
+    result = engine.run_backtest(data, lambda _ts, _row: np.array([1.0]), ["A"])
     assert result["initial_capital"] == pytest.approx(10000)
-    assert result["equity_curve"].tolist() == pytest.approx(
-        [10000, 10000, 11000]
-    )
+    assert result["equity_curve"].tolist() == pytest.approx([10000, 11000])
     assert result["equity_curve"].iloc[-1] == pytest.approx(result["final_value"])
     assert result["portfolio_values"].iloc[-1] == pytest.approx(result["final_value"])
-    assert result["metrics"]["cumulative_return"] == pytest.approx(
-        result["equity_curve"].iloc[-1] / result["initial_capital"] - 1
-    )
-
-
-def test_equity_curve_exposes_initial_rebalance_cost():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0]},
-        index=pd.date_range("2024-01-01", periods=1, freq="D"),
-    )
-    engine = ExecutionConsistentBacktest(
-        initial_capital=10000, transaction_cost=0.01, slippage=0.02
-    )
-    result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([0.5]), ["A"]
-    )
-
-    assert result["equity_curve"].tolist() == pytest.approx([10000, 9850])
-    assert result["metrics"]["cumulative_return"] == pytest.approx(-0.015)
-    assert result["metrics"]["max_drawdown"] == pytest.approx(-0.015)
+    assert result["metrics"]["cumulative_return"] == pytest.approx(0.10)
 
 
 def test_no_trade_backtest_keeps_equity_equal_to_initial_capital():
-    prices = pd.DataFrame(
-        {"Close_A": [100.0, 105.0, 95.0]},
-        index=pd.date_range("2024-01-01", periods=3, freq="D"),
-    )
+    data = bars([100.0, 105.0, 95.0])
     engine = ExecutionConsistentBacktest(
         initial_capital=12345, transaction_cost=0, slippage=0
     )
-    result = engine.run_backtest(
-        prices, lambda _ts, _row: np.array([0.0]), ["A"]
-    )
-
-    assert result["equity_curve"].tolist() == pytest.approx(
-        [12345, 12345, 12345, 12345]
-    )
+    result = engine.run_backtest(data, lambda _ts, _row: np.array([0.0]), ["A"])
+    assert result["equity_curve"].tolist() == pytest.approx([12345, 12345, 12345])
     assert result["final_value"] == pytest.approx(12345)
     assert result["metrics"]["cumulative_return"] == pytest.approx(0)
     assert result["metrics"]["max_drawdown"] == pytest.approx(0)

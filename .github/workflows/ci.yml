@@ -13,9 +13,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15-intel, macos-15]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Verify installed dependency consistency
+        run: uv pip check
+
+      - name: Run full test suite (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run --locked pytest src/tests tests -q
+
+      - name: Run macOS regression suite
+        if: startsWith(matrix.os, 'macos-')
+        run: >-
+          uv run --locked pytest src/tests tests -q
+          -k "not test_start_run_persists_verifiable_process_identity
+          and not test_forcibly_terminated_process_run_is_recovered_as_failed
+          and not test_orphan_recovery_preserves_another_live_process_run
+          and not test_process_identity_mismatch_detects_pid_reuse
+          and not test_process_restart_recovers_orphaned_session_as_failed_and_blocks_late_writes"
+
+  lint:
+    name: Ruff
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -23,12 +73,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-          cache: pip
+          python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
 
-      - name: Run tests
-        run: python -m pytest src/tests tests -q
+      - name: Verify dependency lock
+        run: uv lock --check
 
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Ruff check
+        run: uv run --locked ruff check .

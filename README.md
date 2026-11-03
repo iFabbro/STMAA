@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.13-blue?logo=python&style=for-the-badge" alt="Python 3.13" />
+  <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python&style=for-the-badge" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/Stato-Alpha-orange?style=for-the-badge" alt="Stato alpha" />
   <img src="https://img.shields.io/badge/Trading-Solo%20Paper-blue?style=for-the-badge" alt="Solo paper trading" />
   <a href="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml"><img src="https://github.com/iFabbro/STMAA/actions/workflows/ci.yml/badge.svg" alt="Stato CI" /></a>
@@ -67,22 +67,37 @@ Il repository contiene codice relativo a PPO, ma la presenza di un agente o di d
 
 ## Requisiti
 
-- Python 3.13 (versione configurata nella CI).
+- Python 3.12.
 - Git.
+- [uv](https://docs.astral.sh/uv/) per risolvere e installare le dipendenze dal lock file.
 - Credenziali Alpaca Paper Trading per i flussi che richiedono dati di mercato o accesso al broker.
+
+Il repository usa `pyproject.toml` per dichiarare le dipendenze dirette e `uv.lock` per bloccare le versioni risolte, incluse quelle transitive. Il lock file è condiviso tra le piattaforme supportate; `uv` seleziona i pacchetti compatibili con il sistema operativo e l'architettura.
 
 ## Avvio rapido
 
-Clonare il repository e creare un ambiente Python isolato:
+Clonare il repository e installare le dipendenze runtime in un ambiente isolato:
 
 ```bash
 git clone https://github.com/iFabbro/STMAA.git
 cd STMAA
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+uv sync --locked
 ```
+
+Per installare anche le dipendenze di sviluppo e test:
+
+```bash
+uv sync --locked --group dev
+```
+
+Per aggiornare intenzionalmente il lock file dopo una modifica alle dipendenze:
+
+```bash
+uv lock
+uv sync --locked --group dev
+```
+
+Non usare `uv lock --upgrade` come aggiornamento automatico ordinario: aggiorna le versioni solo nell'ambito di una modifica deliberata e revisionata.
 
 Creare un file di configurazione locale a partire dal modello:
 
@@ -92,10 +107,11 @@ cp .env.example .env
 
 Inserire in `.env` le credenziali API di **Alpaca Paper Trading**. Non salvare credenziali o altri segreti nel repository. Mantenere la modalità paper e l'endpoint paper, salvo modifiche esplicitamente revisionate.
 
-Eseguire la suite di test usando gli stessi percorsi configurati nella CI:
+Eseguire la suite di test usando l'ambiente bloccato:
 
 ```bash
-python -m pytest src/tests tests -q
+uv run --locked pytest src/tests tests -q
+uv pip check
 ```
 
 ### Addestramento PPO (ricerca, non paper execution)
@@ -103,7 +119,7 @@ python -m pytest src/tests tests -q
 Il training usa lo stesso contratto versionato dell'inferenza: barre OHLCV giornaliere Alpaca IEX con `adjustment=all`, inclusi gli aggiustamenti provider per split, dividendi e spin-off. Le feature (RSI, MACD, BB_middle e ATR) sono calcolate da un'unica implementazione condivisa e parametrizzata; il contratto registra versione, formule, parametri, warm-up e convenzioni sui dati mancanti. I dati sono divisi cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
 
 ```bash
-PYTHONPATH=. python train.py \
+uv run --locked python train.py \
   --start-date 2018-01-01 \
   --end-date 2026-01-01 \
   --total-timesteps 50000 \
@@ -122,13 +138,13 @@ La validazione è diagnostica e non applica una soglia automatica di redditivit�
 Avviare il flusso di paper trading:
 
 ```bash
-PYTHONPATH=. python trade.py
+uv run --locked python trade.py
 ```
 
 Avviare l'hub di monitoraggio da terminale in una finestra separata:
 
 ```bash
-PYTHONPATH=. python hub.py
+uv run --locked python hub.py
 ```
 
 Il flusso operativo può richiedere credenziali valide e dati di mercato accessibili. Il semplice avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati.
@@ -158,14 +174,35 @@ La prenotazione della decisione viene salvata prima dell'inferenza. Se il proces
 ├── trade.py          # Punto di ingresso per il paper trading
 ├── hub.py            # Hub di monitoraggio da terminale
 ├── train.py          # Punto di ingresso per l'addestramento
-├── requirements.txt
+├── pyproject.toml
+├── uv.lock
 ├── .env.example      # Modello di configurazione paper
 └── ROADMAP.md        # Roadmap: verificare la coerenza con l'implementazione corrente
 ```
 
+## Installazione e verifica su macOS
+
+Su macOS 12.7 o successivo, installare una versione di Python 3.12 compatibile con l'architettura del Mac e installare `uv`. Dalla directory del repository eseguire:
+
+```bash
+uv sync --locked
+uv run --locked python -c "import alpaca; import gymnasium; import numpy; import pandas; import stable_baselines3; import torch"
+uv pip check
+```
+
+Per verificare anche i test e gli strumenti di sviluppo:
+
+```bash
+uv sync --locked --group dev
+uv run --locked pytest src/tests tests -q
+uv run --locked ruff check .
+```
+
+Il progetto usa un'unica base di codice e un unico lock file per le architetture Intel (x86_64) e Apple Silicon (arm64): non esistono fork del codice per Mac vecchi e recenti. Il lock file fissa PyTorch 2.2.2 e Stable-Baselines3 2.3.2 per mantenere la compatibilità con i wheel macOS Intel; la stessa combinazione viene verificata anche su Apple Silicon. Il supporto a versioni future di PyTorch richiederà una nuova verifica esplicita della disponibilità di wheel x86_64 e dei contratti PPO. La verifica locale sopra riportata resta necessaria sul computer di destinazione. Nota: il recupero automatico delle sessioni orfane basato sull'identità dei processi è attualmente implementato tramite Linux `/proc`; su macOS resta in stato non verificabile e non viene dichiarato come supportato.
+
 ## Integrazione continua
 
-Il workflow GitHub Actions in [`.github/workflows/ci.yml`](https://github.com/iFabbro/STMAA/blob/main/.github/workflows/ci.yml) esegue la suite automatizzata sui push a `main` e sulle pull request. Per conoscere i controlli effettivi e il loro stato, fare riferimento al workflow e all'esecuzione più recente: questo README non dichiara che uno specifico commit abbia superato la CI.
+Il workflow GitHub Actions esegue l'intera suite su Linux e le suite macOS su runner Intel (`macos-15-intel`) e Apple Silicon (`macos-15`), escludendo cinque test che dipendono da `/proc`, disponibile su Linux ma non su macOS. Questi test verificano l'identità dei processi e il recupero delle sessioni orfane: su macOS il codice attuale non può verificare l'identità del processo e lascia tali sessioni non riconciliate. Questa è una limitazione applicativa distinta dalla riproducibilità dell'installazione e richiede un intervento di portabilità dedicato. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
 ## Stato dello sviluppo
 

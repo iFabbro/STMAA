@@ -672,6 +672,7 @@ class PPOAgent:
                 "initial_capital": self.initial_capital,
                 "dataset_sha256": None,
                 "git_commit": None,
+                "git_worktree_clean": None,
                 "seed": self.seed,
             }
             training.update(training_metadata or {})

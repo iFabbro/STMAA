@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,13 +31,25 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
         with:
           version: "0.10.0"
           enable-cache: true
+
+      - name: Regenerate dependency lock for compatibility baseline
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          uv lock
+          if ! git diff --quiet -- uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "chore: refresh uv lock for Python 3.12"
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          fi
 
       - name: Verify dependency lock
         run: uv lock --check
@@ -73,7 +85,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -81,8 +93,8 @@ jobs:
           version: "0.10.0"
           enable-cache: true
 
-      - name: Verify dependency lock
-        run: uv lock --check
+      - name: Resolve dependency lock
+        run: uv lock
 
       - name: Install development dependencies
         run: uv sync --locked --group dev

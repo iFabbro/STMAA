@@ -264,6 +264,12 @@
         },
         "validation_metrics": {
           "type": "object"
+        },
+        "git_worktree_clean": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "additionalProperties": true

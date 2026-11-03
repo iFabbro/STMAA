@@ -303,7 +303,6 @@ class StockTradingEnv(gym.Env):
         target_weights = self.action_to_weights(
             action, self.n_assets, self.max_position_size, self.max_gross_exposure
         )
-        current_close = self._get_current_prices()
         next_open = self.df[[f"Open_{ticker}" for ticker in self.tickers]].iloc[
             self.current_step + 1
         ].to_numpy(dtype=float)

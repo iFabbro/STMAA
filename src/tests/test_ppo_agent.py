@@ -222,7 +222,7 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
     model_path = tmp_path / "model.zip"
     model_path.write_bytes(b"placeholder")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -278,7 +278,7 @@ def test_model_rejects_previous_market_data_contract_version(tmp_path):
     previous_contract = market_data_contract()
     previous_contract["version"] = 1
     (tmp_path / "old-contract.zip.metadata.json").write_text(json.dumps({
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -301,7 +301,7 @@ def test_model_load_rejects_missing_artifact_digest_before_deserialization(tmp_p
     model_path = tmp_path / "missing-digest.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -330,7 +330,7 @@ def test_model_load_rejects_artifact_digest_mismatch_before_deserialization(tmp_
     model_path = tmp_path / "tampered.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -462,7 +462,7 @@ def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
 
     model_path = tmp_path / "unsafe.zip"
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -490,7 +490,7 @@ def test_model_load_rejects_non_content_addressed_artifact_filename(tmp_path):
     digest = hashlib.sha256(payload).hexdigest()
     (tmp_path / "arbitrary.zip").write_bytes(payload)
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
@@ -522,7 +522,7 @@ def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
     artifact_name = f"linked.{digest}.zip"
     (tmp_path / artifact_name).symlink_to(external_artifact)
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",

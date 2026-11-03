@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and validate the deployable STMAA PPO policy on historical market data."""
+"""Train and diagnostically validate an experimental STMAA PPO policy."""
 import argparse
 import sys
 from dotenv import load_dotenv
@@ -21,7 +21,7 @@ from src.data.market_data_contract import market_data_contract
 from src.utils.startup_config import load_strategy_config
 
 
-MODEL_PATH = MODELS_DIR / "ppo_trading_model_v3.zip"
+MODEL_PATH = MODELS_DIR / "ppo_trading_model.zip"
 REQUIRED_FEATURES = ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
 
 

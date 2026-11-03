@@ -4,6 +4,7 @@ import pytest
 
 import train
 from train import chronological_split, flatten_processed_data, load_training_config, training_data_source
+from src.agents.ppo_agent import PPOAgent
 from src.data.market_data_contract import market_data_contract
 
 
@@ -128,3 +129,9 @@ def test_training_cli_overrides_use_shared_validation_and_do_not_require_credent
     assert config.max_position_size == pytest.approx(0.15)
     assert config.transaction_cost == pytest.approx(0.002)
     assert config.slippage == pytest.approx(0.001)
+
+
+def test_training_and_inference_share_neutral_ppo_artifact_base_path():
+    agent = PPOAgent(tickers=["A"], load_existing_model=False)
+    assert train.MODEL_PATH.name == "ppo_trading_model.zip"
+    assert agent.model_path == "models/ppo_trading_model.zip"

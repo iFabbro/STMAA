@@ -367,6 +367,25 @@ def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, mo
     metadata = json.loads((tmp_path / "saved.zip.metadata.json").read_text())
     artifact_path = tmp_path / metadata["artifact_file"]
     assert metadata["model_sha256"] == hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    assert set(metadata) == {
+        "contract_version",
+        "tickers",
+        "state_dim",
+        "action_contract",
+        "execution_contract",
+        "observation_contract",
+        "transaction_cost",
+        "slippage",
+        "max_position_size",
+        "max_gross_exposure",
+        "market_data_contract",
+        "model_sha256",
+        "artifact_file",
+        "training",
+    }
+    assert metadata["contract_version"] == 7
+    assert metadata["observation_contract"] == "dimensionless_ohlc_features_v1"
+    assert metadata["market_data_contract"] == market_data_contract()
     assert metadata["training"] == {"seed": 42}
     assert not model_path.exists()
     assert not list(tmp_path.glob(".*.tmp"))

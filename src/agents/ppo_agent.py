@@ -443,7 +443,7 @@ class PPOAgent:
         self.initial_capital = float(initial_capital)
         if not np.isfinite(self.initial_capital) or self.initial_capital <= 0:
             raise ValueError("initial_capital must be finite and positive")
-        self.model_path = model_path or "models/ppo_trading_model_v3.zip"
+        self.model_path = model_path or "models/ppo_trading_model.zip"
         self.transaction_cost = float(transaction_cost)
         self.slippage = float(slippage)
         self.max_position_size = float(max_position_size)

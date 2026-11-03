@@ -116,7 +116,7 @@ uv pip check
 
 ### Addestramento PPO (ricerca, non paper execution)
 
-Il training usa lo stesso contratto versionato dell'inferenza: barre OHLCV giornaliere Alpaca IEX con `adjustment=all`, inclusi gli aggiustamenti provider per split, dividendi e spin-off. Le feature (RSI, MACD, BB_middle e ATR) sono calcolate da un'unica implementazione condivisa e parametrizzata; il contratto registra versione, formule, parametri, warm-up e convenzioni sui dati mancanti. I dati sono divisi cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
+Il training usa lo stesso contratto versionato dell'inferenza: barre OHLCV giornaliere Alpaca SIP consolidate con `adjustment=all`, inclusi gli aggiustamenti provider per split, dividendi e spin-off. Le feature (RSI, MACD, BB_middle e ATR) sono calcolate da un'unica implementazione condivisa e parametrizzata; il contratto registra versione, formule, parametri, warm-up e convenzioni sui dati mancanti. I dati sono divisi cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
 
 ```bash
 uv run --locked python train.py \
@@ -148,6 +148,26 @@ uv run --locked python hub.py
 ```
 
 Il flusso operativo può richiedere credenziali valide e dati di mercato accessibili. Il semplice avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati.
+
+### Feed dati Alpaca e ritardo
+
+Il contratto versionato del modello usa barre giornaliere consolidate **SIP** con
+`adjustment=all` per training e inferenza. Il feed IEX non viene usato per
+costruire lo storico del modello, perché la sua copertura non garantisce tutte
+le sedute NYSE richieste dal controllo di completezza.
+
+Per le quotazioni recenti, l'adapter richiede il feed **delayed SIP** quando
+l'endpoint delle ultime quotazioni lo supporta. Le barre storiche continuano a
+usare il feed `sip`: `delayed_sip` non è supportato dall'endpoint storico
+delle barre. Sul piano gratuito le richieste storiche SIP devono rispettare il
+ritardo previsto da Alpaca; l'adapter applica un margine temporale e, durante
+una sessione NYSE in corso, esclude la barra giornaliera parziale della sessione
+corrente.
+
+Il passaggio da IEX a SIP incrementa la versione del contratto dati. I modelli
+salvati con il precedente contratto IEX non sono compatibili: occorre
+riaddestrarli e verificare i nuovi metadati prima di caricarli. Questo cambio
+non dimostra la qualità predittiva del modello e non abilita il live trading.
 
 ### Frequenza di polling e decisione giornaliera
 

@@ -156,7 +156,8 @@ def _fsync_directory(path: Path) -> None:
     finally:
         os.close(directory_fd)
 
-MODEL_CONTRACT_VERSION = 6
+MODEL_CONTRACT_VERSION = 7
+PPO_OBSERVATION_CONTRACT = "dimensionless_ohlc_features_v1"
 
 class StockTradingEnv(gym.Env):
     """Long-only target-weight environment with causal next-open execution.
@@ -213,6 +214,17 @@ class StockTradingEnv(gym.Env):
         features = self.df[self.feature_columns].to_numpy(dtype=float)
         if not np.isfinite(features).all():
             raise ValueError("Market features must be finite")
+        for ticker in self.tickers:
+            close_values = self.df[f"Close_{ticker}"].to_numpy(dtype=float)
+            bb_values = self.df[f"BB_middle_{ticker}"].to_numpy(dtype=float)
+            rsi_values = self.df[f"RSI_{ticker}"].to_numpy(dtype=float)
+            atr_values = self.df[f"ATR_{ticker}"].to_numpy(dtype=float)
+            if (close_values <= 0).any() or (bb_values <= 0).any():
+                raise ValueError("Close and BB_middle features must be strictly positive")
+            if ((rsi_values < 0) | (rsi_values > 100)).any():
+                raise ValueError("RSI features must be within [0, 100]")
+            if (atr_values < 0).any():
+                raise ValueError("ATR features must be non-negative")
         close_columns = [f"Close_{ticker}" for ticker in self.tickers]
         open_columns = [f"Open_{ticker}" for ticker in self.tickers]
         missing_open = [column for column in open_columns if column not in self.df.columns]
@@ -365,7 +377,25 @@ class StockTradingEnv(gym.Env):
 
     def _get_state(self) -> np.ndarray:
         row = self.df.iloc[self.current_step]
-        market_features = [float(row[column]) for column in self.feature_columns]
+        market_features = []
+        previous_row = self.df.iloc[max(0, self.current_step - 1)]
+        for ticker in self.tickers:
+            close = float(row[f"Close_{ticker}"])
+            previous_close = float(previous_row[f"Close_{ticker}"])
+            rsi = float(row[f"RSI_{ticker}"])
+            macd = float(row[f"MACD_{ticker}"])
+            bb_middle = float(row[f"BB_middle_{ticker}"])
+            atr = float(row[f"ATR_{ticker}"])
+            close_return = close / previous_close - 1.0 if self.current_step > 0 else 0.0
+            # All five policy inputs are dimensionless and invariant to nominal
+            # share-price scale. Their order is part of the v7 artifact contract.
+            market_features.extend([
+                close_return,
+                (rsi - 50.0) / 50.0,
+                macd / close,
+                close / bb_middle - 1.0,
+                atr / close,
+            ])
         prices = self._get_current_prices()
         equity = float(self.balance + np.dot(self.stocks, prices))
         weights = self.stocks * prices / equity if equity > 0 else np.zeros(self.n_assets)
@@ -608,6 +638,7 @@ class PPOAgent:
                 "state_dim": 1 + len(self.tickers) * 6,
                 "action_contract": "long_only_capped_target_weights_zero_floor",
                 "execution_contract": "close_signal_next_bar_open_fill",
+                "observation_contract": PPO_OBSERVATION_CONTRACT,
                 "transaction_cost": self.transaction_cost,
                 "slippage": self.slippage,
                 "max_position_size": self.max_position_size,
@@ -689,6 +720,7 @@ class PPOAgent:
                 == "long_only_capped_target_weights_zero_floor"
                 and manifest.get("execution_contract")
                 == "close_signal_next_bar_open_fill"
+                and manifest.get("observation_contract") == PPO_OBSERVATION_CONTRACT
             )
             try:
                 validate_market_data_contract(manifest.get("market_data_contract"))
@@ -823,6 +855,8 @@ class PPOAgent:
             raise ValueError("PPO model action contract is incompatible; retrain the model")
         if metadata.get("execution_contract") != "close_signal_next_bar_open_fill":
             raise ValueError("PPO model execution contract is incompatible; retrain the model")
+        if metadata.get("observation_contract") != PPO_OBSERVATION_CONTRACT:
+            raise ValueError("PPO model observation contract is incompatible; retrain the model")
         expected_parameters = {
             "transaction_cost": self.transaction_cost,
             "slippage": self.slippage,

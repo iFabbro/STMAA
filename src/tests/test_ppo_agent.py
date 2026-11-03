@@ -41,6 +41,18 @@ def test_environment_observation_matches_declared_space():
     assert observation.shape == env.observation_space.shape
     assert env.observation_space.contains(observation)
 
+def test_market_observation_is_invariant_to_nominal_price_scale():
+    data, tickers = market_data(prices_a=(100.0, 110.0, 121.0))
+    scaled = data.copy()
+    for column in ("Open_A", "Close_A", "MACD_A", "BB_middle_A", "ATR_A"):
+        scaled[column] = scaled[column] * 37.0
+
+    original_env = StockTradingEnv(data, tickers, lookback=0)
+    scaled_env = StockTradingEnv(scaled, tickers, lookback=0)
+    original_observation, _ = original_env.reset(options={"start_at_latest": True})
+    scaled_observation, _ = scaled_env.reset(options={"start_at_latest": True})
+    np.testing.assert_allclose(original_observation, scaled_observation, rtol=1e-6, atol=1e-7)
+
 
 def test_target_weight_action_earns_next_close_to_close_return():
     data, tickers = market_data()
@@ -141,7 +153,11 @@ def test_prediction_uses_latest_market_row_and_same_action_contract():
 
     agent.model = FakeModel()
     weights = agent.predict_weights(data, current_weights=np.array([0.25]))
-    assert captured["observation"][1] == pytest.approx(121.0)
+    assert captured["observation"][1] == pytest.approx(0.1)
+    assert captured["observation"][2] == pytest.approx(0.0)
+    assert captured["observation"][3] == pytest.approx(0.0)
+    assert captured["observation"][4] == pytest.approx(0.0)
+    assert captured["observation"][5] == pytest.approx(1.0 / 121.0)
     assert captured["observation"][6] == pytest.approx(0.25)
     np.testing.assert_allclose(weights, np.array([0.2]))
 
@@ -206,11 +222,12 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
     model_path = tmp_path / "model.zip"
     model_path.write_bytes(b"placeholder")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -261,11 +278,12 @@ def test_model_rejects_previous_market_data_contract_version(tmp_path):
     previous_contract = market_data_contract()
     previous_contract["version"] = 1
     (tmp_path / "old-contract.zip.metadata.json").write_text(json.dumps({
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": previous_contract,
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -283,11 +301,12 @@ def test_model_load_rejects_missing_artifact_digest_before_deserialization(tmp_p
     model_path = tmp_path / "missing-digest.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -311,11 +330,12 @@ def test_model_load_rejects_artifact_digest_mismatch_before_deserialization(tmp_
     model_path = tmp_path / "tampered.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -442,11 +462,12 @@ def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
 
     model_path = tmp_path / "unsafe.zip"
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -469,11 +490,12 @@ def test_model_load_rejects_non_content_addressed_artifact_filename(tmp_path):
     digest = hashlib.sha256(payload).hexdigest()
     (tmp_path / "arbitrary.zip").write_bytes(payload)
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -500,11 +522,12 @@ def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
     artifact_name = f"linked.{digest}.zip"
     (tmp_path / artifact_name).symlink_to(external_artifact)
     metadata = {
-        "contract_version": 6,
+        "contract_version": 7,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
         "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -1284,6 +1307,7 @@ def test_ppo_prune_preserves_future_dated_generations_and_staging_files(tmp_path
         "missing_tickers",
         "wrong_state_dim",
         "missing_action_contract",
+        "missing_observation_contract",
         "invalid_market_data_contract",
         "wrong_cost_parameter",
     ],
@@ -1320,6 +1344,8 @@ def test_ppo_prune_rejects_incompatible_manifest_without_deleting_recovery_gener
         manifest["state_dim"] = 999
     elif manifest_mutation == "missing_action_contract":
         manifest.pop("action_contract")
+    elif manifest_mutation == "missing_observation_contract":
+        manifest.pop("observation_contract")
     elif manifest_mutation == "invalid_market_data_contract":
         manifest["market_data_contract"] = {}
     elif manifest_mutation == "wrong_cost_parameter":

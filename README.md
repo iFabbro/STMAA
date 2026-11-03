@@ -111,7 +111,7 @@ Eseguire la suite di test usando l'ambiente bloccato:
 
 ```bash
 uv run --locked pytest src/tests tests -q
-uv run --locked pip check
+uv pip check
 ```
 
 ### Addestramento PPO (ricerca, non paper execution)
@@ -186,7 +186,7 @@ Su macOS 12.7 o successivo, installare una versione di Python 3.13 compatibile c
 ```bash
 uv sync --locked
 uv run --locked python -c "import alpaca; import gymnasium; import numpy; import pandas; import stable_baselines3; import torch"
-uv run --locked pip check
+uv pip check
 ```
 
 Per verificare anche i test e gli strumenti di sviluppo:

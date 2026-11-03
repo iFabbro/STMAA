@@ -29,7 +29,7 @@ REQUIRED_BOOLEAN_SIGNALS = (
     "persistence_healthy",
     "broker_snapshot_complete",
 )
-REQUIRED_CI_WORKFLOWS = ("CI", "Tests", "Lint", "Secrets scan")
+REQUIRED_CI_WORKFLOWS = ("CI", "Secrets scan")
 
 
 def _load_json(value: str | None, *, field: str) -> dict[str, Any]:
@@ -330,7 +330,7 @@ def build_report(
         )
     if ci_evidence is None:
         report["limitations"].append(
-            "Supply a CI evidence JSON file to evaluate CI, Tests, Lint, and Secrets scan conclusions."
+            "Supply a CI evidence JSON file to evaluate the CI and Secrets scan workflow conclusions. The CI workflow includes the cross-platform Tests matrix and Ruff job."
         )
     elif not ci_green:
         report["limitations"].append(

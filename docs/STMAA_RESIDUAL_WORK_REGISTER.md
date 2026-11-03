@@ -2,7 +2,7 @@
 
 **Register snapshot:** 2026-11-03  
 **Repository:** `iFabbro/STMAA`  
-**Main commit at snapshot:** `8a7ba4fc1586ad30a3c4460b2caa1b8ba4ae566d`  
+**Main commit at snapshot:** `609b8654a822e09b1379623d053dda4fb6e04e10`  
 **Purpose:** track follow-up work beyond the bounded end-to-end code audit. This register does not reopen that audit or imply production/live-trading readiness.
 
 ## Status conventions
@@ -40,7 +40,7 @@ Required evidence:
 4. Required health signals remain complete and valid: broker snapshot/identity, corporate-action reconciliation, market data, VIX, persisted state, determinable aggregate and per-symbol exposure, and no unresolved execution state.
 5. No stop condition, provider error, or broker mutation occurs. The provider is read-only; order submission remains disabled.
 6. The report is generated from the persisted SQLite evidence and returns `PASS`.
-7. CI, Tests, Lint, and Secrets scan are independently verified green on GitHub for the exact same 40-character source commit SHA recorded by the run. The operator-supplied CI JSON is only a snapshot and must be checked against GitHub.
+7. The `CI` and `Secrets scan` workflows are verified green on GitHub for the exact same 40-character source commit SHA recorded by the run. The `CI` workflow must show all three platform test jobs and the Ruff job successful. The operator-supplied CI JSON is only a snapshot and must be checked against GitHub.
 8. The operator reviews the run report and logs before closing this item.
 
 Operational command and report procedure are maintained in [PAPER_SOAK_MONITOR.md](PAPER_SOAK_MONITOR.md). A short smoke test can validate wiring but cannot satisfy the 48-hour acceptance gate. Do not start the 48-hour run until the model artifact/metadata, local Paper configuration, account identity, available market-data access, and stop/monitoring arrangements have been checked.

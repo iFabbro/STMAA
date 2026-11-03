@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-DATA_CONTRACT_VERSION = 3
+DATA_CONTRACT_VERSION = 4
 DATA_PROVIDER = "alpaca"
 DATA_FEED = "sip"
 DATA_QUOTE_FEED = "delayed_sip"
@@ -19,6 +19,7 @@ DATA_TIMEFRAME = "1Day"
 DATA_ADJUSTMENT = "all"
 DATA_FEATURE_VERSION = 1
 DATA_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
+DATA_EXECUTION_FIELDS = ("Open",)
 DATA_ADJUSTMENT_EVENTS = ("split", "dividend", "spin-off")
 FEATURE_FORMULAS = {
     "RSI": "rolling_sma_gain_loss; zero_loss_gain_only_100_flat_50",
@@ -55,6 +56,7 @@ def market_data_contract() -> dict[str, Any]:
         "timeframe": DATA_TIMEFRAME,
         "adjustment": DATA_ADJUSTMENT,
         "features": list(DATA_FEATURES),
+        "execution_fields": list(DATA_EXECUTION_FIELDS),
         "feature_version": DATA_FEATURE_VERSION,
         "feature_formulas": dict(FEATURE_FORMULAS),
         "feature_parameters": dict(FEATURE_PARAMETERS),

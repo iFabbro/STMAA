@@ -197,11 +197,11 @@ uv run --locked pytest src/tests tests -q
 uv run --locked ruff check .
 ```
 
-Il lock file risolve le varianti disponibili per sistema operativo e architettura, ma non rende automaticamente compatibili tutte le versioni di macOS o ogni modello di Mac. La verifica locale sopra riportata resta necessaria sul computer di destinazione.
+Il lock file risolve le varianti disponibili per sistema operativo e architettura, ma non rende automaticamente compatibili tutte le versioni di macOS o ogni modello di Mac. La verifica locale sopra riportata resta necessaria sul computer di destinazione. Nota: il recupero automatico delle sessioni orfane basato sull'identità dei processi è attualmente implementato tramite Linux `/proc`; su macOS resta in stato non verificabile e non viene dichiarato come supportato.
 
 ## Integrazione continua
 
-Il workflow GitHub Actions in [`.github/workflows/ci.yml`](https://github.com/iFabbro/STMAA/blob/main/.github/workflows/ci.yml) esegue test su Linux e macOS, controlla la coerenza delle dipendenze installate ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`. Per conoscere lo stato di uno specifico commit, fare riferimento all'esecuzione del workflow su GitHub.
+Il workflow GitHub Actions esegue l'intera suite su Linux e la suite macOS escludendo cinque test che dipendono da `/proc`, disponibile su Linux ma non su macOS. Questi test verificano l'identità dei processi e il recupero delle sessioni orfane: su macOS il codice attuale non può verificare l'identità del processo e lascia tali sessioni non riconciliate. Questa è una limitazione applicativa distinta dalla riproducibilità dell'installazione e richiede un intervento di portabilità dedicato. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
 ## Stato dello sviluppo
 

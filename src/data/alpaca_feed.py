@@ -482,7 +482,12 @@ class AlpacaFeed:
 
         # Tenta di arricchire con variazione % usando barre intraday
         try:
-            prev = self._get_prev_close(tickers)
+            prev = self._get_prev_close(
+                tickers,
+                quote_timestamps={
+                    ticker: result[ticker]["timestamp"] for ticker in tickers
+                },
+            )
             for ticker in tickers:
                 if ticker in prev and prev[ticker] > 0:
                     cur = result[ticker]["price"]
@@ -494,7 +499,7 @@ class AlpacaFeed:
 
         return result
 
-    def _get_prev_close(self, tickers: List[str]) -> dict:
+    def _get_prev_close(self, tickers: List[str], quote_timestamps=None) -> dict:
         end = self._historical_request_end()
         start = end - timedelta(days=5)
         request = StockBarsRequest(
@@ -511,7 +516,7 @@ class AlpacaFeed:
             return {}
         bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
         result = {}
-        latest_completed = self._latest_completed_nyse_session_date()
+        quote_timestamps = quote_timestamps or {}
         for ticker in tickers:
             ticker_bars = bars[bars["Symbol"] == ticker]
             sub = ticker_bars["Close"]
@@ -519,10 +524,17 @@ class AlpacaFeed:
                 last_bar_date = pd.to_datetime(
                     ticker_bars["timestamp"].iloc[-1], utc=True
                 ).tz_convert("America/New_York").date()
-                # If today's completed bar is present, the previous close is
-                # the penultimate bar; otherwise the last available bar is
-                # already the previous close for the delayed quote.
-                position = -2 if last_bar_date == latest_completed else -1
+                quote_timestamp = quote_timestamps.get(ticker)
+                quote_date = (
+                    pd.Timestamp(quote_timestamp).tz_convert("America/New_York").date()
+                    if quote_timestamp is not None
+                    else None
+                )
+                # Compare the delayed quote's session with the latest returned
+                # daily bar. If they match, that bar is today's close and the
+                # prior close is the penultimate bar; otherwise use the latest
+                # bar as the previous close.
+                position = -2 if quote_date == last_bar_date else -1
                 if len(sub) >= abs(position):
                     result[ticker] = float(sub.iloc[position])
         return result

@@ -22,7 +22,7 @@ from src.utils.startup_config import load_strategy_config
 
 
 MODEL_PATH = MODELS_DIR / "ppo_trading_model_v3.zip"
-REQUIRED_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
+REQUIRED_FEATURES = ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
 
 
 def load_training_config(overrides=None):

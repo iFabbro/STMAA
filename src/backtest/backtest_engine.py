@@ -35,18 +35,30 @@ class ExecutionConsistentBacktest:
 
     def run_backtest(self, price_data: pd.DataFrame, weights_generator: Callable,
                      tickers: List[str]) -> Dict:
-        """Simulate multi-asset returns and charge costs on turnover."""
+        """Generate signals after close t and execute them at open t+1.
+
+        Existing holdings earn the close-to-next-open gap. The new target is
+        then filled at the next open, incurs turnover costs, and earns the
+        open-to-close return. The final row is a valuation bar, not a signal
+        whose order can be filled without a subsequent open.
+        """
         if not isinstance(price_data, pd.DataFrame) or price_data.empty:
             raise ValueError("price_data must be a non-empty DataFrame")
+        if len(price_data) < 2:
+            raise ValueError("price_data must contain at least two bars for next-open execution")
         if not tickers or len(set(tickers)) != len(tickers):
             raise ValueError("tickers must be a non-empty list of unique symbols")
         close_cols = [f"Close_{ticker}" for ticker in tickers]
-        missing = [column for column in close_cols if column not in price_data.columns]
+        open_cols = [f"Open_{ticker}" for ticker in tickers]
+        missing = [column for column in [*close_cols, *open_cols] if column not in price_data.columns]
         if missing:
-            raise ValueError(f"Missing close price columns: {missing}")
-        prices = price_data.loc[:, close_cols].to_numpy(dtype=float)
-        if not np.isfinite(prices).all() or (prices <= 0).any():
+            raise ValueError(f"Missing open/close execution price columns: {missing}")
+        closes = price_data.loc[:, close_cols].to_numpy(dtype=float)
+        opens = price_data.loc[:, open_cols].to_numpy(dtype=float)
+        if not np.isfinite(closes).all() or (closes <= 0).any():
             raise ValueError("Close prices must be finite and strictly positive")
+        if not np.isfinite(opens).all() or (opens <= 0).any():
+            raise ValueError("Open prices must be finite and strictly positive")
         if not price_data.index.is_unique:
             raise ValueError("price_data index must contain unique timestamps")
         if not price_data.index.is_monotonic_increasing:
@@ -55,24 +67,28 @@ class ExecutionConsistentBacktest:
         current_weights = np.zeros(len(tickers), dtype=float)
         portfolio_value = self.initial_capital
         portfolio_values = []
-        for row_number, (timestamp, row) in enumerate(price_data.iterrows()):
-            current_prices = row[close_cols].to_numpy(dtype=float)
-            # Existing holdings earn returns over the interval ending now.
-            if row_number > 0:
-                asset_returns = current_prices / prices[row_number - 1] - 1.0
-                portfolio_return = float(np.dot(current_weights, asset_returns))
-                if not np.isfinite(portfolio_return) or portfolio_return <= -1.0:
-                    raise ValueError(f"Portfolio return at {timestamp!r} would exhaust capital")
-                portfolio_value *= 1.0 + portfolio_return
-                # Holdings drift as assets earn different returns. Use these
-                # post-return weights as the starting point for turnover at the
-                # current rebalance, rather than the previous target weights.
-                denominator = 1.0 + portfolio_return
-                current_weights = (
-                    current_weights * (1.0 + asset_returns) / denominator
-                )
+        for row_number in range(1, len(price_data)):
+            signal_timestamp = price_data.index[row_number - 1]
+            signal_row = price_data.iloc[row_number - 1]
+            execution_open = opens[row_number]
+            current_close = closes[row_number - 1]
+            next_close = closes[row_number]
 
-            generated = weights_generator(timestamp, row)
+            # Old holdings, not the newly generated signal, bear the overnight gap.
+            gap_returns = execution_open / current_close - 1.0
+            gap_return = float(np.dot(current_weights, gap_returns))
+            if not np.isfinite(gap_return) or gap_return <= -1.0:
+                raise ValueError(
+                    f"Overnight portfolio return at {price_data.index[row_number]!r} "
+                    "would exhaust capital"
+                )
+            portfolio_value *= 1.0 + gap_return
+            gap_denominator = 1.0 + gap_return
+            current_weights = (
+                current_weights * (1.0 + gap_returns) / gap_denominator
+            )
+
+            generated = weights_generator(signal_timestamp, signal_row)
             target = generated.weights if hasattr(generated, "weights") else generated
             target_weights = np.asarray(target, dtype=float)
             if target_weights.shape != (len(tickers),):
@@ -84,17 +100,28 @@ class ExecutionConsistentBacktest:
             turnover = float(np.abs(target_weights - current_weights).sum())
             execution_cost = turnover * (self.transaction_cost + self.slippage)
             if execution_cost >= 1.0:
-                raise ValueError(f"Execution costs at {timestamp!r} would exhaust capital")
+                raise ValueError(f"Execution costs at {price_data.index[row_number]!r} would exhaust capital")
             portfolio_value *= 1.0 - execution_cost
-            current_weights = target_weights.copy()
+
+            # The signal is filled at the next open; only then does it earn
+            # the open-to-close return of that execution bar.
+            intraday_returns = next_close / execution_open - 1.0
+            intraday_return = float(np.dot(target_weights, intraday_returns))
+            if not np.isfinite(intraday_return) or intraday_return <= -1.0:
+                raise ValueError(
+                    f"Intraday portfolio return at {price_data.index[row_number]!r} "
+                    "would exhaust capital"
+                )
+            portfolio_value *= 1.0 + intraday_return
+            intraday_denominator = 1.0 + intraday_return
+            current_weights = (
+                target_weights * (1.0 + intraday_returns) / intraday_denominator
+            )
             portfolio_values.append(portfolio_value)
 
         portfolio_series = pd.Series(
-            portfolio_values, index=price_data.index, name="portfolio_value"
+            portfolio_values, index=price_data.index[1:], name="portfolio_value"
         )
-        # Keep the configured starting capital in the public equity path. The
-        # timestamped portfolio_values remain aligned one-to-one with market bars;
-        # equity_curve is an ordered observation sequence including the baseline.
         equity_curve = pd.Series(
             np.concatenate(([self.initial_capital], portfolio_series.to_numpy())),
             name="equity",

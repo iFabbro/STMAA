@@ -15,6 +15,7 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     tickers = ["A"]
     for ticker, prices in [("A", prices_a)]:
         data[f"Close_{ticker}"] = prices
+        data[f"Open_{ticker}"] = np.concatenate(([prices[0]], np.asarray(prices[:-1], dtype=float)))
         data[f"RSI_{ticker}"] = np.full(size, 50.0)
         data[f"MACD_{ticker}"] = np.zeros(size)
         data[f"BB_middle_{ticker}"] = np.asarray(prices, dtype=float)
@@ -22,6 +23,7 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     if prices_b is not None:
         tickers.append("B")
         data["Close_B"] = prices_b
+        data["Open_B"] = np.concatenate(([prices_b[0]], np.asarray(prices_b[:-1], dtype=float)))
         data["RSI_B"] = np.full(size, 50.0)
         data["MACD_B"] = np.zeros(size)
         data["BB_middle_B"] = np.asarray(prices_b, dtype=float)
@@ -59,6 +61,36 @@ def test_target_weight_action_earns_next_close_to_close_return():
     assert terminated is True
 
 
+def test_policy_does_not_capture_overnight_gap_before_next_open_fill():
+    data, tickers = market_data(prices_a=(100.0, 220.0))
+    data.loc[1, "Open_A"] = 200.0
+    env = StockTradingEnv(
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0, lookback=0,
+    )
+    env.reset()
+    _, reward, terminated, _, info = env.step(np.array([1.0]))
+    assert info["execution_price"][0] == pytest.approx(200.0)
+    assert info["total_asset"] == pytest.approx(1100.0)
+    assert reward == pytest.approx(0.10)
+    assert terminated is True
+
+
+def test_existing_holdings_bear_overnight_gap_before_next_open_rebalance():
+    data, tickers = market_data(prices_a=(100.0, 200.0))
+    data.loc[1, "Open_A"] = 200.0
+    env = StockTradingEnv(
+        data, tickers, initial_capital=1000.0, transaction_cost=0.0,
+        slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0, lookback=0,
+    )
+    env.reset(options={"initial_weights": np.array([0.5])})
+    _, reward, terminated, _, info = env.step(np.array([0.0]))
+    assert info["target_weights"][0] == pytest.approx(0.0)
+    assert info["total_asset"] == pytest.approx(1500.0)
+    assert reward == pytest.approx(0.50)
+    assert terminated is True
+
+
 @pytest.mark.parametrize(
     "action",
     [np.array([-1.0, -1.0]), np.array([-0.2, -0.8]), np.array([0.0, 0.0])],
@@ -89,6 +121,12 @@ def test_invalid_market_data_and_actions_fail_explicitly():
         env.step(np.array([0.2, 0.3]))
     with pytest.raises(ValueError, match="finite"):
         env.step(np.array([np.nan]))
+
+
+def test_training_environment_rejects_missing_next_open_prices():
+    data, tickers = market_data()
+    with pytest.raises(ValueError, match="Missing next-open execution price"):
+        StockTradingEnv(data.drop(columns=["Open_A"]), tickers, lookback=0)
 
 
 def test_prediction_uses_latest_market_row_and_same_action_contract():
@@ -168,10 +206,11 @@ def test_model_contract_rejects_risk_configuration_mismatch(tmp_path):
     model_path = tmp_path / "model.zip"
     model_path.write_bytes(b"placeholder")
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -205,7 +244,7 @@ def test_ppo_environment_execution_costs_match_backtest_engine():
         initial_capital=1000.0, transaction_cost=0.001, slippage=0.0005
     )
     result = backtest.run_backtest(
-        data[["Close_A"]],
+        data[["Open_A", "Close_A"]],
         lambda _timestamp, _row: np.array([1.0]),
         tickers,
     )
@@ -222,10 +261,11 @@ def test_model_rejects_previous_market_data_contract_version(tmp_path):
     previous_contract = market_data_contract()
     previous_contract["version"] = 1
     (tmp_path / "old-contract.zip.metadata.json").write_text(json.dumps({
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": previous_contract,
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -243,10 +283,11 @@ def test_model_load_rejects_missing_artifact_digest_before_deserialization(tmp_p
     model_path = tmp_path / "missing-digest.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -270,10 +311,11 @@ def test_model_load_rejects_artifact_digest_mismatch_before_deserialization(tmp_
     model_path = tmp_path / "tampered.zip"
     model_path.write_bytes(b"model-bytes")
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -400,10 +442,11 @@ def test_model_load_rejects_artifact_filename_path_traversal(tmp_path):
 
     model_path = tmp_path / "unsafe.zip"
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -426,10 +469,11 @@ def test_model_load_rejects_non_content_addressed_artifact_filename(tmp_path):
     digest = hashlib.sha256(payload).hexdigest()
     (tmp_path / "arbitrary.zip").write_bytes(payload)
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,
@@ -456,10 +500,11 @@ def test_model_load_rejects_symlinked_content_addressed_artifact(tmp_path):
     artifact_name = f"linked.{digest}.zip"
     (tmp_path / artifact_name).symlink_to(external_artifact)
     metadata = {
-        "contract_version": 5,
+        "contract_version": 6,
         "tickers": ["A"],
         "state_dim": 7,
         "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
         "market_data_contract": market_data_contract(),
         "transaction_cost": 0.001,
         "slippage": 0.0005,

@@ -179,6 +179,7 @@ class StockTradingEnv(gym.Env):
         max_position_size: float = 0.2,
         max_gross_exposure: float = 0.5,
         lookback: int = 20,
+        previous_close: Optional[np.ndarray] = None,
     ):
         super().__init__()
         if not isinstance(df, pd.DataFrame) or df.empty:
@@ -238,6 +239,17 @@ class StockTradingEnv(gym.Env):
             raise ValueError("Open prices must be finite and strictly positive")
 
         self.n_assets = len(self.tickers)
+        if previous_close is None:
+            self.previous_close = None
+        else:
+            previous_close = np.asarray(previous_close, dtype=float)
+            if (
+                previous_close.shape != (self.n_assets,)
+                or not np.isfinite(previous_close).all()
+                or (previous_close <= 0).any()
+            ):
+                raise ValueError("previous_close must contain one finite positive value per ticker")
+            self.previous_close = previous_close.copy()
         self.initial_capital = float(initial_capital)
         self.transaction_cost = float(transaction_cost)
         self.slippage = float(slippage)
@@ -386,7 +398,12 @@ class StockTradingEnv(gym.Env):
             macd = float(row[f"MACD_{ticker}"])
             bb_middle = float(row[f"BB_middle_{ticker}"])
             atr = float(row[f"ATR_{ticker}"])
-            close_return = close / previous_close - 1.0 if self.current_step > 0 else 0.0
+            if self.current_step > 0:
+                close_return = close / previous_close - 1.0
+            elif self.previous_close is not None:
+                close_return = close / float(self.previous_close[self.tickers.index(ticker)]) - 1.0
+            else:
+                close_return = 0.0
             # All five policy inputs are dimensionless and invariant to nominal
             # share-price scale. Their order is part of the v7 artifact contract.
             market_features.extend([
@@ -507,7 +524,16 @@ class PPOAgent:
         else:
             self.model.set_env(self.env)
         self.model.learn(total_timesteps=total_timesteps)
-        validation_metrics = self.evaluate(validation_df) if validation_df is not None else None
+        validation_previous_close = (
+            df[[f"Close_{ticker}" for ticker in self.tickers]].iloc[-1].to_numpy(dtype=float)
+            if validation_df is not None
+            else None
+        )
+        validation_metrics = (
+            self.evaluate(validation_df, previous_close=validation_previous_close)
+            if validation_df is not None
+            else None
+        )
         metadata = dict(training_metadata or {})
         if validation_metrics is not None:
             metadata["validation_metrics"] = validation_metrics
@@ -515,8 +541,12 @@ class PPOAgent:
         logger.info("PPO training completed")
         return validation_metrics
 
-    def evaluate(self, df: pd.DataFrame) -> dict:
-        """Evaluate the deterministic policy on a separate chronological holdout."""
+    def evaluate(
+        self,
+        df: pd.DataFrame,
+        previous_close: Optional[np.ndarray] = None,
+    ) -> dict:
+        """Evaluate a chronological holdout, optionally carrying its prior close."""
         if self.model is None:
             raise RuntimeError("Cannot evaluate PPO policy before training or loading")
         env = StockTradingEnv(
@@ -528,6 +558,7 @@ class PPOAgent:
             max_position_size=self.max_position_size,
             max_gross_exposure=self.max_gross_exposure,
             lookback=0,
+            previous_close=previous_close,
         )
         observation, _ = env.reset()
         equity = [self.initial_capital]

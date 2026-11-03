@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iFabbro/STMAA/blob/main/docs/schemas/ppo-artifact-manifest.schema.json",
+  "title": "STMAA PPO artifact manifest",
+  "description": "Manifest written atomically beside the logical PPO artifact base path. contract_version describes model behavior; market_data_contract independently versions provider and feature semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "tickers",
+    "state_dim",
+    "action_contract",
+    "execution_contract",
+    "observation_contract",
+    "transaction_cost",
+    "slippage",
+    "max_position_size",
+    "max_gross_exposure",
+    "market_data_contract",
+    "model_sha256",
+    "artifact_file",
+    "training"
+  ],
+  "properties": {
+    "contract_version": { "const": 7 },
+    "tickers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "state_dim": { "type": "integer", "minimum": 7 },
+    "action_contract": { "const": "long_only_capped_target_weights_zero_floor" },
+    "execution_contract": { "const": "close_signal_next_bar_open_fill" },
+    "observation_contract": { "const": "dimensionless_ohlc_features_v1" },
+    "transaction_cost": { "type": "number", "minimum": 0 },
+    "slippage": { "type": "number", "minimum": 0 },
+    "max_position_size": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+    "max_gross_exposure": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+    "market_data_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version", "provider", "feed", "timeframe", "adjustment",
+        "features", "execution_fields", "feature_version", "feature_formulas",
+        "feature_parameters", "semantics", "corporate_actions"
+      ],
+      "properties": {
+        "version": { "const": 4 },
+        "provider": { "const": "alpaca" },
+        "feed": { "const": "sip" },
+        "timeframe": { "const": "1Day" },
+        "adjustment": { "const": "all" },
+        "features": {
+          "const": ["Close", "RSI", "MACD", "BB_middle", "ATR"]
+        },
+        "execution_fields": { "const": ["Open"] },
+        "feature_version": { "const": 1 },
+        "feature_formulas": { "type": "object" },
+        "feature_parameters": { "type": "object" },
+        "semantics": {
+          "type": "object",
+          "required": [
+            "adjustment_scope", "corporate_action_events", "feature_input",
+            "execution_price", "indicator_warmup", "missing_values", "timestamp"
+          ],
+          "properties": {
+            "execution_price": { "const": "next_bar_open" },
+            "corporate_action_events": { "const": ["split", "dividend", "spin-off"] }
+          }
+        },
+        "corporate_actions": { "const": ["split", "dividend", "spin-off"] }
+      }
+    },
+    "model_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifact_file": { "type": "string", "minLength": 1 },
+    "training": { "type": "object" }
+  }
+}

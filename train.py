@@ -137,6 +137,20 @@ def training_git_commit() -> str | None:
     return None
 
 
+def training_git_worktree_clean() -> bool | None:
+    """Report whether the Git checkout has no tracked or untracked changes."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return not result.stdout.strip()
+
+
 def chronological_split(
     data: pd.DataFrame, validation_fraction: float = 0.2
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -245,6 +259,7 @@ def main(argv=None):
         "initial_capital": strategy_config.initial_capital,
         "dataset_sha256": training_dataset_sha256(history),
         "git_commit": training_git_commit(),
+        "git_worktree_clean": training_git_worktree_clean(),
     }
     metrics = agent.train(
         training,

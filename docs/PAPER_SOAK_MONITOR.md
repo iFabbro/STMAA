@@ -210,8 +210,6 @@ database. Supply a JSON snapshot for the same source commit:
   "commit_sha": "<40-character commit SHA>",
   "workflows": {
     "CI": "success",
-    "Tests": "success",
-    "Lint": "success",
     "Secrets scan": "success"
   }
 }
@@ -227,12 +225,18 @@ PYTHONPATH=. python -m src.utils.paper_soak_report \
   --output reports/paper-soak-report.json
 ```
 
-All four workflow conclusions must be `success` and their evidence commit SHA
-must exactly match the soak run's recorded 40-character source commit SHA.
+Both workflow conclusions must be `success` and the evidence commit SHA must
+exactly match the soak run's recorded 40-character source commit SHA. The
+repository has two workflows: `CI` and `Secrets scan`. The `CI` workflow
+contains the three-platform Tests matrix (Linux, macOS Intel, Apple Silicon)
+and the Ruff lint job; verify that every matrix leg and Ruff job completed
+successfully before recording `CI: success`. Do not invent separate `Tests`
+or `Lint` workflow conclusions: they are jobs inside the `CI` workflow.
 Missing CI evidence or incomplete workflow results prevent a `PASS`; a failed
 workflow or commit mismatch produces `FAIL`. The supplied CI JSON is an
 operator-provided snapshot, not a cryptographically verified GitHub attestation.
-Verify the workflow conclusions directly on GitHub before relying on the report.
+Verify the workflow and job conclusions directly on GitHub before relying on
+the report.
 
 A `PASS` requires all checks to pass, including a completed continuous
 48-hour run with adequate heartbeat and shadow-observation coverage, a declared

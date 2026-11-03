@@ -444,6 +444,189 @@ class BrokerExecutor:
                     self.state.pop(key, None)
             raise
 
+    @staticmethod
+    def _normalize_daily_bar_timestamp(bar_timestamp: str) -> str:
+        """Validate and canonicalize a timezone-aware daily-bar timestamp."""
+        if not isinstance(bar_timestamp, str) or not bar_timestamp.strip():
+            raise ValueError("Daily decision requires a non-empty bar timestamp")
+        try:
+            parsed = datetime.fromisoformat(bar_timestamp.replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Daily decision bar timestamp is invalid") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("Daily decision bar timestamp must be timezone-aware")
+        return parsed.astimezone(timezone.utc).isoformat()
+
+    def claim_daily_decision(self, bar_timestamp: str, symbols: List[str]) -> bool:
+        """Durably claim one PPO decision for a daily bar before inference starts.
+
+        Returns False when this exact bar was already completed or reconciled.
+        Ambiguous or legacy execution state is persisted as blocked and never
+        causes an automatic resubmission.
+        """
+        normalized_timestamp = self._normalize_daily_bar_timestamp(bar_timestamp)
+        if not isinstance(symbols, (list, tuple)) or not symbols:
+            raise ValueError("Daily decision requires a non-empty symbol universe")
+        normalized_symbols = [str(symbol).strip().upper() for symbol in symbols]
+        if any(not symbol for symbol in normalized_symbols) or len(set(normalized_symbols)) != len(normalized_symbols):
+            raise ValueError("Daily decision symbols must be non-empty and unique")
+
+        with self.execution_lock():
+            marker = self.state.get("daily_decision")
+            if marker is None:
+                legacy_history = any((
+                    self.state.get("last_execution_time"),
+                    bool(self.state.get("total_orders")),
+                    bool(self.state.get("order_submission_unresolved")),
+                    bool(self.state.get("order_submission_confirmed")),
+                    bool(self.state.get("emergency_liquidation_pending")),
+                    bool(self.state.get("emergency_liquidation_unresolved")),
+                ))
+                if legacy_history:
+                    self.state["daily_decision"] = {
+                        "bar_timestamp": normalized_timestamp,
+                        "symbols": normalized_symbols,
+                        "status": "reconciliation_required",
+                        "reason": "legacy_execution_history_without_daily_decision_marker",
+                        "claimed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    self._save_state()
+                    raise RuntimeError(
+                        "Daily decision blocked: legacy broker execution history has no daily-bar marker; "
+                        "read-only broker reconciliation is required before continuing"
+                    )
+            else:
+                if not isinstance(marker, dict):
+                    raise RuntimeError("Persisted daily decision marker is invalid; manual reconciliation required")
+                status = marker.get("status")
+                if status in {"started", "reconciliation_required"}:
+                    raise RuntimeError(
+                        "Daily decision blocked: a previous cycle is unresolved; "
+                        "verified broker reconciliation is required before any new submission"
+                    )
+                # Operational maintenance is deliberately independent of PPO:
+                # every five-minute poll reconciles broker orders even when the
+                # daily bar has already been processed.
+                broker_state = self.reconcile_broker_state_read_only()
+                previous_timestamp = self._normalize_daily_bar_timestamp(marker.get("bar_timestamp"))
+                if normalized_timestamp == previous_timestamp:
+                    return False
+                if normalized_timestamp < previous_timestamp:
+                    raise RuntimeError(
+                        "Daily decision blocked: market data bar is older than the last processed bar"
+                    )
+                if status not in {"completed", "reconciled"}:
+                    raise RuntimeError("Persisted daily decision status is unknown; manual reconciliation required")
+                if not broker_state["safe_for_new_decision"]:
+                    raise RuntimeError(
+                        "Daily decision blocked: broker has unresolved, active, or open orders; "
+                        "no new PPO target will be generated or submitted"
+                    )
+
+            if marker is None:
+                broker_state = self.reconcile_broker_state_read_only()
+                if not broker_state["safe_for_new_decision"]:
+                    raise RuntimeError(
+                        "Daily decision blocked: broker has unresolved, active, or open orders; "
+                        "no new PPO target will be generated or submitted"
+                    )
+
+            self.state["daily_decision"] = {
+                "bar_timestamp": normalized_timestamp,
+                "symbols": normalized_symbols,
+                "status": "started",
+                "claimed_at": datetime.now(timezone.utc).isoformat(),
+                "reconciliation_required": False,
+            }
+            self._save_state()
+            return True
+
+    def complete_daily_decision(self, bar_timestamp: str) -> None:
+        """Mark a claimed daily decision complete only after execution and snapshot persist."""
+        normalized_timestamp = self._normalize_daily_bar_timestamp(bar_timestamp)
+        with self.execution_lock():
+            marker = self.state.get("daily_decision")
+            if not isinstance(marker, dict) or marker.get("status") != "started":
+                raise RuntimeError("Cannot complete a daily decision that is not durably claimed")
+            if self._normalize_daily_bar_timestamp(marker.get("bar_timestamp")) != normalized_timestamp:
+                raise RuntimeError("Daily decision completion timestamp does not match its durable claim")
+            updated = dict(marker)
+            updated.update({
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            self.state["daily_decision"] = updated
+            self._save_state()
+
+    def reconcile_broker_state_read_only(self) -> Dict:
+        """Run periodic broker-order reconciliation without any broker mutation."""
+        with self.execution_lock():
+            self._reconcile_unresolved_submissions()
+            self._refresh_confirmed_submission_statuses()
+            self._reconcile_terminal_order_positions()
+            unresolved = self.state.get("order_submission_unresolved", {})
+            confirmed = self.state.get("order_submission_confirmed", {})
+            terminal = {"filled", "canceled", "cancelled", "expired", "rejected"}
+            active_confirmed = {
+                client_id: order for client_id, order in confirmed.items()
+                if self._status_text(order.get("status", "unknown"), default="unknown") not in terminal
+                or order.get("position_reconciled") is not True
+            }
+            open_orders = self._get_open_orders()
+            return {
+                "safe_for_new_decision": not (unresolved or active_confirmed or open_orders),
+                "unresolved_submissions": len(unresolved),
+                "active_or_unreconciled_confirmed_orders": len(active_confirmed),
+                "open_orders": len(open_orders),
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "read_only": True,
+            }
+
+    def reconcile_daily_decision_if_required(self) -> bool:
+        """Resolve an interrupted daily cycle using read-only broker evidence only.
+
+        No order is submitted, cancelled, replaced, or liquidated here. The bar
+        whose decision was interrupted remains consumed after reconciliation.
+        """
+        with self.execution_lock():
+            marker = self.state.get("daily_decision")
+            if not isinstance(marker, dict) or marker.get("status") not in {
+                "started", "reconciliation_required"
+            }:
+                return False
+            if marker.get("reason") == "legacy_execution_history_without_daily_decision_marker":
+                raise RuntimeError(
+                    "Daily decision remains blocked: legacy execution history cannot be mapped "
+                    "to a specific daily bar automatically; operator must verify historical "
+                    "broker orders and positions before establishing a new baseline"
+                )
+
+            # Existing reconciliation paths only read broker state and persist
+            # verified status transitions. Any mismatch or unavailable read aborts.
+            report = self.reconcile_broker_state_read_only()
+            if not report["safe_for_new_decision"]:
+                raise RuntimeError(
+                    "Daily decision remains blocked: broker reconciliation is not conclusive "
+                    f"(unresolved={report['unresolved_submissions']}, "
+                    f"active_or_unreconciled={report['active_or_unreconciled_confirmed_orders']}, "
+                    f"open_orders={report['open_orders']})"
+                )
+
+            updated = dict(marker)
+            updated.update({
+                "status": "reconciled",
+                "reconciled_at": datetime.now(timezone.utc).isoformat(),
+                "reconciliation": {
+                    "method": "broker_order_and_position_read_only",
+                    "unresolved_submissions": 0,
+                    "active_or_unreconciled_confirmed_orders": 0,
+                    "open_orders": 0,
+                },
+            })
+            self.state["daily_decision"] = updated
+            self._save_state()
+            return True
+
     def _save_state(self):
         """Durably persist state and reject stale writers across processes."""
         if self._state_persistence_failed:

@@ -928,6 +928,61 @@ def test_execute_and_persist_cycle_serializes_execution_with_snapshot_update():
     ]
 
 
+def test_generate_and_execute_daily_cycle_runs_ppo_once_per_daily_bar():
+    class DailyGuardExecutor:
+        def __init__(self):
+            self.claimed = False
+            self.reconcile_calls = 0
+            self.completed = []
+
+        def reconcile_daily_decision_if_required(self):
+            self.reconcile_calls += 1
+            return False
+
+        def claim_daily_decision(self, bar_timestamp, symbols):
+            assert bar_timestamp == "2026-10-30T04:00:00+00:00"
+            assert symbols == ["AAPL"]
+            if self.claimed:
+                return False
+            self.claimed = True
+            return True
+
+        def complete_daily_decision(self, bar_timestamp):
+            self.completed.append(bar_timestamp)
+
+    executor = DailyGuardExecutor()
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.executor = executor
+    bot.tickers = ["AAPL"]
+    data = pd.DataFrame(
+        {"Close_AAPL": [100.0]},
+        index=pd.DatetimeIndex(["2026-10-30T04:00:00Z"]),
+    )
+    executions = []
+    bot.generate_and_execute_cycle = lambda market_data: executions.append(market_data) or {"orders": []}
+
+    first = bot.generate_and_execute_daily_cycle(data)
+    second = bot.generate_and_execute_daily_cycle(data)
+
+    assert first == {"orders": []}
+    assert second["daily_decision_skipped"] is True
+    assert executions == [data]
+    assert executor.reconcile_calls == 2
+    assert executor.completed == ["2026-10-30T04:00:00+00:00"]
+
+
+def test_generate_and_execute_daily_cycle_rejects_invalid_daily_index_before_claim():
+    class NeverClaimExecutor:
+        def reconcile_daily_decision_if_required(self):
+            raise AssertionError("must not reach broker guard for invalid market data")
+
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.executor = NeverClaimExecutor()
+    bot.tickers = ["AAPL"]
+    with pytest.raises(RuntimeError, match="DatetimeIndex"):
+        bot.generate_and_execute_daily_cycle(pd.DataFrame({"Close_AAPL": [100.0]}))
+
+
 def test_generate_and_execute_cycle_holds_lock_across_inference_and_execution():
     class LockingExecutor:
         def __init__(self):
@@ -976,6 +1031,15 @@ def test_run_loop_uses_atomic_generation_and_execution_cycle(monkeypatch):
     class ReadOnlyExecutor:
         paper_trading = True
 
+        def reconcile_daily_decision_if_required(self):
+            return False
+
+        def claim_daily_decision(self, bar_timestamp, symbols):
+            return True
+
+        def complete_daily_decision(self, bar_timestamp):
+            return None
+
         def get_account_status(self):
             return {
                 "cash": 1000.0,
@@ -987,7 +1051,10 @@ def test_run_loop_uses_atomic_generation_and_execution_cycle(monkeypatch):
     bot = PaperTradingBot.__new__(PaperTradingBot)
     bot.executor = ReadOnlyExecutor()
     bot.tickers = ["AAPL"]
-    market_data = pd.DataFrame({"Close_AAPL": [100.0]})
+    market_data = pd.DataFrame(
+        {"Close_AAPL": [100.0]},
+        index=pd.DatetimeIndex(["2026-10-30T04:00:00Z"]),
+    )
     calls = []
     bot.get_market_data = lambda: market_data
     bot.generate_and_execute_cycle = lambda data: calls.append(data)

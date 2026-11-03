@@ -98,19 +98,21 @@ def test_smoke_preflight_blocks_invalid_exposure_limit(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "quote",
+    "timestamp_kind",
     [
-        {
-            "price": 100.0,
-            "timestamp": (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat(),
-        },
-        {
-            "price": 100.0,
-            "timestamp": "not-a-timestamp",
-        },
+        pytest.param("future", id="future"),
+        pytest.param("malformed", id="malformed"),
     ],
 )
-def test_smoke_preflight_blocks_future_or_malformed_timestamp(quote):
+def test_smoke_preflight_blocks_future_or_malformed_timestamp(timestamp_kind):
+    # Build the future timestamp when this test executes, not during module
+    # collection: slow CI runners may otherwise reach the test after it expires.
+    timestamp = (
+        (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        if timestamp_kind == "future"
+        else "not-a-timestamp"
+    )
+    quote = {"price": 100.0, "timestamp": timestamp}
     with pytest.raises(RuntimeError, match="valid timestamped market quote|market quote"):
         validate_smoke_order_preflight(FakeExecutor(), "SPY", 10.0, quote)
 

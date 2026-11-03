@@ -3,6 +3,7 @@ import pytest
 from src.utils.startup_config import (
     load_hub_refresh_seconds,
     load_startup_config,
+    load_strategy_config,
     load_tickers,
     validate_broker_preflight,
 )
@@ -208,3 +209,47 @@ def test_broker_preflight_fails_closed_on_unverified_account(status):
     executor = FakeExecutor(status)
     with pytest.raises(RuntimeError):
         validate_broker_preflight(executor)
+
+
+def test_shared_strategy_config_defaults_match_runtime_contract_without_credentials():
+    config = load_strategy_config({})
+    assert config.tickers == ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
+    assert config.initial_capital == pytest.approx(500000.0)
+    assert config.max_gross_exposure == pytest.approx(0.50)
+    assert config.max_position_size == pytest.approx(0.20)
+    assert config.transaction_cost == pytest.approx(0.001)
+    assert config.slippage == pytest.approx(0.0005)
+
+
+def test_runtime_startup_uses_same_shared_strategy_config():
+    env = {
+        **VALID_ENV, "STMAA_TICKERS": "MSFT,AAPL",
+        "STMAA_INITIAL_CAPITAL": "240000",
+        "MAX_PORTFOLIO_EXPOSURE": "0.40",
+        "MAX_POSITION_SIZE": "0.15",
+        "TRANSACTION_COST": "0.002", "SLIPPAGE": "0.001",
+    }
+    strategy = load_strategy_config(env)
+    runtime = load_startup_config(env)
+    assert runtime.tickers == strategy.tickers
+    assert runtime.initial_capital == strategy.initial_capital
+    assert runtime.max_portfolio_exposure == strategy.max_gross_exposure
+    assert runtime.max_position_size == strategy.max_position_size
+    assert runtime.transaction_cost == strategy.transaction_cost
+    assert runtime.slippage == strategy.slippage
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("MAX_PORTFOLIO_EXPOSURE", "0"),
+        ("MAX_PORTFOLIO_EXPOSURE", "1.01"),
+        ("MAX_POSITION_SIZE", "0.60"),
+        ("STMAA_INITIAL_CAPITAL", "nan"),
+        ("TRANSACTION_COST", "-0.1"),
+        ("SLIPPAGE", "1"),
+    ],
+)
+def test_shared_strategy_config_rejects_invalid_values(key, value):
+    with pytest.raises(ValueError):
+        load_strategy_config({key: value})

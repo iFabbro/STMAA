@@ -11,6 +11,7 @@ from typing import Mapping
 PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 DEFAULT_TICKERS = ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
 DEFAULT_INITIAL_CAPITAL = "500000"
+DEFAULT_MAX_PORTFOLIO_EXPOSURE = "0.50"
 DEFAULT_MAX_POSITION_SIZE = "0.20"
 DEFAULT_TRANSACTION_COST = "0.001"
 DEFAULT_SLIPPAGE = "0.0005"
@@ -29,6 +30,16 @@ _PLACEHOLDERS = {
     "placeholder",
     "replace_me",
 }
+
+
+@dataclass(frozen=True)
+class StrategyConfig:
+    tickers: tuple[str, ...]
+    initial_capital: float
+    max_position_size: float
+    max_gross_exposure: float
+    transaction_cost: float
+    slippage: float
 
 
 @dataclass(frozen=True)
@@ -111,6 +122,67 @@ def load_hub_refresh_seconds(environ: Mapping[str, str] | None = None) -> int:
     )
 
 
+def load_strategy_config(
+    environ: Mapping[str, str] | None = None,
+    overrides: Mapping[str, object] | None = None,
+) -> StrategyConfig:
+    """Load the shared, credential-free strategy settings used by training and runtime.
+
+    Explicit CLI overrides take precedence over environment values. All values
+    pass through the same validation used by the paper-runtime startup config.
+    """
+    env = dict(os.environ if environ is None else environ)
+    allowed = {
+        "STMAA_TICKERS",
+        "STMAA_INITIAL_CAPITAL",
+        "MAX_PORTFOLIO_EXPOSURE",
+        "MAX_POSITION_SIZE",
+        "TRANSACTION_COST",
+        "SLIPPAGE",
+    }
+    for name, value in (overrides or {}).items():
+        if name not in allowed:
+            raise ValueError(f"Unsupported strategy configuration override: {name}")
+        if name == "STMAA_TICKERS" and isinstance(value, (list, tuple)):
+            value = ",".join(str(item) for item in value)
+        env[name] = str(value)
+
+    tickers = load_tickers(env)
+    initial_capital = _risk_float(
+        "STMAA_INITIAL_CAPITAL", env.get("STMAA_INITIAL_CAPITAL"), DEFAULT_INITIAL_CAPITAL
+    )
+    exposure = _risk_float(
+        "MAX_PORTFOLIO_EXPOSURE", env.get("MAX_PORTFOLIO_EXPOSURE"),
+        DEFAULT_MAX_PORTFOLIO_EXPOSURE,
+    )
+    max_position_size = _risk_float(
+        "MAX_POSITION_SIZE", env.get("MAX_POSITION_SIZE"), DEFAULT_MAX_POSITION_SIZE
+    )
+    transaction_cost = _risk_float(
+        "TRANSACTION_COST", env.get("TRANSACTION_COST"), DEFAULT_TRANSACTION_COST
+    )
+    slippage = _risk_float("SLIPPAGE", env.get("SLIPPAGE"), DEFAULT_SLIPPAGE)
+
+    if initial_capital <= 0:
+        raise ValueError("STMAA_INITIAL_CAPITAL must be positive")
+    if not 0 < exposure <= 1:
+        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be in (0, 1]")
+    if not 0 < max_position_size <= exposure:
+        raise ValueError("MAX_POSITION_SIZE must be in (0, MAX_PORTFOLIO_EXPOSURE]")
+    for name, value in (("TRANSACTION_COST", transaction_cost), ("SLIPPAGE", slippage)):
+        if not 0 <= value < 1:
+            raise ValueError(f"{name} must be in [0, 1)")
+
+    return StrategyConfig(
+        tickers=tickers,
+        initial_capital=initial_capital,
+        max_position_size=max_position_size,
+        max_gross_exposure=exposure,
+        transaction_cost=transaction_cost,
+        slippage=slippage,
+    )
+
+
 def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConfig:
     """Validate all startup settings; this function performs no network calls."""
     env = os.environ if environ is None else environ
@@ -126,30 +198,16 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
     if base_url != PAPER_BASE_URL:
         raise ValueError(f"ALPACA_BASE_URL must be {PAPER_BASE_URL}; live/custom endpoints are not permitted")
 
-    exposure = _risk_float("MAX_PORTFOLIO_EXPOSURE", env.get("MAX_PORTFOLIO_EXPOSURE"), "0.50")
+    strategy = load_strategy_config(env)
+    exposure = strategy.max_gross_exposure
     drawdown = _risk_float("MAX_DRAWDOWN", env.get("MAX_DRAWDOWN"), "0.15")
-    if not 0 < exposure <= 1:
-        raise ValueError("MAX_PORTFOLIO_EXPOSURE must be in (0, 1]")
     if not 0 < drawdown < 1:
         raise ValueError("MAX_DRAWDOWN must be in (0, 1)")
 
     liquidate = _parse_bool("LIQUIDATE_ON_DRAWDOWN", env.get("LIQUIDATE_ON_DRAWDOWN"), default=False)
-    tickers = load_tickers(env)
-    initial_capital = _risk_float("STMAA_INITIAL_CAPITAL", env.get("STMAA_INITIAL_CAPITAL"), DEFAULT_INITIAL_CAPITAL)
-    max_position_size = _risk_float("MAX_POSITION_SIZE", env.get("MAX_POSITION_SIZE"), DEFAULT_MAX_POSITION_SIZE)
-    transaction_cost = _risk_float("TRANSACTION_COST", env.get("TRANSACTION_COST"), DEFAULT_TRANSACTION_COST)
-    slippage = _risk_float("SLIPPAGE", env.get("SLIPPAGE"), DEFAULT_SLIPPAGE)
     vix_high = _risk_float("VIX_THRESHOLD_HIGH", env.get("VIX_THRESHOLD_HIGH"), DEFAULT_VIX_THRESHOLD_HIGH)
     vix_low = _risk_float("VIX_THRESHOLD_LOW", env.get("VIX_THRESHOLD_LOW"), DEFAULT_VIX_THRESHOLD_LOW)
     interval_seconds = _positive_int("STMAA_INTERVAL_SECONDS", env.get("STMAA_INTERVAL_SECONDS"), DEFAULT_INTERVAL_SECONDS)
-
-    if initial_capital <= 0:
-        raise ValueError("STMAA_INITIAL_CAPITAL must be positive")
-    if not 0 < max_position_size <= exposure:
-        raise ValueError("MAX_POSITION_SIZE must be in (0, MAX_PORTFOLIO_EXPOSURE]")
-    for name, value in (("TRANSACTION_COST", transaction_cost), ("SLIPPAGE", slippage)):
-        if not 0 <= value < 1:
-            raise ValueError(f"{name} must be in [0, 1)")
     if vix_low < 0 or vix_high <= vix_low:
         raise ValueError("VIX thresholds must satisfy 0 <= VIX_THRESHOLD_LOW < VIX_THRESHOLD_HIGH")
 
@@ -161,11 +219,11 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
         max_portfolio_exposure=exposure,
         max_drawdown=drawdown,
         liquidate_on_drawdown=liquidate,
-        tickers=tickers,
-        initial_capital=initial_capital,
-        max_position_size=max_position_size,
-        transaction_cost=transaction_cost,
-        slippage=slippage,
+        tickers=strategy.tickers,
+        initial_capital=strategy.initial_capital,
+        max_position_size=strategy.max_position_size,
+        transaction_cost=strategy.transaction_cost,
+        slippage=strategy.slippage,
         vix_threshold_high=vix_high,
         vix_threshold_low=vix_low,
         interval_seconds=interval_seconds,

@@ -2,6 +2,7 @@
 """Train and validate the deployable STMAA PPO policy on historical market data."""
 import argparse
 import sys
+from dotenv import load_dotenv
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent / "src"))
@@ -10,21 +11,28 @@ import numpy as np
 import pandas as pd
 
 from config import (
+    BASE_DIR,
     DATA_DIR,
-    INITIAL_CAPITAL,
-    MAX_POSITION_SIZE,
     MODELS_DIR,
-    SLIPPAGE,
-    TRANSACTION_COST,
 )
 from agents.ppo_agent import PPOAgent
 from data.data_processor import DataProcessor
 from src.data.market_data_contract import market_data_contract
+from src.utils.startup_config import load_strategy_config
 
 
-DEFAULT_TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META"]
 MODEL_PATH = MODELS_DIR / "ppo_trading_model_v3.zip"
 REQUIRED_FEATURES = ("Close", "RSI", "MACD", "BB_middle", "ATR")
+
+
+def load_training_config(overrides=None):
+    """Load project-root .env before resolving the shared strategy settings.
+
+    Existing process environment variables retain precedence over .env values.
+    Broker credentials are not required by this configuration loader.
+    """
+    load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
+    return load_strategy_config(overrides=overrides)
 
 
 def training_data_source() -> str:
@@ -118,36 +126,52 @@ def main(argv=None):
     )
     parser.add_argument("--start-date", required=True, help="Inclusive history start, YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="Exclusive history end, YYYY-MM-DD")
-    parser.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
+    parser.add_argument("--tickers", nargs="+", default=None)
     parser.add_argument("--total-timesteps", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--model-path", type=Path, default=MODEL_PATH)
-    parser.add_argument("--max-position-size", type=float, default=MAX_POSITION_SIZE)
-    parser.add_argument("--max-gross-exposure", type=float, default=0.5)
-    parser.add_argument("--transaction-cost", type=float, default=TRANSACTION_COST)
-    parser.add_argument("--slippage", type=float, default=SLIPPAGE)
+    parser.add_argument("--initial-capital", type=float, default=None)
+    parser.add_argument("--max-position-size", type=float, default=None)
+    parser.add_argument("--max-gross-exposure", type=float, default=None)
+    parser.add_argument("--transaction-cost", type=float, default=None)
+    parser.add_argument("--slippage", type=float, default=None)
     args = parser.parse_args(argv)
 
     if args.total_timesteps <= 0:
         parser.error("--total-timesteps must be positive")
-    if not args.tickers or len(set(args.tickers)) != len(args.tickers):
-        parser.error("--tickers must contain unique symbols")
+    overrides = {}
+    for argument, environment_name in (
+        ("tickers", "STMAA_TICKERS"),
+        ("initial_capital", "STMAA_INITIAL_CAPITAL"),
+        ("max_position_size", "MAX_POSITION_SIZE"),
+        ("max_gross_exposure", "MAX_PORTFOLIO_EXPOSURE"),
+        ("transaction_cost", "TRANSACTION_COST"),
+        ("slippage", "SLIPPAGE"),
+    ):
+        value = getattr(args, argument)
+        if value is not None:
+            overrides[environment_name] = value
+    try:
+        strategy_config = load_training_config(overrides=overrides)
+    except ValueError as exc:
+        parser.error(str(exc))
+    tickers = list(strategy_config.tickers)
 
     processor = DataProcessor(DATA_DIR)
     history = prepare_historical_data(
-        processor, args.tickers, args.start_date, args.end_date
+        processor, tickers, args.start_date, args.end_date
     )
     training, validation = chronological_split(history, args.validation_fraction)
 
     agent = PPOAgent(
-        tickers=args.tickers,
-        initial_capital=INITIAL_CAPITAL,
+        tickers=tickers,
+        initial_capital=strategy_config.initial_capital,
         model_path=str(args.model_path),
-        transaction_cost=args.transaction_cost,
-        slippage=args.slippage,
-        max_position_size=args.max_position_size,
-        max_gross_exposure=args.max_gross_exposure,
+        transaction_cost=strategy_config.transaction_cost,
+        slippage=strategy_config.slippage,
+        max_position_size=strategy_config.max_position_size,
+        max_gross_exposure=strategy_config.max_gross_exposure,
         load_existing_model=False,
         seed=args.seed,
         verbose=1,
@@ -173,6 +197,9 @@ def main(argv=None):
     )
     print("PPO training and chronological holdout evaluation completed.")
     print(f"Model: {args.model_path}")
+    print(f"Training tickers: {tickers}")
+    print(f"Initial capital: {strategy_config.initial_capital:.2f}")
+    print(f"Maximum gross exposure: {strategy_config.max_gross_exposure:.4f}")
     print(f"Training observations: {len(training)}")
     print(f"Validation observations: {len(validation)}")
     print(f"Validation metrics: {metrics}")

@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from train import chronological_split, flatten_processed_data, training_data_source
+import train
+from train import chronological_split, flatten_processed_data, load_training_config, training_data_source
 from src.data.market_data_contract import market_data_contract
 
 
@@ -83,3 +84,46 @@ def test_training_data_source_matches_active_sip_contract():
         f"{contract['provider']}_{contract['feed']}_adjusted_ohlcv"
     )
     assert contract["feed"] == "sip"
+
+
+def test_training_config_loads_project_root_dotenv_without_broker_credentials(monkeypatch):
+    for key in (
+        "ALPACA_API_KEY", "ALPACA_API_SECRET", "STMAA_TICKERS",
+        "STMAA_INITIAL_CAPITAL", "MAX_PORTFOLIO_EXPOSURE",
+        "MAX_POSITION_SIZE", "TRANSACTION_COST", "SLIPPAGE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    calls = []
+    def fake_load_dotenv(*, dotenv_path, override):
+        calls.append((dotenv_path, override))
+        monkeypatch.setenv("STMAA_TICKERS", "MSFT,AAPL")
+        monkeypatch.setenv("STMAA_INITIAL_CAPITAL", "250000")
+        monkeypatch.setenv("MAX_PORTFOLIO_EXPOSURE", "0.40")
+        return True
+
+    monkeypatch.setattr(train, "load_dotenv", fake_load_dotenv)
+    config = load_training_config()
+
+    assert calls == [(train.BASE_DIR / ".env", False)]
+    assert config.tickers == ("MSFT", "AAPL")
+    assert config.initial_capital == pytest.approx(250000.0)
+    assert config.max_gross_exposure == pytest.approx(0.40)
+
+
+def test_training_cli_overrides_use_shared_validation_and_do_not_require_credentials(monkeypatch):
+    monkeypatch.setattr(train, "load_dotenv", lambda **kwargs: False)
+    config = load_training_config(overrides={
+        "STMAA_TICKERS": ["NVDA", "AAPL"],
+        "STMAA_INITIAL_CAPITAL": 125000,
+        "MAX_PORTFOLIO_EXPOSURE": 0.35,
+        "MAX_POSITION_SIZE": 0.15,
+        "TRANSACTION_COST": 0.002,
+        "SLIPPAGE": 0.001,
+    })
+    assert config.tickers == ("NVDA", "AAPL")
+    assert config.initial_capital == pytest.approx(125000.0)
+    assert config.max_gross_exposure == pytest.approx(0.35)
+    assert config.max_position_size == pytest.approx(0.15)
+    assert config.transaction_cost == pytest.approx(0.002)
+    assert config.slippage == pytest.approx(0.001)

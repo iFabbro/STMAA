@@ -21,8 +21,6 @@ GREEN_CI = {
     "commit_sha": COMMIT_SHA,
     "workflows": {
         "CI": "success",
-        "Tests": "success",
-        "Lint": "success",
         "Secrets scan": "success",
     },
 }
@@ -274,14 +272,14 @@ def test_failed_ci_workflow_fails_report(tmp_path):
     create_run(database)
     failed_ci = {
         **GREEN_CI,
-        "workflows": {**GREEN_CI["workflows"], "Tests": "failure"},
+        "workflows": {**GREEN_CI["workflows"], "CI": "failure"},
     }
     report = build_report(
         database,
         ci_evidence_path=write_ci_evidence(tmp_path, failed_ci),
     )
     assert report["overall_status"] == "FAIL"
-    assert "ci_workflow_failed:Tests" in report["failures"]
+    assert "ci_workflow_failed:CI" in report["failures"]
 
 
 def test_report_can_select_a_specific_run(tmp_path):

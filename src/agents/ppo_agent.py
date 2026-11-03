@@ -159,12 +159,11 @@ def _fsync_directory(path: Path) -> None:
 MODEL_CONTRACT_VERSION = 5
 
 class StockTradingEnv(gym.Env):
-    """Long-only target-weight environment with close-to-close accounting.
+    """Long-only target-weight environment with causal next-open execution.
 
-    Actions are allocation scores in [-1, 1]. Only positive scores allocate
-    capital; zero or negative scores remain in cash. Target weights are bounded
-    by per-position and gross-exposure caps.
-    An action at close t is executed at close t and earns the return to close t+1.
+    The policy observes completed bar t and its indicators. Its target weights
+    are executed at bar t+1 open; existing holdings bear the overnight gap and
+    the new target earns the open-to-close return of bar t+1.
     """
 
     metadata = {"render_modes": ["human"]}
@@ -215,9 +214,16 @@ class StockTradingEnv(gym.Env):
         if not np.isfinite(features).all():
             raise ValueError("Market features must be finite")
         close_columns = [f"Close_{ticker}" for ticker in self.tickers]
+        open_columns = [f"Open_{ticker}" for ticker in self.tickers]
+        missing_open = [column for column in open_columns if column not in self.df.columns]
+        if missing_open:
+            raise ValueError(f"Missing next-open execution price columns: {missing_open}")
         prices = self.df[close_columns].to_numpy(dtype=float)
-        if (prices <= 0).any():
-            raise ValueError("Close prices must be strictly positive")
+        open_prices = self.df[open_columns].to_numpy(dtype=float)
+        if (prices <= 0).any() or not np.isfinite(prices).all():
+            raise ValueError("Close prices must be finite and strictly positive")
+        if (open_prices <= 0).any() or not np.isfinite(open_prices).all():
+            raise ValueError("Open prices must be finite and strictly positive")
 
         self.n_assets = len(self.tickers)
         self.initial_capital = float(initial_capital)
@@ -297,32 +303,49 @@ class StockTradingEnv(gym.Env):
         target_weights = self.action_to_weights(
             action, self.n_assets, self.max_position_size, self.max_gross_exposure
         )
-        current_prices = self._get_current_prices()
-        equity_before_trade = float(self.balance + np.dot(self.stocks, current_prices))
-        if not np.isfinite(equity_before_trade) or equity_before_trade <= 0:
-            raise RuntimeError("Portfolio equity is not finite and positive")
+        current_close = self._get_current_prices()
+        next_open = self.df[[f"Open_{ticker}" for ticker in self.tickers]].iloc[
+            self.current_step + 1
+        ].to_numpy(dtype=float)
+        next_close = self.df[[f"Close_{ticker}" for ticker in self.tickers]].iloc[
+            self.current_step + 1
+        ].to_numpy(dtype=float)
 
-        current_weights = self.stocks * current_prices / equity_before_trade
+        # The policy observes completed bar t. Its order can first execute at
+        # the next bar's open, never at the already-observed close of bar t.
+        equity_at_open = float(self.balance + np.dot(self.stocks, next_open))
+        if not np.isfinite(equity_at_open) or equity_at_open <= 0:
+            self.balance = 0.0
+            self.stocks = np.zeros(self.n_assets, dtype=float)
+            self.total_asset = 0.0
+            self.current_step = len(self.df) - 1
+            self.prev_total_asset = max(self.prev_total_asset, np.finfo(float).tiny)
+            return self._get_state(), -1.0, True, False, {
+                "total_asset": 0.0, "transaction_cost": 0.0,
+                "turnover": 0.0, "bankrupt": True,
+            }
+
+        current_weights = self.stocks * next_open / equity_at_open
         turnover = float(np.abs(target_weights - current_weights).sum())
-        cost = equity_before_trade * turnover * (self.transaction_cost + self.slippage)
-        equity_after_cost = equity_before_trade - cost
+        cost = equity_at_open * turnover * (self.transaction_cost + self.slippage)
+        equity_after_cost = equity_at_open - cost
         if not np.isfinite(equity_after_cost) or equity_after_cost <= 0:
             self.balance = 0.0
             self.stocks = np.zeros(self.n_assets, dtype=float)
             self.total_asset = 0.0
             self.current_step = len(self.df) - 1
-            self.prev_total_asset = max(equity_before_trade, np.finfo(float).tiny)
+            self.prev_total_asset = max(self.prev_total_asset, np.finfo(float).tiny)
             return self._get_state(), -1.0, True, False, {
                 "total_asset": 0.0, "transaction_cost": float(cost),
                 "turnover": turnover, "bankrupt": True,
             }
 
-        # Rebalance at close t, using post-cost equity; all positions are long-only.
-        self.stocks = target_weights * equity_after_cost / current_prices
+        # Rebalance at the next bar's open, then mark the resulting holdings
+        # at that same bar's close. The overnight gap belongs to old holdings.
+        self.stocks = target_weights * equity_after_cost / next_open
         self.balance = equity_after_cost * max(0.0, 1.0 - float(target_weights.sum()))
         self.current_step += 1
-        next_prices = self._get_current_prices()
-        self.total_asset = float(self.balance + np.dot(self.stocks, next_prices))
+        self.total_asset = float(self.balance + np.dot(self.stocks, next_close))
         if not np.isfinite(self.total_asset) or self.total_asset <= 0:
             self.total_asset = 0.0
             reward = -1.0
@@ -336,6 +359,8 @@ class StockTradingEnv(gym.Env):
             "transaction_cost": float(cost),
             "turnover": turnover,
             "target_weights": target_weights.copy(),
+            "execution_price": next_open.copy(),
+            "execution_bar": self.current_step,
             "bankrupt": self.total_asset <= 0,
         }
 

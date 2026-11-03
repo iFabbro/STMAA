@@ -98,7 +98,7 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
     # Both callers must request the same versioned Alpaca data configuration.
     assert len(feed.client.requests) == 2
     for request in feed.client.requests:
-        assert request.feed == "iex"
+        assert request.feed == "sip"
         assert request.adjustment == "all"
         assert request.timeframe == _DAILY_TIMEFRAME
 

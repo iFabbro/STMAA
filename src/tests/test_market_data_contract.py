@@ -15,9 +15,9 @@ from src.data.market_data_contract import (
 def test_training_and_inference_share_one_alpaca_adjustment_contract():
     contract = market_data_contract()
     assert contract == {
-        "version": 2,
+        "version": 3,
         "provider": "alpaca",
-        "feed": "iex",
+        "feed": "sip",
         "timeframe": "1Day",
         "adjustment": "all",
         "features": ["Close", "RSI", "MACD", "BB_middle", "ATR"],
@@ -61,7 +61,7 @@ def test_contract_explicitly_covers_corporate_action_adjustment_classes(event):
     [
         {"adjustment": "raw"},
         {"adjustment": "split"},
-        {"feed": "sip"},
+        {"feed": "iex"},
         {"provider": "yfinance"},
         {"version": 0},
         {"corporate_actions": ["split", "dividend"]},

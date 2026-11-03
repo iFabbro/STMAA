@@ -172,6 +172,26 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
     )
 
 
+def validate_ppo_preflight(agent) -> None:
+    """Require a loaded PPO policy with a callable inference interface."""
+    if agent is None:
+        raise RuntimeError(
+            "PPO startup preflight failed: PPO agent is unavailable; "
+            "install the declared ML dependencies before normal operation"
+        )
+
+    model = getattr(agent, "model", None)
+    if model is None:
+        raise RuntimeError(
+            "PPO startup preflight failed: no trained, compatible model is loaded; "
+            "run the documented training workflow before normal operation"
+        )
+    if not callable(getattr(model, "predict", None)):
+        raise RuntimeError(
+            "PPO startup preflight failed: loaded model has no callable predict method"
+        )
+
+
 def validate_broker_preflight(executor) -> dict:
     """Require a fresh, identified, numerically valid account snapshot; read-only."""
     if getattr(executor, "paper_trading", None) is not True:

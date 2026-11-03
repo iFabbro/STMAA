@@ -42,6 +42,7 @@ DATA_SEMANTICS = {
     "adjustment_scope": "provider_adjusted_ohlcv_for_all_supported_corporate_actions",
     "corporate_action_events": list(DATA_ADJUSTMENT_EVENTS),
     "feature_input": "adjusted_open_high_low_close_volume",
+    "execution_price": "next_bar_open",
     "indicator_warmup": "full_rolling_window; leading_nan_rows_dropped_before_training",
     "missing_values": "no_forward_fill; fail_on_interior_or_trailing_ohlcv_gaps",
     "timestamp": "UTC_provider_timestamp_normalized_to_naive_UTC_for_daily_index",

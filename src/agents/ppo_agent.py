@@ -156,7 +156,7 @@ def _fsync_directory(path: Path) -> None:
     finally:
         os.close(directory_fd)
 
-MODEL_CONTRACT_VERSION = 5
+MODEL_CONTRACT_VERSION = 6
 
 class StockTradingEnv(gym.Env):
     """Long-only target-weight environment with causal next-open execution.
@@ -607,6 +607,7 @@ class PPOAgent:
                 "tickers": self.tickers,
                 "state_dim": 1 + len(self.tickers) * 6,
                 "action_contract": "long_only_capped_target_weights_zero_floor",
+                "execution_contract": "close_signal_next_bar_open_fill",
                 "transaction_cost": self.transaction_cost,
                 "slippage": self.slippage,
                 "max_position_size": self.max_position_size,
@@ -686,6 +687,8 @@ class PPOAgent:
                 and manifest.get("state_dim") == expected_state_dim
                 and manifest.get("action_contract")
                 == "long_only_capped_target_weights_zero_floor"
+                and manifest.get("execution_contract")
+                == "close_signal_next_bar_open_fill"
             )
             try:
                 validate_market_data_contract(manifest.get("market_data_contract"))
@@ -818,6 +821,8 @@ class PPOAgent:
             raise ValueError("PPO model ticker/state contract is incompatible; retrain the model")
         if metadata.get("action_contract") != "long_only_capped_target_weights_zero_floor":
             raise ValueError("PPO model action contract is incompatible; retrain the model")
+        if metadata.get("execution_contract") != "close_signal_next_bar_open_fill":
+            raise ValueError("PPO model execution contract is incompatible; retrain the model")
         expected_parameters = {
             "transaction_cost": self.transaction_cost,
             "slippage": self.slippage,

@@ -1,8 +1,7 @@
 """Regression tests for endpoint-specific Alpaca market-data feeds."""
-import pandas as pd
 from types import SimpleNamespace
 
-from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+import pandas as pd
 
 from src.data.alpaca_feed import AlpacaFeed
 from src.data.market_data_contract import DATA_FEED, DATA_QUOTE_FEED
@@ -36,7 +35,7 @@ def test_historical_end_includes_completed_session_after_delay():
     actual = pd.Timestamp(AlpacaFeed._historical_request_end(now))
     assert actual == now - pd.Timedelta(minutes=20)
 
-def test_historical_request_uses_sip(monkeypatch):
+def test_historical_request_uses_sip():
     feed = object.__new__(AlpacaFeed)
     captured = {}
 

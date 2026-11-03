@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Train and diagnostically validate an experimental STMAA PPO policy."""
 import argparse
+import hashlib
+import subprocess
 import sys
 from dotenv import load_dotenv
 from pathlib import Path
@@ -104,6 +106,37 @@ def prepare_historical_data(
     return data
 
 
+def training_dataset_sha256(data: pd.DataFrame) -> str:
+    """Fingerprint the exact processed feature frame supplied to PPO."""
+    if not isinstance(data, pd.DataFrame) or data.empty:
+        raise ValueError("Training dataset fingerprint requires a non-empty DataFrame")
+    canonical_csv = data.to_csv(
+        index=True,
+        date_format="%Y-%m-%dT%H:%M:%S.%f",
+        float_format="%.17g",
+        lineterminator="\n",
+    )
+    payload = "stmaa-ppo-training-dataset-v1\n" + canonical_csv
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def training_git_commit() -> str | None:
+    """Return the checked-out source commit, or None outside a Git checkout."""
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    commit = result.stdout.strip().lower()
+    if result.returncode == 0 and len(commit) == 40 and all(
+        character in "0123456789abcdef" for character in commit
+    ):
+        return commit
+    return None
+
+
 def chronological_split(
     data: pd.DataFrame, validation_fraction: float = 0.2
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -129,6 +162,11 @@ def main(argv=None):
     parser.add_argument("--tickers", nargs="+", default=None)
     parser.add_argument("--total-timesteps", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--n-steps", type=int, default=2048)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--n-epochs", type=int, default=10)
+    parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--model-path", type=Path, default=MODEL_PATH)
     parser.add_argument("--initial-capital", type=float, default=None)
@@ -140,6 +178,12 @@ def main(argv=None):
 
     if args.total_timesteps <= 0:
         parser.error("--total-timesteps must be positive")
+    if not np.isfinite(args.learning_rate) or args.learning_rate <= 0:
+        parser.error("--learning-rate must be finite and positive")
+    if args.n_steps <= 0 or args.batch_size <= 0 or args.n_epochs <= 0:
+        parser.error("--n-steps, --batch-size and --n-epochs must be positive")
+    if not np.isfinite(args.gamma) or not 0 <= args.gamma <= 1:
+        parser.error("--gamma must be finite and between 0 and 1")
     overrides = {}
     for argument, environment_name in (
         ("tickers", "STMAA_TICKERS"),
@@ -174,6 +218,11 @@ def main(argv=None):
         max_gross_exposure=strategy_config.max_gross_exposure,
         load_existing_model=False,
         seed=args.seed,
+        learning_rate=args.learning_rate,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
+        n_epochs=args.n_epochs,
+        gamma=args.gamma,
         verbose=1,
     )
     metadata = {
@@ -188,6 +237,14 @@ def main(argv=None):
         "validation_fraction": args.validation_fraction,
         "total_timesteps": args.total_timesteps,
         "seed": args.seed,
+        "learning_rate": args.learning_rate,
+        "n_steps": args.n_steps,
+        "batch_size": args.batch_size,
+        "n_epochs": args.n_epochs,
+        "gamma": args.gamma,
+        "initial_capital": strategy_config.initial_capital,
+        "dataset_sha256": training_dataset_sha256(history),
+        "git_commit": training_git_commit(),
     }
     metrics = agent.train(
         training,

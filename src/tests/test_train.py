@@ -23,7 +23,7 @@ def test_flatten_processed_alpaca_field_ticker_columns_to_ppo_feature_contract()
     assert list(flattened.columns) == [
         f"{feature}_{ticker}"
         for ticker in tickers
-        for feature in ("Close", "RSI", "MACD", "BB_middle", "ATR")
+        for feature in ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
     ]
     np.testing.assert_allclose(flattened["Close_AAA"], data[("Close", "AAA")])
 
@@ -64,6 +64,7 @@ def test_chronological_split_rejects_too_small_or_invalid_fraction():
 
 def test_flatten_processed_single_ticker_flat_columns():
     data = pd.DataFrame({
+        "Open": [99.5, 100.5],
         "Close": [100.0, 101.0],
         "RSI": [50.0, 55.0],
         "MACD": [0.0, 0.2],
@@ -72,7 +73,7 @@ def test_flatten_processed_single_ticker_flat_columns():
     })
     flattened = flatten_processed_data(data, ["AAA"])
     assert list(flattened.columns) == [
-        "Close_AAA", "RSI_AAA", "MACD_AAA", "BB_middle_AAA", "ATR_AAA"
+        "Open_AAA", "Close_AAA", "RSI_AAA", "MACD_AAA", "BB_middle_AAA", "ATR_AAA"
     ]
     np.testing.assert_allclose(flattened["Close_AAA"], data["Close"])
 

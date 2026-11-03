@@ -423,7 +423,17 @@ def test_model_save_publishes_matching_artifact_digest_and_metadata(tmp_path, mo
     assert metadata["contract_version"] == 7
     assert metadata["observation_contract"] == "dimensionless_ohlc_features_v1"
     assert metadata["market_data_contract"] == market_data_contract()
-    assert metadata["training"] == {"seed": 42}
+    assert metadata["training"] == {
+        "learning_rate": pytest.approx(3e-4),
+        "n_steps": 2048,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "gamma": pytest.approx(0.99),
+        "initial_capital": pytest.approx(100000.0),
+        "dataset_sha256": None,
+        "git_commit": None,
+        "seed": 42,
+    }
     assert not model_path.exists()
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.zip"))

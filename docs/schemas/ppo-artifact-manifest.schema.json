@@ -22,58 +22,251 @@
     "training"
   ],
   "properties": {
-    "contract_version": { "const": 7 },
+    "contract_version": {
+      "const": 7
+    },
     "tickers": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "state_dim": { "type": "integer", "minimum": 7 },
-    "action_contract": { "const": "long_only_capped_target_weights_zero_floor" },
-    "execution_contract": { "const": "close_signal_next_bar_open_fill" },
-    "observation_contract": { "const": "dimensionless_ohlc_features_v1" },
-    "transaction_cost": { "type": "number", "minimum": 0 },
-    "slippage": { "type": "number", "minimum": 0 },
-    "max_position_size": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-    "max_gross_exposure": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+    "state_dim": {
+      "type": "integer",
+      "minimum": 7
+    },
+    "action_contract": {
+      "const": "long_only_capped_target_weights_zero_floor"
+    },
+    "execution_contract": {
+      "const": "close_signal_next_bar_open_fill"
+    },
+    "observation_contract": {
+      "const": "dimensionless_ohlc_features_v1"
+    },
+    "transaction_cost": {
+      "type": "number",
+      "minimum": 0
+    },
+    "slippage": {
+      "type": "number",
+      "minimum": 0
+    },
+    "max_position_size": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "max_gross_exposure": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
     "market_data_contract": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "version", "provider", "feed", "timeframe", "adjustment",
-        "features", "execution_fields", "feature_version", "feature_formulas",
-        "feature_parameters", "semantics", "corporate_actions"
+        "version",
+        "provider",
+        "feed",
+        "timeframe",
+        "adjustment",
+        "features",
+        "execution_fields",
+        "feature_version",
+        "feature_formulas",
+        "feature_parameters",
+        "semantics",
+        "corporate_actions"
       ],
       "properties": {
-        "version": { "const": 4 },
-        "provider": { "const": "alpaca" },
-        "feed": { "const": "sip" },
-        "timeframe": { "const": "1Day" },
-        "adjustment": { "const": "all" },
-        "features": {
-          "const": ["Close", "RSI", "MACD", "BB_middle", "ATR"]
+        "version": {
+          "const": 4
         },
-        "execution_fields": { "const": ["Open"] },
-        "feature_version": { "const": 1 },
-        "feature_formulas": { "type": "object" },
-        "feature_parameters": { "type": "object" },
+        "provider": {
+          "const": "alpaca"
+        },
+        "feed": {
+          "const": "sip"
+        },
+        "timeframe": {
+          "const": "1Day"
+        },
+        "adjustment": {
+          "const": "all"
+        },
+        "features": {
+          "const": [
+            "Close",
+            "RSI",
+            "MACD",
+            "BB_middle",
+            "ATR"
+          ]
+        },
+        "execution_fields": {
+          "const": [
+            "Open"
+          ]
+        },
+        "feature_version": {
+          "const": 1
+        },
+        "feature_formulas": {
+          "type": "object"
+        },
+        "feature_parameters": {
+          "type": "object"
+        },
         "semantics": {
           "type": "object",
           "required": [
-            "adjustment_scope", "corporate_action_events", "feature_input",
-            "execution_price", "indicator_warmup", "missing_values", "timestamp"
+            "adjustment_scope",
+            "corporate_action_events",
+            "feature_input",
+            "execution_price",
+            "indicator_warmup",
+            "missing_values",
+            "timestamp"
           ],
           "properties": {
-            "execution_price": { "const": "next_bar_open" },
-            "corporate_action_events": { "const": ["split", "dividend", "spin-off"] }
+            "execution_price": {
+              "const": "next_bar_open"
+            },
+            "corporate_action_events": {
+              "const": [
+                "split",
+                "dividend",
+                "spin-off"
+              ]
+            }
           }
         },
-        "corporate_actions": { "const": ["split", "dividend", "spin-off"] }
+        "corporate_actions": {
+          "const": [
+            "split",
+            "dividend",
+            "spin-off"
+          ]
+        }
       }
     },
-    "model_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "artifact_file": { "type": "string", "minLength": 1 },
-    "training": { "type": "object" }
+    "model_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "training": {
+      "type": "object",
+      "description": "Training provenance. The standard train.py entry point populates all listed fields; lower-level save calls may leave dataset_sha256 and git_commit null.",
+      "required": [
+        "learning_rate",
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "gamma",
+        "initial_capital",
+        "dataset_sha256",
+        "git_commit",
+        "seed"
+      ],
+      "properties": {
+        "learning_rate": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "n_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "n_epochs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gamma": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "initial_capital": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dataset_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "data_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "market_data_contract": {
+          "type": "object"
+        },
+        "start_date": {
+          "type": "string",
+          "minLength": 1
+        },
+        "end_date": {
+          "type": "string",
+          "minLength": 1
+        },
+        "training_start": {
+          "type": "string",
+          "minLength": 1
+        },
+        "training_end": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_start": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_end": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_fraction": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.4
+        },
+        "total_timesteps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "validation_metrics": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    }
   }
 }

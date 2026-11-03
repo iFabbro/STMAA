@@ -2,7 +2,8 @@
 
 Sostituisce tutti i mock presenti in trade.py e hub.py.
 Compatibile con la pipeline DataProcessor esistente.
-Usa endpoint free-tier (15min delay).
+Il feed dati è definito da DATA_FEED nel market-data contract; la latenza
+non è assunta come costante e dipende dal feed configurato.
 """
 import logging
 import os

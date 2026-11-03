@@ -121,6 +121,12 @@ def test_invalid_market_data_and_actions_fail_explicitly():
         env.step(np.array([np.nan]))
 
 
+def test_training_environment_rejects_missing_next_open_prices():
+    data, tickers = market_data()
+    with pytest.raises(ValueError, match="Missing next-open execution price"):
+        StockTradingEnv(data.drop(columns=["Open_A"]), tickers, lookback=0)
+
+
 def test_prediction_uses_latest_market_row_and_same_action_contract():
     data, tickers = market_data(prices_a=(100.0, 110.0, 121.0))
     agent = PPOAgent(tickers=tickers, model_path="/tmp/nonexistent-ppo-model.zip")

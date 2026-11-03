@@ -25,7 +25,7 @@ try:
     from src.data.feature_engineering import calculate_features
 except ModuleNotFoundError:
     from data.market_data_contract import (
-        DATA_ADJUSTMENT, DATA_FEED, market_data_contract, market_data_fingerprint,
+        DATA_ADJUSTMENT, DATA_FEED, DATA_QUOTE_FEED, market_data_contract, market_data_fingerprint,
     )
     from data.feature_engineering import calculate_features
 
@@ -511,8 +511,18 @@ class AlpacaFeed:
             return {}
         bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
         result = {}
+        latest_completed = self._latest_completed_nyse_session_date()
         for ticker in tickers:
-            sub = bars[bars["Symbol"] == ticker]["Close"]
-            if len(sub) >= 2:
-                result[ticker] = float(sub.iloc[-2])
+            ticker_bars = bars[bars["Symbol"] == ticker]
+            sub = ticker_bars["Close"]
+            if not sub.empty:
+                last_bar_date = pd.to_datetime(
+                    ticker_bars["timestamp"].iloc[-1], utc=True
+                ).tz_convert("America/New_York").date()
+                # If today's completed bar is present, the previous close is
+                # the penultimate bar; otherwise the last available bar is
+                # already the previous close for the delayed quote.
+                position = -2 if last_bar_date == latest_completed else -1
+                if len(sub) >= abs(position):
+                    result[ticker] = float(sub.iloc[position])
         return result

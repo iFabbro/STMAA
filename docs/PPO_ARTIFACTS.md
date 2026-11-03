@@ -41,9 +41,14 @@ The standard `train.py` entry point records:
 - data source and the full market-data contract;
 - overall historical interval;
 - chronological training and holdout-validation intervals;
-- holdout fraction;
-- requested PPO timesteps and random seed;
+- holdout fraction and requested PPO timesteps;
+- effective PPO hyperparameters: `learning_rate`, `n_steps`, `batch_size`, `n_epochs` and `gamma`;
+- initial capital and random seed;
+- SHA-256 fingerprint of the processed feature DataFrame passed to PPO, including its index, column names and values;
+- source Git commit when training runs from a Git checkout;
 - validation metrics returned by the evaluation environment.
+
+The dataset fingerprint is calculated from a deterministic CSV representation of the processed frame after cleaning and feature calculation. It identifies the exact in-memory training/validation input but does not archive the underlying dataset. `git_commit` is `null` when Git provenance is unavailable (for example, when running from a source archive). Lower-level `PPOAgent.save()` calls still emit the hyperparameter and capital fields; dataset fingerprint and Git commit are `null` unless supplied by the caller.
 
 The holdout is later in time than the training interval. Its metrics are diagnostic, not an automatic profitability gate or a guarantee of future performance. A manifest written through the lower-level `PPOAgent.save()` API may contain a smaller caller-supplied `training` object.
 

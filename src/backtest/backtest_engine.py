@@ -78,7 +78,10 @@ class ExecutionConsistentBacktest:
             gap_returns = execution_open / current_close - 1.0
             gap_return = float(np.dot(current_weights, gap_returns))
             if not np.isfinite(gap_return) or gap_return <= -1.0:
-                raise ValueError(f"Overnight portfolio return at {price_data.index[row_number]!r} would exhaust capital")
+                raise ValueError(
+                    f"Overnight portfolio return at {price_data.index[row_number]!r} "
+                    "would exhaust capital"
+                )
             portfolio_value *= 1.0 + gap_return
             gap_denominator = 1.0 + gap_return
             current_weights = (
@@ -105,7 +108,10 @@ class ExecutionConsistentBacktest:
             intraday_returns = next_close / execution_open - 1.0
             intraday_return = float(np.dot(target_weights, intraday_returns))
             if not np.isfinite(intraday_return) or intraday_return <= -1.0:
-                raise ValueError(f"Intraday portfolio return at {price_data.index[row_number]!r} would exhaust capital")
+                raise ValueError(
+                    f"Intraday portfolio return at {price_data.index[row_number]!r} "
+                    "would exhaust capital"
+                )
             portfolio_value *= 1.0 + intraday_return
             intraday_denominator = 1.0 + intraday_return
             current_weights = (

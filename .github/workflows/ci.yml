@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15-intel]
+        os: [ubuntu-latest, macos-15-intel, macos-15]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -39,22 +39,6 @@ jobs:
           version: "0.10.0"
           enable-cache: true
 
-      - name: Regenerate dependency lock for compatibility baseline
-        if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
-        run: |
-          uv lock
-          if ! git diff --quiet -- uv.lock; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add uv.lock
-            git commit -m "chore: refresh uv lock for Python 3.12"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-          fi
-
-      - name: Resolve dependency lock on macOS
-        if: matrix.os == 'macos-15-intel'
-        run: uv lock
-
       - name: Verify dependency lock
         run: uv lock --check
 
@@ -69,7 +53,7 @@ jobs:
         run: uv run --locked pytest src/tests tests -q
 
       - name: Run macOS regression suite
-        if: matrix.os == 'macos-15-intel'
+        if: startsWith(matrix.os, 'macos-')
         run: >-
           uv run --locked pytest src/tests tests -q
           -k "not test_start_run_persists_verifiable_process_identity
@@ -97,8 +81,8 @@ jobs:
           version: "0.10.0"
           enable-cache: true
 
-      - name: Resolve dependency lock
-        run: uv lock
+      - name: Verify dependency lock
+        run: uv lock --check
 
       - name: Install development dependencies
         run: uv sync --locked --group dev

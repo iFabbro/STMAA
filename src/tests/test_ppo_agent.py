@@ -34,6 +34,43 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     return frame, tickers
 
 
+def test_validation_environment_uses_training_close_for_first_holdout_return():
+    validation, tickers = market_data(prices_a=(110.0, 121.0))
+    env = StockTradingEnv(
+        validation, tickers, lookback=0, previous_close=np.array([100.0])
+    )
+    observation, _ = env.reset()
+    assert observation[1] == pytest.approx(0.10)
+
+
+@pytest.mark.parametrize(
+    "previous_close",
+    [np.array([0.0]), np.array([np.nan]), np.array([100.0, 110.0])],
+)
+def test_environment_rejects_invalid_previous_close_context(previous_close):
+    data, tickers = market_data()
+    with pytest.raises(ValueError, match="previous_close"):
+        StockTradingEnv(data, tickers, lookback=0, previous_close=previous_close)
+
+
+def test_ppo_evaluation_uses_preceding_training_close_for_first_holdout_observation():
+    validation, tickers = market_data(prices_a=(110.0, 121.0, 133.1))
+    agent = PPOAgent(tickers=tickers, load_existing_model=False)
+    captured = []
+
+    class CapturingModel:
+        def predict(self, observation, deterministic=True):
+            captured.append(observation.copy())
+            return np.array([0.0]), None
+
+    agent.model = CapturingModel()
+    metrics = agent.evaluate(validation, previous_close=np.array([100.0]))
+
+    assert captured[0][1] == pytest.approx(0.10)
+    assert metrics["observations"] == 3
+    assert metrics["steps"] == 2
+
+
 def test_environment_observation_matches_declared_space():
     data, tickers = market_data(prices_b=(100.0, 90.0, 81.0))
     env = StockTradingEnv(data, tickers, lookback=0)

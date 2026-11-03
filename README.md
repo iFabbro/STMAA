@@ -116,7 +116,15 @@ uv pip check
 
 ### Addestramento PPO (ricerca, non paper execution)
 
-Il training usa lo stesso contratto versionato dell'inferenza: barre OHLCV giornaliere Alpaca SIP consolidate con `adjustment=all`, inclusi gli aggiustamenti provider per split, dividendi e spin-off. Le feature (RSI, MACD, BB_middle e ATR) sono calcolate da un'unica implementazione condivisa e parametrizzata; il contratto registra versione, formule, parametri, warm-up e convenzioni sui dati mancanti. I dati sono divisi cronologicamente: il periodo più recente è riservato alla validazione e non viene usato per l'ottimizzazione PPO.
+Il training PPO è un'attività di ricerca separata dal ciclo di paper trading. Usa lo stesso contratto versionato dell'inferenza:
+
+- **Contratto modello:** versione `7`.
+- **Contratto osservazioni:** `dimensionless_ohlc_features_v1`. Per ogni ticker la policy riceve rendimento close-to-close a una barra, RSI centrato, MACD/Close, Close/BB_middle - 1 e ATR/Close; il vettore include inoltre liquidità e pesi correnti.
+- **Contratto dati:** versione `4`, barre giornaliere Alpaca SIP consolidate con `adjustment=all`, campi OHLCV e campo `Open` richiesto per l'esecuzione al successivo open.
+- **Esecuzione simulata:** il segnale è calcolato sulla barra completata (t) e il nuovo target è applicato all'Open della barra (t+1). Le posizioni preesistenti assorbono il gap overnight; il nuovo target parte dall'open successivo. Costi e slippage sono applicati nel modello di ambiente.
+- **Separazione temporale:** il periodo più recente è riservato alla validazione cronologica e non viene usato per l'ottimizzazione PPO.
+
+Esempio di training esplicito:
 
 ```bash
 uv run --locked python train.py \
@@ -131,23 +139,21 @@ uv run --locked python train.py \
   --seed 42
 ```
 
-L'opzione `--end-date` è esclusiva. Il comando produce `models/ppo_trading_model_v3.zip` e il relativo file `.metadata.json`, che registra versione del contratto, ticker, costi, limiti di allocazione, intervalli temporali e metriche sul periodo holdout. I limiti e i costi devono coincidere con quelli del runtime; il caricamento rifiuta un modello con parametri incompatibili. Se `MAX_PORTFOLIO_EXPOSURE` in `.env` è diverso da `0.50`, passare lo stesso valore a `--max-gross-exposure`.
+`--end-date` è esclusiva. Il percorso base predefinito è `models/ppo_trading_model.zip`; può essere cambiato con `--model-path`. Il percorso base non è il file binario pubblicato: dopo il salvataggio il sistema produce un artefatto immutabile con nome content-addressed, `ppo_trading_model.<sha256>.zip`, e un manifest attivo `ppo_trading_model.zip.metadata.json`. Il manifest punta all'artefatto esatto tramite nome e SHA-256. I file temporanei vengono preparati nella stessa directory; il manifest viene pubblicato atomicamente dopo l'artefatto. Non rinominare o modificare manualmente questi file.
 
-La validazione è diagnostica e non applica una soglia automatica di redditività: un risultato positivo sul periodo holdout non garantisce prestazioni future. Il training non accede al broker e non invia ordini. `trade.py` continua a richiedere un modello compatibile e resta configurato per Alpaca Paper.
+Il manifest registra almeno: versione del contratto modello, ticker e dimensione dello stato, contratti di azione/esecuzione/osservazione, costi e limiti, contratto dati completo, SHA-256 dell'artefatto, nome dell'artefatto e metadati di training (fonte dati, intervalli training/validation, frazione holdout, timesteps, seed e metriche di validazione). La specifica dei campi e il relativo JSON Schema sono in [`docs/PPO_ARTIFACTS.md`](docs/PPO_ARTIFACTS.md) e [`docs/schemas/ppo-artifact-manifest.schema.json`](docs/schemas/ppo-artifact-manifest.schema.json).
 
-Avviare il flusso di paper trading:
+Il caricamento verifica la compatibilità dei contratti, dei parametri, del nome content-addressed e dell'hash prima di deserializzare il modello. Gli artefatti PPO v6 o con semantica delle osservazioni precedente non sono compatibili con v7: devono essere rigenerati con un nuovo training controllato. La manutenzione degli artefatti è esplicita e il pruning è dry-run per impostazione predefinita.
+
+La validazione holdout è diagnostica e non applica una soglia automatica di redditività. Un risultato positivo non garantisce prestazioni future. Il comando di training non accede al broker e non invia ordini; non viene eseguito automaticamente all'avvio di `trade.py`. Non è incluso nel repository alcun modello pre-addestrato: il download del codice non equivale al download di un artefatto PPO già addestrato. La generazione del modello richiede un training eseguito separatamente.
+
+Per avviare il flusso Alpaca Paper dopo aver generato e verificato un modello compatibile:
 
 ```bash
 uv run --locked python trade.py
 ```
 
-Avviare l'hub di monitoraggio da terminale in una finestra separata:
-
-```bash
-uv run --locked python hub.py
-```
-
-Il flusso operativo può richiedere credenziali valide e dati di mercato accessibili. Il semplice avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati.
+L'avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati. STMAA resta alpha/sperimentale e non va configurato per operare con capitale reale.
 
 ### Feed dati Alpaca e ritardo
 
@@ -191,6 +197,7 @@ La prenotazione della decisione viene salvata prima dell'inferenza. Se il proces
 │   └── utils/        # Metriche e logging SQLite
 ├── tests/            # Test aggiuntivi, se presenti
 ├── scripts/          # Script di supporto e validazione, se presenti
+├── docs/             # Specifiche operative e contratti degli artefatti
 ├── trade.py          # Punto di ingresso per il paper trading
 ├── hub.py            # Hub di monitoraggio da terminale
 ├── train.py          # Punto di ingresso per l'addestramento

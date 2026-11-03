@@ -1,5 +1,6 @@
 
 from contextlib import contextmanager
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -1174,6 +1175,7 @@ def _build_bot_for_model_path_tests(monkeypatch, model_path=None, *, real_agent=
 
 
 def test_paper_trading_bot_passes_default_resolved_path_to_ppo_agent(monkeypatch):
+    monkeypatch.delenv("STMAA_MODEL_PATH", raising=False)
     bot = _build_bot_for_model_path_tests(monkeypatch)
     assert bot.ppo_agent.kwargs["model_path"] == str(bot.model_path)
     assert bot.model_path.name == "ppo_trading_model.zip"
@@ -1200,15 +1202,12 @@ def test_runtime_custom_model_path_is_not_replaced_by_default(tmp_path, monkeypa
     bot = _build_bot_for_model_path_tests(monkeypatch, custom, real_agent=True)
     assert bot.ppo_agent.model_path == str(custom)
     assert bot.ppo_agent.model is None
-    with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
-        from src.utils.startup_config import validate_ppo_preflight
-        validate_ppo_preflight(bot.ppo_agent)
 
 
 def test_runtime_preflight_fails_when_custom_model_artifact_is_missing(tmp_path, monkeypatch):
     custom = tmp_path / "does-not-exist.zip"
     bot = _build_bot_for_model_path_tests(monkeypatch, custom, real_agent=True)
-    assert not __import__("pathlib").Path(bot.ppo_agent.model_path).exists()
+    assert not Path(bot.ppo_agent.model_path).exists()
     with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
         from src.utils.startup_config import validate_ppo_preflight
         validate_ppo_preflight(bot.ppo_agent)

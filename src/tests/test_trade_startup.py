@@ -1,6 +1,10 @@
 import pytest
 import trade
-from src.utils.startup_config import load_startup_config, validate_broker_preflight
+from src.utils.startup_config import (
+    load_startup_config,
+    validate_broker_preflight,
+    validate_ppo_preflight,
+)
 
 
 def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(monkeypatch):
@@ -207,3 +211,49 @@ def test_invalid_account_snapshot_blocks_startup_without_loop_or_orders(monkeypa
 
     monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
     assert trade.main(["--preflight-only"]) == 1
+
+
+
+def test_ppo_preflight_accepts_only_a_loaded_inference_model():
+    class FakeModel:
+        def predict(self, observation, deterministic=True):
+            return observation, None
+
+    class FakeAgent:
+        model = FakeModel()
+
+    validate_ppo_preflight(FakeAgent())
+
+    with pytest.raises(RuntimeError, match="no trained, compatible model"):
+        validate_ppo_preflight(type("MissingModelAgent", (), {"model": None})())
+
+    with pytest.raises(RuntimeError, match="callable predict"):
+        validate_ppo_preflight(type("InvalidModelAgent", (), {"model": object()})())
+
+    with pytest.raises(RuntimeError, match="agent is unavailable"):
+        validate_ppo_preflight(None)
+
+
+def test_normal_startup_blocks_missing_ppo_before_broker_preflight_or_loop(monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key-example")
+    monkeypatch.setenv("ALPACA_API_SECRET", "paper-secret-example")
+    observed = {"account_requests": 0, "loop_started": False}
+
+    class FakeExecutor:
+        def get_account_status(self):
+            observed["account_requests"] += 1
+            raise AssertionError("missing PPO must be rejected before broker preflight")
+
+    class FakeBot:
+        def __init__(self, **_kwargs):
+            self.executor = FakeExecutor()
+            self.ppo_agent = None
+
+        def run_loop(self, **_kwargs):
+            observed["loop_started"] = True
+            raise AssertionError("missing PPO must never start the trading loop")
+
+    monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
+
+    assert trade.main([]) == 1
+    assert observed == {"account_requests": 0, "loop_started": False}

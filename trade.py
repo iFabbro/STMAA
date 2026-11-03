@@ -629,7 +629,11 @@ def main(argv=None):
         print("STMAA - Paper Trading Bot")
         print("=" * 70)
 
-        from src.utils.startup_config import load_startup_config, validate_broker_preflight
+        from src.utils.startup_config import (
+            load_startup_config,
+            validate_broker_preflight,
+            validate_ppo_preflight,
+        )
 
         config = load_startup_config()
         # Keep validated settings explicit without printing secrets.
@@ -656,6 +660,12 @@ def main(argv=None):
             vix_threshold_high=config.vix_threshold_high,
             vix_threshold_low=config.vix_threshold_low,
         )
+
+        # Normal operation requires a loaded, compatible PPO policy before
+        # making even the read-only broker preflight request. The explicit
+        # preflight-only mode remains a configuration/account diagnostic.
+        if not args.preflight_only:
+            validate_ppo_preflight(bot.ppo_agent)
 
         # Read-only broker request; no loop or order submission before it passes.
         account = validate_broker_preflight(bot.executor)

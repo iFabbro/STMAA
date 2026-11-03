@@ -79,7 +79,7 @@ class AlpacaFeed:
         if not schedule.empty:
             market_open = pd.Timestamp(schedule.iloc[0]["market_open"]).tz_convert("UTC")
             market_close = pd.Timestamp(schedule.iloc[0]["market_close"]).tz_convert("UTC")
-            if market_open <= cutoff < market_close:
+            if market_open <= current < market_close:
                 return pd.Timestamp(ny_date).tz_localize(
                     "America/New_York"
                 ).tz_convert("UTC").to_pydatetime()

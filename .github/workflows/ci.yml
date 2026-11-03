@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -39,25 +39,8 @@ jobs:
           version: "0.10.0"
           enable-cache: true
 
-      - name: Resolve or verify dependency lock
-        id: lock
-        run: |
-          if [ -f uv.lock ]; then
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            uv lock --check
-          else
-            uv lock
-            echo "created=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Commit bootstrapped lock file
-        if: matrix.os == 'ubuntu-latest' && steps.lock.outputs.created == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add uv.lock
-          git commit -m "Add uv dependency lock file"
-          git push origin "HEAD:$GITHUB_HEAD_REF"
+      - name: Verify dependency lock
+        run: uv lock --check
 
       - name: Install locked dependencies
         run: uv sync --locked --group dev
@@ -98,13 +81,8 @@ jobs:
           version: "0.10.0"
           enable-cache: true
 
-      - name: Resolve or verify dependency lock
-        run: |
-          if [ -f uv.lock ]; then
-            uv lock --check
-          else
-            uv lock
-          fi
+      - name: Verify dependency lock
+        run: uv lock --check
 
       - name: Install development dependencies
         run: uv sync --locked --group dev

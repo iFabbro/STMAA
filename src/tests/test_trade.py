@@ -1147,3 +1147,66 @@ def test_generate_weights_reuses_supplied_verified_broker_snapshots(monkeypatch)
     np.testing.assert_allclose(observed["current_weights"], np.array([0.2]))
     assert observed["reconciled_positions"] is positions
     np.testing.assert_allclose(result.weights, np.array([0.1]))
+
+
+def _build_bot_for_model_path_tests(monkeypatch, model_path=None, *, real_agent=False):
+    monkeypatch.setattr(trade, "load_equity_curve", lambda: [])
+    monkeypatch.setattr(trade, "BrokerExecutor", DummyExecutor)
+    monkeypatch.setattr(trade, "AlpacaFeed", DummyFeed)
+    monkeypatch.setattr(trade, "DataProcessor", DummyProcessor)
+    monkeypatch.setattr(trade, "WeightCentricPipeline", DummyPipeline)
+    monkeypatch.setattr(trade, "RiskOverlayModule", DummyRisk)
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+    if real_agent:
+        monkeypatch.setattr(trade, "PPOAgent", PPOAgent)
+    else:
+        class FakePPOAgent:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.model = object()
+
+        monkeypatch.setattr(trade, "PPOAgent", FakePPOAgent)
+    return PaperTradingBot(
+        tickers=["AAA"], initial_capital=1_000.0, model_path=model_path,
+    )
+
+
+def test_paper_trading_bot_passes_default_resolved_path_to_ppo_agent(monkeypatch):
+    bot = _build_bot_for_model_path_tests(monkeypatch)
+    assert bot.ppo_agent.kwargs["model_path"] == str(bot.model_path)
+    assert bot.model_path.name == "ppo_trading_model.zip"
+
+
+def test_paper_trading_bot_passes_environment_model_path_to_ppo_agent(tmp_path, monkeypatch):
+    target = tmp_path / "environment-model.zip"
+    monkeypatch.setenv("STMAA_MODEL_PATH", str(target))
+    bot = _build_bot_for_model_path_tests(monkeypatch)
+    assert bot.model_path == target
+    assert bot.ppo_agent.kwargs["model_path"] == str(target)
+
+
+def test_paper_trading_bot_explicit_model_path_overrides_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("STMAA_MODEL_PATH", str(tmp_path / "environment-model.zip"))
+    explicit = tmp_path / "explicit-model.zip"
+    bot = _build_bot_for_model_path_tests(monkeypatch, explicit)
+    assert bot.model_path == explicit
+    assert bot.ppo_agent.kwargs["model_path"] == str(explicit)
+
+
+def test_runtime_custom_model_path_is_not_replaced_by_default(tmp_path, monkeypatch):
+    custom = tmp_path / "missing-custom-model.zip"
+    bot = _build_bot_for_model_path_tests(monkeypatch, custom, real_agent=True)
+    assert bot.ppo_agent.model_path == str(custom)
+    assert bot.ppo_agent.model is None
+    with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
+        from src.utils.startup_config import validate_ppo_preflight
+        validate_ppo_preflight(bot.ppo_agent)
+
+
+def test_runtime_preflight_fails_when_custom_model_artifact_is_missing(tmp_path, monkeypatch):
+    custom = tmp_path / "does-not-exist.zip"
+    bot = _build_bot_for_model_path_tests(monkeypatch, custom, real_agent=True)
+    assert not __import__("pathlib").Path(bot.ppo_agent.model_path).exists()
+    with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
+        from src.utils.startup_config import validate_ppo_preflight
+        validate_ppo_preflight(bot.ppo_agent)

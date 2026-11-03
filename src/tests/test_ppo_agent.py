@@ -23,6 +23,7 @@ def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     if prices_b is not None:
         tickers.append("B")
         data["Close_B"] = prices_b
+        data["Open_B"] = np.concatenate(([prices_b[0]], np.asarray(prices_b[:-1], dtype=float)))
         data["RSI_B"] = np.full(size, 50.0)
         data["MACD_B"] = np.zeros(size)
         data["BB_middle_B"] = np.asarray(prices_b, dtype=float)
@@ -77,6 +78,7 @@ def test_policy_does_not_capture_overnight_gap_before_next_open_fill():
 
 def test_existing_holdings_bear_overnight_gap_before_next_open_rebalance():
     data, tickers = market_data(prices_a=(100.0, 200.0))
+    data.loc[1, "Open_A"] = 200.0
     env = StockTradingEnv(
         data, tickers, initial_capital=1000.0, transaction_cost=0.0,
         slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0, lookback=0,

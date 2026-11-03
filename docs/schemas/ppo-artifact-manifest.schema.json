@@ -174,7 +174,8 @@
         "initial_capital",
         "dataset_sha256",
         "git_commit",
-        "seed"
+        "seed",
+        "git_worktree_clean"
       ],
       "properties": {
         "learning_rate": {

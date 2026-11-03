@@ -48,7 +48,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Verify installed dependency consistency
-        run: uv run --locked pip check
+        run: uv pip check
 
       - name: Run tests
         run: uv run --locked pytest src/tests tests -q

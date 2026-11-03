@@ -105,7 +105,7 @@ def test_split_and_dividend_adjusted_ohlcv_are_preserved_in_training_and_inferen
 
     assert len(feed.client.requests) == 2
     for request in feed.client.requests:
-        assert request.feed == "iex"
+        assert request.feed == "sip"
         assert request.adjustment == "all"
         assert request.timeframe == _DAILY_TIMEFRAME
 

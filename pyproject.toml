@@ -1,0 +1,34 @@
+[project]
+name = "stmaa"
+version = "0.1.0"
+description = "Experimental framework for systematic trading research and Alpaca Paper Trading"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "alpaca-py>=0.28.0",
+    "gymnasium",
+    "numpy",
+    "pandas",
+    "pandas-market-calendars>=4.4.0",
+    "plotly",
+    "python-dotenv>=1.0.0",
+    "requests",
+    "stable-baselines3",
+    "tabulate",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::DeprecationWarning:websockets\\.legacy\\.*"]
+
+[tool.ruff]
+target-version = "py313"
+extend-exclude = [".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["E402", "E701", "B905"]

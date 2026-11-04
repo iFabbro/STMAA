@@ -6,9 +6,10 @@ import tempfile
 import fcntl
 import time
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import copy
 import uuid
+from decimal import Decimal, InvalidOperation
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -255,7 +256,7 @@ class BrokerExecutor:
         self._persisted_state_revision = -1
         self._state_persistence_failed = False
         self.state = {
-            "state_schema_version": 1,
+            "state_schema_version": 2,
             "state_revision": 0,
             "last_execution_time": None,
             "total_orders": 0,
@@ -278,6 +279,7 @@ class BrokerExecutor:
             "order_submission_unresolved": {},
             "order_submission_confirmed": {},
             "corporate_action_reconciliation": {},
+            "opg_batches": {},
         }
         self._load_state()
         self._restore_metrics_history()
@@ -295,7 +297,8 @@ class BrokerExecutor:
                 loaded_state = json.load(state_file)
             if not isinstance(loaded_state, dict):
                 raise ValueError("persisted broker state must be a JSON object")
-            if loaded_state.get("state_schema_version") != 1:
+            schema_version = loaded_state.get("state_schema_version")
+            if type(schema_version) is not int or schema_version not in {1, 2}:
                 raise ValueError(
                     "persisted broker state schema is missing or unsupported; manual reconciliation required"
                 )
@@ -339,6 +342,17 @@ class BrokerExecutor:
                         raise ValueError(
                             f"persisted broker state entries in {key} must be objects"
                         )
+            if "corporate_action_reconciliation" in loaded_state and not isinstance(
+                loaded_state["corporate_action_reconciliation"], dict
+            ):
+                raise ValueError("persisted corporate-action reconciliation state must be an object")
+            if schema_version == 2 and (
+                "opg_batches" not in loaded_state or not isinstance(loaded_state["opg_batches"], dict)
+            ):
+                raise ValueError("persisted OPG batch state must be an object")
+            if schema_version == 1:
+                loaded_state["state_schema_version"] = 2
+                loaded_state["opg_batches"] = {}
             pending_liquidations = loaded_state.get("emergency_liquidation_pending", {})
             unresolved_liquidations = loaded_state.get("emergency_liquidation_unresolved", {})
             overlapping_symbols = set(pending_liquidations).intersection(unresolved_liquidations)
@@ -355,6 +369,17 @@ class BrokerExecutor:
             ) from exc
 
         self.state.update(loaded_state)
+        if schema_version == 1:
+            # The v1 payload is retained verbatim except for the explicit schema
+            # marker and new empty OPG map. _save_state uses the existing revision
+            # check, temp-file fsync, atomic replace, and directory fsync.
+            try:
+                with self.execution_lock():
+                    self._save_state()
+            except Exception as exc:
+                raise RuntimeError(
+                    "Unable to migrate persisted broker state from schema v1; refusing execution"
+                ) from exc
         self.logger.info("Broker state loaded from persistence")
 
     def _restore_metrics_history(self):
@@ -2070,6 +2095,167 @@ class BrokerExecutor:
             self.state.clear()
             self.state.update(previous_state)
             raise
+
+
+    @staticmethod
+    def _opg_order_value(order, field, default=None):
+        value = getattr(order, field, default)
+        return getattr(value, "value", value)
+
+    @staticmethod
+    def _opg_status(order, default="accepted"):
+        value = getattr(order, "status", default)
+        return str(getattr(value, "value", value) or default).strip().lower()
+
+    def _persist_opg_batch(self, batch_id, batch):
+        previous_batches = copy.deepcopy(self.state.get("opg_batches", {}))
+        batches = dict(previous_batches)
+        batch["updated_at"] = datetime.now(timezone.utc).isoformat()
+        batches[batch_id] = batch
+        self.state["opg_batches"] = batches
+        try:
+            self._save_state()
+        except Exception:
+            self.state["opg_batches"] = previous_batches
+            raise
+
+    @staticmethod
+    def _validate_opg_broker_order(order, expected):
+        checks = {
+            "client_order_id": expected["client_order_id"],
+            "symbol": expected["symbol"],
+            "side": expected["side"],
+            "qty": str(expected["quantity"]),
+        }
+        for field, expected_value in checks.items():
+            raw = getattr(order, field, None)
+            if raw is None:
+                raise RuntimeError(f"OPG broker acknowledgement is missing {field}")
+            actual = getattr(raw, "value", raw)
+            if field == "qty":
+                try:
+                    if Decimal(str(actual)) != Decimal(expected_value):
+                        raise RuntimeError("OPG broker order identity mismatch")
+                except (InvalidOperation, TypeError, ValueError) as exc:
+                    raise RuntimeError("OPG broker order identity mismatch") from exc
+            elif str(actual).strip().lower() != str(expected_value).strip().lower():
+                raise RuntimeError("OPG broker order identity mismatch")
+        order_id = str(getattr(order, "id", "") or "").strip()
+        if not order_id:
+            raise RuntimeError("OPG broker acknowledgement has no order ID")
+        order_type = getattr(order, "type", None)
+        tif = getattr(order, "time_in_force", None)
+        if order_type is None or str(getattr(order_type, "value", order_type)).lower() != "market":
+            raise RuntimeError("OPG broker order type mismatch")
+        if tif is None or str(getattr(tif, "value", tif)).lower() != "opg":
+            raise RuntimeError("OPG broker time-in-force mismatch")
+        raw_filled = getattr(order, "filled_qty", None)
+        try:
+            filled = Decimal(str(raw_filled))
+            requested = Decimal(str(expected["quantity"]))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("OPG broker fill snapshot is missing or invalid") from exc
+        if not filled.is_finite() or filled < 0 or filled > requested or filled != filled.to_integral_value():
+            raise RuntimeError("OPG broker fill quantity is invalid")
+        average_price = getattr(order, "filled_avg_price", None)
+        if average_price not in (None, ""):
+            try:
+                average = Decimal(str(average_price))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise RuntimeError("OPG broker average fill price is invalid") from exc
+            if not average.is_finite() or average <= 0:
+                raise RuntimeError("OPG broker average fill price is invalid")
+        return order_id
+
+    def execute_opg_plan(self, plan, *, signal_bar_at: str, target_session: str):
+        """Persist and submit one deterministic Paper-only OPG batch sequentially.
+
+        This path is deliberately separate from execute_weights/DAY. It never
+        retries an ambiguous submission and stops before the next symbol on any
+        failure. Restart recovery and position reconciliation are PR C.
+        """
+        lock = self.execution_lock() if hasattr(self, "state_file") else nullcontext()
+        with lock:
+            if not isinstance(getattr(self, "state", None), dict) or self.state.get("account_mode") != "paper":
+                raise RuntimeError("OPG execution is Paper-only; refusing non-Paper account mode")
+            if getattr(self, "paper_trading", True) is False:
+                raise RuntimeError("OPG execution is Paper-only; refusing non-Paper broker client")
+            batches = self.state.setdefault("opg_batches", {})
+            if not isinstance(batches, dict):
+                raise RuntimeError("Persisted OPG batch state is invalid; refusing execution")
+            blocking = [
+                key for key, value in batches.items()
+                if isinstance(value, dict) and value.get("status") not in {"completed", "no_orders"}
+            ]
+            account_id = str(self.state.get("account_id") or "").strip()
+            if not account_id:
+                raise RuntimeError("Verified broker account identity is required for OPG execution")
+            from src.execution.opg_execution import build_opg_batch_record, build_opg_order_request
+
+            record = build_opg_batch_record(
+                account_id=account_id,
+                signal_bar_at=signal_bar_at,
+                target_session=target_session,
+                plan=plan,
+            )
+            batch_id = record["batch_id"]
+            if batch_id in batches:
+                return copy.deepcopy(batches[batch_id])
+            if blocking:
+                raise RuntimeError(
+                    "An unresolved or unreconciled OPG batch blocks a new batch: " + ", ".join(sorted(blocking))
+                )
+            if record["account_mode"] != self.state.get("account_mode"):
+                raise RuntimeError("OPG batch account mode differs from persisted broker state")
+
+            self._persist_opg_batch(batch_id, record)
+            if record["status"] == "no_orders":
+                return copy.deepcopy(record)
+
+            for symbol in sorted(record["orders"]):
+                order_record = record["orders"][symbol]
+                order_record["status"] = "submission_pending"
+                record["status"] = "submission_pending"
+                self._persist_opg_batch(batch_id, record)
+                request = build_opg_order_request(
+                    symbol, order_record["quantity"], order_record["client_order_id"], order_record["side"]
+                )
+                try:
+                    broker_order = self.trading_client.submit_order(request)
+                    order_id = self._validate_opg_broker_order(broker_order, order_record)
+                except Exception as submit_error:
+                    # A failed/ambiguous POST is never repeated. Query the stable ID
+                    # once; only a fully matching visible order can be acknowledged.
+                    try:
+                        broker_order = self.trading_client.get_order_by_client_id(
+                            order_record["client_order_id"]
+                        )
+                        order_id = self._validate_opg_broker_order(broker_order, order_record)
+                    except Exception as lookup_error:
+                        order_record["status"] = "unresolved"
+                        order_record["blocking_reason"] = "submission_outcome_unconfirmed"
+                        record["status"] = "unresolved"
+                        record["blocking_reason"] = str(lookup_error)[:500]
+                        self._persist_opg_batch(batch_id, record)
+                        raise RuntimeError(
+                            f"OPG submission outcome unresolved for {symbol}; no resubmission performed"
+                        ) from submit_error
+
+                order_record.update({
+                    "order_id": order_id,
+                    "status": self._opg_status(broker_order),
+                    "filled_qty": str(getattr(broker_order, "filled_qty", "0") or "0"),
+                    "average_fill_price": (
+                        str(getattr(broker_order, "filled_avg_price", None))
+                        if getattr(broker_order, "filled_avg_price", None) is not None else None
+                    ),
+                    "acknowledged_at": datetime.now(timezone.utc).isoformat(),
+                })
+                self._persist_opg_batch(batch_id, record)
+
+            record["status"] = "submission_complete"
+            self._persist_opg_batch(batch_id, record)
+            return copy.deepcopy(record)
 
     @contextmanager
     def execution_lock(self):

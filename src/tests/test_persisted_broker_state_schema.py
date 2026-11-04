@@ -24,6 +24,7 @@ def isolated_state_env(monkeypatch, tmp_path):
         "emergency_liquidation_unresolved",
         "order_submission_unresolved",
         "order_submission_confirmed",
+        "opg_batches",
     ],
 )
 def test_restart_fails_closed_if_safety_map_is_missing(
@@ -45,7 +46,7 @@ def test_restart_fails_closed_if_safety_map_is_missing(
     assert first.state_file.read_text(encoding="utf-8") == original
 
 
-@pytest.mark.parametrize("schema_version", [None, 0, 2, "1"])
+@pytest.mark.parametrize("schema_version", [None, 0, 3, "2"])
 def test_restart_fails_closed_on_missing_or_unsupported_state_schema(
     isolated_state_env, schema_version
 ):
@@ -71,11 +72,12 @@ def test_new_state_initializes_schema_and_all_safety_maps(isolated_state_env):
     executor = BrokerExecutor()
 
     persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))
-    assert persisted["state_schema_version"] == 1
+    assert persisted["state_schema_version"] == 2
     for key in (
         "emergency_liquidation_pending",
         "emergency_liquidation_unresolved",
         "order_submission_unresolved",
         "order_submission_confirmed",
+        "opg_batches",
     ):
         assert persisted[key] == {}

@@ -1760,3 +1760,38 @@ def test_prediction_rejects_market_data_without_fingerprint():
     agent.model = object()
     with pytest.raises(ValueError, match="fingerprint"):
         agent.predict_weights(data)
+
+
+def test_trained_ppo_artifact_reloads_and_runs_runtime_inference(tmp_path):
+    """Cover the real train -> publish -> restart/load -> inference lifecycle."""
+    prices = np.linspace(100.0, 124.0, 24)
+    data, tickers = market_data(prices_a=tuple(prices))
+    model_path = tmp_path / "trained-runtime-roundtrip.zip"
+
+    trainer = PPOAgent(
+        tickers=tickers,
+        model_path=str(model_path),
+        load_existing_model=False,
+        n_steps=2,
+        batch_size=2,
+        n_epochs=1,
+        seed=17,
+        verbose=0,
+    )
+    trainer.train(data, total_timesteps=4)
+
+    assert (tmp_path / "trained-runtime-roundtrip.zip.metadata.json").is_file()
+
+    restarted = PPOAgent(
+        tickers=tickers,
+        model_path=str(model_path),
+        load_existing_model=True,
+    )
+    assert restarted.model is not None
+
+    weights = restarted.predict_weights(data)
+    assert weights.shape == (len(tickers),)
+    assert np.isfinite(weights).all()
+    assert (weights >= 0.0).all()
+    assert (weights <= restarted.max_position_size + 1e-8).all()
+    assert float(weights.sum()) <= restarted.max_gross_exposure + 1e-8

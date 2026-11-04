@@ -148,6 +148,10 @@ def build_opg_sizing_plan(
         if position != position.to_integral_value():
             raise ValueError(f"fractional position for {symbol} blocks the sizing batch")
         positions[symbol] = int(position)
+        if symbol not in symbols and position != 0:
+            raise ValueError(
+                f"unmodeled account position for {symbol} blocks the sizing batch"
+            )
 
     for symbol in sorted(symbols):
         weight = _decimal(weights_input[symbol], f"target weight for {symbol}")

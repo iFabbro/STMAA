@@ -1,7 +1,7 @@
 """Pure integer-share sizing and PPO v7 deviation accounting for RW-08."""
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
 
@@ -171,11 +171,7 @@ def build_opg_sizing_plan(
 
     for symbol in sorted(symbols):
         target_notional = equity_value * weights[symbol]
-        target_quantity = int(
-            (target_notional / prices[symbol]).to_integral_value(
-                rounding=ROUND_FLOOR
-            )
-        )
+        target_quantity = int(target_notional // prices[symbol])
         integer_notional = Decimal(target_quantity) * prices[symbol]
         residual = target_notional - integer_notional
         integer_weight = integer_notional / equity_value

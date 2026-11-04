@@ -43,8 +43,8 @@ The RW-08.3 executor must fail closed unless the configured account mode is Pape
 ## PR acceptance sequence
 
 - PR A: executable contract tests and this specification; tests are staged as strict expected failures until the corresponding PR B/C implementation lands.
-- PR B: schema migration, deterministic identity, batch persistence, request construction, and sequential fail-closed submission.
-- PR C: restart recovery, ambiguous/partial/terminal order reconciliation, and position verification.
+- PR B: schema-v1-to-v2 migration, deterministic identity, batch persistence, OPG request construction, and sequential fail-closed submission. Ambiguous submissions are queried once by stable client ID and remain blocked if not verifiable.
+- PR C: restart recovery, full broker identity/status/fill reconciliation, partial/terminal order handling, and position verification.
 - Final gate: full pytest, Ruff, Gitleaks, review of the combined diff, and explicit operator authorization before merge.
 
 RW-08.4 preflight (account trading status, buying power, eligible assets, and aggregate purchase budget) remains out of scope.

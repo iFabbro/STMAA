@@ -28,7 +28,6 @@ def _opg_api():
     return build_opg_batch_id, build_opg_client_order_id, build_opg_order_request
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_order_request_uses_market_opg():
     from alpaca.trading.enums import OrderSide, TimeInForce
 
@@ -43,14 +42,12 @@ def test_opg_order_request_uses_market_opg():
 
 
 @pytest.mark.parametrize("quantity", [0, -1, 1.5, True, False, "1.5"])
-@PENDING_IMPLEMENTATION
 def test_opg_order_rejects_non_positive_or_fractional_quantity(quantity):
     _, _, build_order = _opg_api()
     with pytest.raises((TypeError, ValueError)):
         build_order("AAPL", quantity, "stmaa-opg-0123456789abcdef")
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_client_order_id_is_deterministic_and_bounded():
     _, build_client_id, _ = _opg_api()
     first = build_client_id("a" * 64, "AAPL")
@@ -61,7 +58,6 @@ def test_opg_client_order_id_is_deterministic_and_bounded():
     assert first != build_client_id("a" * 64, "MSFT")
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_batch_is_unique_per_signal_identity():
     build_batch_id, _, _ = _opg_api()
     identity = {
@@ -78,7 +74,6 @@ def test_opg_batch_is_unique_per_signal_identity():
     assert batch_id != build_batch_id(**{**identity, "account_id": "paper-account-2"})
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_batch_record_contains_immutable_sizing_snapshot():
     from src.execution.opg_sizing import build_opg_sizing_plan
     from src.execution.opg_execution import build_opg_batch_record
@@ -102,7 +97,6 @@ def test_opg_batch_record_contains_immutable_sizing_snapshot():
     json.dumps(record)
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_state_v1_migration_preserves_existing_orders_and_safety_maps(tmp_path, monkeypatch):
     from src.execution.broker_executor import BrokerExecutor
 
@@ -140,7 +134,6 @@ def test_opg_state_v1_migration_preserves_existing_orders_and_safety_maps(tmp_pa
     assert executor.state["opg_batches"] == {}
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_executor_rejects_non_paper_mode_without_submission():
     from src.execution.broker_executor import BrokerExecutor
 
@@ -159,27 +152,83 @@ def test_opg_executor_rejects_non_paper_mode_without_submission():
     executor.trading_client.submit_order.assert_not_called()
 
 
-@PENDING_IMPLEMENTATION
+def test_opg_executor_requires_verified_account_identity():
+    from src.execution.broker_executor import BrokerExecutor
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor.trading_client = SimpleNamespace(
+        submit_order=Mock(side_effect=AssertionError("must not submit"))
+    )
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2},
+        close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
+    )
+    with pytest.raises(RuntimeError, match="identity is not verified"):
+        executor.execute_opg_plan(
+            plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
+        )
+    executor.trading_client.submit_order.assert_not_called()
+
+
 def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
     events = []
     executor._save_state = lambda: events.append("persist")
 
     class BrokerMock:
         def submit_order(self, request):
             events.append("submit")
-            return SimpleNamespace(id="broker-1", status="accepted")
+            return SimpleNamespace(
+                id="broker-1", status="accepted", client_order_id=request.client_order_id,
+                symbol=request.symbol, side=request.side, qty=str(request.qty),
+                type="market", time_in_force="opg", filled_qty="0",
+            )
 
     executor.trading_client = BrokerMock()
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2},
+        close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
+    )
     executor.execute_opg_plan(
-        object(),
-        signal_bar_at="2026-11-03T21:00:00Z",
-        target_session="2026-11-04",
+        plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
     )
     assert events.index("persist") < events.index("submit")
+
+
+def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
+    from src.execution.broker_executor import BrokerExecutor
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
+    executor._save_state = Mock()
+    broker = SimpleNamespace(submit_order=Mock(side_effect=lambda request: SimpleNamespace(
+        id="broker-1", status="accepted", client_order_id=request.client_order_id,
+        symbol=request.symbol, side=request.side, qty=str(request.qty), type="market",
+        time_in_force="opg", filled_qty="0", filled_avg_price=None,
+    )))
+    executor.trading_client = broker
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2},
+        close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
+    )
+    first = executor.execute_opg_plan(
+        plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
+    )
+    second = executor.execute_opg_plan(
+        plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
+    )
+    assert first["batch_id"] == second["batch_id"]
+    broker.submit_order.assert_called_once()
 
 
 @PENDING_IMPLEMENTATION
@@ -219,12 +268,12 @@ def test_opg_restart_reconciles_without_resubmission():
     executor.trading_client.submit_order.assert_not_called()
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_ambiguous_submission_stops_batch_without_resubmission():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
-    executor.state = {"account_mode": "paper", "opg_batches": {}}
+    executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
     submitted = []
 
     class BrokerMock:
@@ -237,11 +286,16 @@ def test_opg_ambiguous_submission_stops_batch_without_resubmission():
 
     executor.trading_client = BrokerMock()
     executor._save_state = lambda: None
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2, "MSFT": 0.2},
+        close_prices={"AAPL": 100, "MSFT": 100},
+        current_positions={"AAPL": 0, "MSFT": 0},
+    )
     with pytest.raises(RuntimeError, match="unresolved"):
         executor.execute_opg_plan(
-            object(),
-            signal_bar_at="2026-11-03T21:00:00Z",
-            target_session="2026-11-04",
+            plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
         )
     assert len(submitted) == 1
 
@@ -266,15 +320,8 @@ def test_opg_order_identity_mismatch_fails_closed():
         },
     }
     broker_order = SimpleNamespace(
-        id="broker-1",
-        client_order_id="other-id",
-        symbol="AAPL",
-        side="buy",
-        qty="2",
-        filled_qty="0",
-        status="accepted",
-        type="market",
-        time_in_force="opg",
+        id="broker-1", client_order_id="other-id", symbol="AAPL", side="buy",
+        qty="2", filled_qty="0", status="accepted", type="market", time_in_force="opg",
     )
     executor.trading_client = SimpleNamespace(
         get_order_by_client_id=Mock(return_value=broker_order)
@@ -285,23 +332,28 @@ def test_opg_order_identity_mismatch_fails_closed():
         executor._recover_opg_batches()
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_unresolved_order_blocks_new_batch():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {
         "account_mode": "paper",
+        "account_id": "paper-account-1",
         "opg_batches": {"batch-old": {"status": "unresolved", "orders": {}}},
     }
+    executor._current_account_identity_verified = True
     executor.trading_client = SimpleNamespace(
         submit_order=Mock(side_effect=AssertionError("must not submit"))
     )
 
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2},
+        close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
+    )
     with pytest.raises(RuntimeError, match="unresolved"):
         executor.execute_opg_plan(
-            object(),
-            signal_bar_at="2026-11-04T21:00:00Z",
-            target_session="2026-11-05",
+            plan, signal_bar_at="2026-11-04T21:00:00Z", target_session="2026-11-05"
         )
     executor.trading_client.submit_order.assert_not_called()

@@ -6,6 +6,8 @@ are mocked; this module must never contact Alpaca or submit real orders.
 """
 
 import json
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -144,7 +146,9 @@ def test_opg_executor_rejects_non_paper_mode_without_submission():
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "live", "opg_batches": {}}
-    executor.trading_client = type("BrokerMock", (), {"submit_order": lambda *_: pytest.fail("must not submit")})()
+    executor.trading_client = SimpleNamespace(
+        submit_order=Mock(side_effect=AssertionError("must not submit"))
+    )
 
     with pytest.raises(RuntimeError, match="Paper"):
         executor.execute_opg_plan(
@@ -152,6 +156,7 @@ def test_opg_executor_rejects_non_paper_mode_without_submission():
             signal_bar_at="2026-11-03T21:00:00Z",
             target_session="2026-11-04",
         )
+    executor.trading_client.submit_order.assert_not_called()
 
 
 @PENDING_IMPLEMENTATION
@@ -166,13 +171,9 @@ def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
     class BrokerMock:
         def submit_order(self, request):
             events.append("submit")
-            return type("Order", (), {"id": "broker-1", "status": "accepted"})()
+            return SimpleNamespace(id="broker-1", status="accepted")
 
     executor.trading_client = BrokerMock()
-    executor._execute_opg_orders_for_contract_test = lambda *args, **kwargs: (
-        events.append("persist")
-    )
-    # The production entry point must persist the complete batch before submit.
     executor.execute_opg_plan(
         object(),
         signal_bar_at="2026-11-03T21:00:00Z",
@@ -182,27 +183,40 @@ def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
 
 
 @PENDING_IMPLEMENTATION
-def test_opg_restart_reconciles_without_resubmission(tmp_path):
+def test_opg_restart_reconciles_without_resubmission():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {
         "account_mode": "paper",
-        "opg_batches": {"batch-1": {"status": "submission_pending", "orders": {"AAPL": {"client_order_id": "stable-id"}}}},
-    }
-    executor.trading_client = type(
-        "BrokerMock",
-        (),
-        {
-            "get_order_by_client_id": lambda *_: type(
-                "Order", (), {"id": "broker-1", "client_order_id": "stable-id", "symbol": "AAPL", "side": "buy", "qty": "2", "filled_qty": "0", "status": "accepted", "type": "market", "time_in_force": "opg"}
-            )()
+        "opg_batches": {
+            "batch-1": {
+                "status": "submission_pending",
+                "orders": {"AAPL": {"client_order_id": "stable-id"}},
+            }
         },
-    )()
-    executor._save_state = lambda: None
+    }
+    broker_order = SimpleNamespace(
+        id="broker-1",
+        client_order_id="stable-id",
+        symbol="AAPL",
+        side="buy",
+        qty="2",
+        filled_qty="0",
+        status="accepted",
+        type="market",
+        time_in_force="opg",
+    )
+    executor.trading_client = SimpleNamespace(
+        get_order_by_client_id=Mock(return_value=broker_order),
+        submit_order=Mock(),
+    )
+    executor._save_state = Mock()
 
     executor._recover_opg_batches()
-    assert executor.trading_client.get_order_by_client_id.call_count == 0 if hasattr(executor.trading_client.get_order_by_client_id, "call_count") else True
+
+    executor.trading_client.get_order_by_client_id.assert_called_once_with("stable-id")
+    executor.trading_client.submit_order.assert_not_called()
 
 
 @PENDING_IMPLEMENTATION
@@ -237,13 +251,35 @@ def test_opg_order_identity_mismatch_fails_closed():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
-    executor.state = {"account_mode": "paper", "opg_batches": {"batch-1": {"orders": {"AAPL": {"client_order_id": "stable-id", "quantity": 2, "side": "buy"}}}}}
-    executor.trading_client = type(
-        "BrokerMock", (), {"get_order_by_client_id": lambda *_: type(
-            "Order", (), {"id": "broker-1", "client_order_id": "other-id", "symbol": "AAPL", "side": "buy", "qty": "2", "filled_qty": "0", "status": "accepted", "type": "market", "time_in_force": "opg"}
-        )()}
-    )()
-    executor._save_state = lambda: None
+    executor.state = {
+        "account_mode": "paper",
+        "opg_batches": {
+            "batch-1": {
+                "orders": {
+                    "AAPL": {
+                        "client_order_id": "stable-id",
+                        "quantity": 2,
+                        "side": "buy",
+                    }
+                }
+            }
+        },
+    }
+    broker_order = SimpleNamespace(
+        id="broker-1",
+        client_order_id="other-id",
+        symbol="AAPL",
+        side="buy",
+        qty="2",
+        filled_qty="0",
+        status="accepted",
+        type="market",
+        time_in_force="opg",
+    )
+    executor.trading_client = SimpleNamespace(
+        get_order_by_client_id=Mock(return_value=broker_order)
+    )
+    executor._save_state = Mock()
 
     with pytest.raises(RuntimeError, match="identity"):
         executor._recover_opg_batches()
@@ -254,8 +290,13 @@ def test_opg_unresolved_order_blocks_new_batch():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
-    executor.state = {"account_mode": "paper", "opg_batches": {"batch-old": {"status": "unresolved", "orders": {}}}}
-    executor.trading_client = type("BrokerMock", (), {"submit_order": lambda *_: pytest.fail("must not submit")})()
+    executor.state = {
+        "account_mode": "paper",
+        "opg_batches": {"batch-old": {"status": "unresolved", "orders": {}}},
+    }
+    executor.trading_client = SimpleNamespace(
+        submit_order=Mock(side_effect=AssertionError("must not submit"))
+    )
 
     with pytest.raises(RuntimeError, match="unresolved"):
         executor.execute_opg_plan(
@@ -263,3 +304,4 @@ def test_opg_unresolved_order_blocks_new_batch():
             signal_bar_at="2026-11-04T21:00:00Z",
             target_session="2026-11-05",
         )
+    executor.trading_client.submit_order.assert_not_called()

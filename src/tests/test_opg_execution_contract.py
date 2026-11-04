@@ -1,9 +1,4 @@
-"""Executable RW-08.3 contract tests.
-
-These strict xfails are intentional in PR A: PR B/C implement the API and
-remove the markers as each contract becomes executable. All broker effects
-are mocked; this module must never contact Alpaca or submit real orders.
-"""
+"""Executable RW-08.3 tests for persistent OPG execution and recovery."""
 
 import json
 from types import SimpleNamespace
@@ -11,11 +6,6 @@ from unittest.mock import Mock
 
 import pytest
 
-
-PENDING_IMPLEMENTATION = pytest.mark.xfail(
-    strict=True,
-    reason="RW-08.3 contract is staged test-first; implementation lands in PR B/C",
-)
 
 
 def _opg_api():
@@ -211,11 +201,19 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
     executor._current_account_identity_verified = True
     executor._save_state = Mock()
-    broker = SimpleNamespace(submit_order=Mock(side_effect=lambda request: SimpleNamespace(
-        id="broker-1", status="accepted", client_order_id=request.client_order_id,
-        symbol=request.symbol, side=request.side, qty=str(request.qty), type="market",
-        time_in_force="opg", filled_qty="0", filled_avg_price=None,
-    )))
+    broker_order = SimpleNamespace(
+        id="broker-1", status="accepted", client_order_id="", symbol="AAPL", side="buy",
+        qty="2", type="market", time_in_force="opg", filled_qty="0", filled_avg_price=None,
+    )
+    def submit(request):
+        broker_order.client_order_id = request.client_order_id
+        broker_order.qty = str(request.qty)
+        broker_order.side = request.side
+        return broker_order
+    broker = SimpleNamespace(
+        submit_order=Mock(side_effect=submit),
+        get_order_by_id=Mock(return_value=broker_order),
+    )
     executor.trading_client = broker
     plan = build_opg_sizing_plan(
         equity=1000, target_weights={"AAPL": 0.2},
@@ -231,17 +229,23 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
     broker.submit_order.assert_called_once()
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_restart_reconciles_without_resubmission():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {
         "account_mode": "paper",
+        "account_id": "paper-account-1",
         "opg_batches": {
             "batch-1": {
+                "account_id": "paper-account-1",
                 "status": "submission_pending",
-                "orders": {"AAPL": {"client_order_id": "stable-id"}},
+                "account_mode": "paper",
+                "orders": {"AAPL": {
+                    "symbol": "AAPL", "client_order_id": "stable-id",
+                    "side": "buy", "quantity": 2, "status": "submission_pending",
+                    "order_type": "market", "time_in_force": "opg",
+                }},
             }
         },
     }
@@ -256,6 +260,7 @@ def test_opg_restart_reconciles_without_resubmission():
         type="market",
         time_in_force="opg",
     )
+    executor._current_account_identity_verified = True
     executor.trading_client = SimpleNamespace(
         get_order_by_client_id=Mock(return_value=broker_order),
         submit_order=Mock(),
@@ -300,15 +305,17 @@ def test_opg_ambiguous_submission_stops_batch_without_resubmission():
     assert len(submitted) == 1
 
 
-@PENDING_IMPLEMENTATION
 def test_opg_order_identity_mismatch_fails_closed():
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {
         "account_mode": "paper",
+        "account_id": "paper-account-1",
         "opg_batches": {
             "batch-1": {
+                "account_id": "paper-account-1",
+                "account_mode": "paper",
                 "orders": {
                     "AAPL": {
                         "client_order_id": "stable-id",
@@ -323,6 +330,7 @@ def test_opg_order_identity_mismatch_fails_closed():
         id="broker-1", client_order_id="other-id", symbol="AAPL", side="buy",
         qty="2", filled_qty="0", status="accepted", type="market", time_in_force="opg",
     )
+    executor._current_account_identity_verified = True
     executor.trading_client = SimpleNamespace(
         get_order_by_client_id=Mock(return_value=broker_order)
     )
@@ -339,7 +347,7 @@ def test_opg_unresolved_order_blocks_new_batch():
     executor.state = {
         "account_mode": "paper",
         "account_id": "paper-account-1",
-        "opg_batches": {"batch-old": {"status": "unresolved", "orders": {}}},
+        "opg_batches": {"batch-old": {"account_id": "paper-account-1", "account_mode": "paper", "status": "unresolved", "orders": {}}},
     }
     executor._current_account_identity_verified = True
     executor.trading_client = SimpleNamespace(

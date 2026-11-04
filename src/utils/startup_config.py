@@ -263,6 +263,12 @@ def validate_broker_preflight(executor) -> dict:
     if not isinstance(account_id, str) or not account_id.strip():
         raise RuntimeError("Broker preflight failed: current broker account identity is unverified")
 
+    # Account identity is now fresh and verified. Recover persisted OPG batches
+    # before the application enters its normal trading loop; this is read-only.
+    recover_opg = getattr(executor, "reconcile_opg_batches_read_only", None)
+    if callable(recover_opg):
+        recover_opg()
+
     for field in ("equity", "cash", "buying_power"):
         value = status.get(field)
         try:

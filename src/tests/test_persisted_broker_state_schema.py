@@ -81,3 +81,16 @@ def test_new_state_initializes_schema_and_all_safety_maps(isolated_state_env):
         "opg_batches",
     ):
         assert persisted[key] == {}
+
+
+def test_restart_fails_closed_if_opg_batch_entry_is_not_an_object(isolated_state_env):
+    first = BrokerExecutor()
+    persisted = json.loads(first.state_file.read_text(encoding="utf-8"))
+    persisted["opg_batches"] = {"batch-bad": "not-an-object"}
+    first.state_file.write_text(json.dumps(persisted), encoding="utf-8")
+    original = first.state_file.read_text(encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Unable to load persisted broker state"):
+        BrokerExecutor()
+
+    assert first.state_file.read_text(encoding="utf-8") == original

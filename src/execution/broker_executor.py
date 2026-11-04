@@ -347,9 +347,11 @@ class BrokerExecutor:
             ):
                 raise ValueError("persisted corporate-action reconciliation state must be an object")
             if schema_version == 2 and (
-                "opg_batches" not in loaded_state or not isinstance(loaded_state["opg_batches"], dict)
+                "opg_batches" not in loaded_state
+                or not isinstance(loaded_state["opg_batches"], dict)
+                or any(not isinstance(batch, dict) for batch in loaded_state["opg_batches"].values())
             ):
-                raise ValueError("persisted OPG batch state must be an object")
+                raise ValueError("persisted OPG batch state must be an object map of batch records")
             if schema_version == 1:
                 loaded_state["state_schema_version"] = 2
                 loaded_state["opg_batches"] = {}
@@ -2178,11 +2180,13 @@ class BrokerExecutor:
             if getattr(self, "_current_account_identity_verified", False) is not True:
                 raise RuntimeError("Current broker account identity is not verified; refusing OPG execution")
             batches = self.state.setdefault("opg_batches", {})
-            if not isinstance(batches, dict):
+            if not isinstance(batches, dict) or any(
+                not isinstance(batch, dict) for batch in batches.values()
+            ):
                 raise RuntimeError("Persisted OPG batch state is invalid; refusing execution")
             blocking = [
                 key for key, value in batches.items()
-                if isinstance(value, dict) and value.get("status") not in {"completed", "no_orders"}
+                if value.get("status") not in {"completed", "no_orders"}
             ]
             account_id = str(self.state.get("account_id") or "").strip()
             if not account_id:

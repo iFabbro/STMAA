@@ -100,8 +100,10 @@ def test_split_and_dividend_adjusted_ohlcv_are_preserved_in_training_and_inferen
     cleaned = processor.clean_data(historical)
     processed = processor.add_technical_indicators(cleaned)
 
-    # Live inference ingestion uses the same provider fixture and contract.
-    inference = feed.get_bars(["AAA"], days=len(sessions))
+    # Inference must return only the complete suffix after the 20-bar
+    # BB_middle warm-up. The training path retains its warm-up rows.
+    warmup_rows = 19
+    inference = feed.get_bars(["AAA"], days=len(sessions) - warmup_rows)
 
     assert len(feed.client.requests) == 2
     for request in feed.client.requests:
@@ -142,10 +144,10 @@ def test_split_and_dividend_adjusted_ohlcv_are_preserved_in_training_and_inferen
     )
 
     # Training and inference must derive identical PPO inputs from the
-    # adjusted OHLCV response, including the rolling-indicator warm-up.
+    # adjusted OHLCV response after dropping the training warm-up prefix.
     for feature in ("Close", "RSI", "MACD", "BB_middle", "ATR"):
         pd.testing.assert_series_equal(
-            processed[(feature, "AAA")],
+            processed[(feature, "AAA")].iloc[warmup_rows:],
             inference[f"{feature}_AAA"],
             check_names=False,
             check_exact=True,

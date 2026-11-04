@@ -305,7 +305,10 @@ class AlpacaFeed:
 
         end = self._historical_request_end()
         latest_completed_session = self._latest_completed_nyse_session_date(end)
-        start = end - timedelta(days=days + 60)  # buffer per indicatori
+        # Request enough calendar history for the requested trading sessions plus
+        # the 20-observation rolling-feature warm-up, including holiday/weekend slack.
+        calendar_days = int(np.ceil(days * 1.5)) + 30
+        start = end - timedelta(days=calendar_days)
 
         request = StockBarsRequest(
             symbol_or_symbols=tickers,
@@ -380,52 +383,52 @@ class AlpacaFeed:
                         f"AlpacaFeed: invalid latest daily OHLCV values for {ticker}"
                     )
 
-        # Costruisce DataFrame flat atteso dalla pipeline
-        result = pd.DataFrame()
+        # Build a shared index before adding ticker columns. This keeps all
+        # symbols aligned even when their first available observation differs.
+        shared_index = pd.DatetimeIndex(
+            sorted(bars.index.unique()), name=bars.index.name
+        )
+        result = pd.DataFrame(index=shared_index)
+        required_features = ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
+        feature_columns = []
         for ticker in tickers:
             sub = bars[bars["Symbol"] == ticker][["Open", "Close", "High", "Low", "Volume"]].copy()
-            # Preserve the full available history for rolling features; trim output only after indicators are computed.
             sub = sub.sort_index()
-
             result[f"Open_{ticker}"] = sub["Open"]
             result[f"Close_{ticker}"] = sub["Close"]
 
             indicators = self._calculate_features(sub)
             for feature in ("RSI", "MACD", "BB_middle", "ATR"):
                 result[f"{feature}_{ticker}"] = indicators[feature].reindex(result.index)
+            feature_columns.extend(f"{feature}_{ticker}" for feature in required_features)
 
-        result.sort_index(inplace=True)
-        result = result.tail(days)
-        result.dropna(how="all", inplace=True)
+        numeric_features = result.loc[:, feature_columns].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        complete_rows = np.isfinite(numeric_features.to_numpy(dtype=float)).all(axis=1)
+        if not complete_rows.any():
+            raise RuntimeError(
+                "AlpacaFeed: insufficient history to produce complete strategy features"
+            )
 
-        # A fresh final OHLCV bar is not sufficient if the strategy features
-        # computed from the rolling history are missing or non-finite. Refuse
-        # to pass an incomplete final observation into target-weight inference.
-        required_latest_features = ("Open", "Close", "RSI", "MACD", "BB_middle", "ATR")
-        if result.empty:
-            raise RuntimeError("AlpacaFeed: no usable strategy features were produced")
-        for ticker in tickers:
-            missing_features = []
-            for feature in required_latest_features:
-                column = f"{feature}_{ticker}"
-                if column not in result.columns:
-                    missing_features.append(column)
-                    continue
-                try:
-                    value = float(result[column].iloc[-1])
-                except (TypeError, ValueError):
-                    missing_features.append(column)
-                    continue
-                if not pd.notna(value) or not value == value or value in (float("inf"), float("-inf")):
-                    missing_features.append(column)
-            if missing_features:
-                raise RuntimeError(
-                    f"AlpacaFeed: invalid latest strategy features for {ticker}: "
-                    + ", ".join(missing_features)
-                )
+        first_complete = int(np.flatnonzero(complete_rows)[0])
+        if not complete_rows[first_complete:].all():
+            raise RuntimeError(
+                "AlpacaFeed: non-finite strategy features found after indicator warm-up"
+            )
 
-        # Carry the exact feature/provider contract with the in-memory frame.
-        # PPO inference rejects untagged or incompatible frames before prediction.
+        # Discard only the leading indicator warm-up rows, then retain the
+        # requested number of complete, synchronized observations.
+        result = result.loc[complete_rows].tail(days).copy()
+        if len(result) < days:
+            raise RuntimeError(
+                "AlpacaFeed: insufficient complete strategy history; "
+                f"received {len(result)} rows, required {days}"
+            )
+
+        # Carry the exact feature/provider contract with the final inference frame.
+        # Fingerprinting after warm-up filtering binds the metadata to the exact
+        # finite frame that PPO will consume.
         result.attrs["market_data_contract"] = market_data_contract()
         result.attrs["market_data_fingerprint"] = market_data_fingerprint(result)
         logger.info(f"Bars pronte: {len(result)} righe, {len(tickers)} tickers")

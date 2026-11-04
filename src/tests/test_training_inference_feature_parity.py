@@ -92,14 +92,22 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
     processor = data_processor_module.DataProcessor(tmp_path / "training-data")
     historical = processor.process(tickers, start_date, end_date)
 
-    # Inference path: get_bars, with identical provider bars/configuration.
-    inference = feed.get_bars(tickers, days=len(sessions))
+    # Inference returns only complete feature rows. The historical fixture
+    # starts at the training range boundary, so its leading indicator warm-up
+    # cannot be supplied to get_bars as additional prehistory.
+    warmup_rows = 19  # BB_middle uses a 20-observation rolling window.
+    inference_days = len(sessions) - warmup_rows
+    inference = feed.get_bars(tickers, days=inference_days)
+    inference_index = pd.DatetimeIndex(
+        pd.to_datetime(sessions[warmup_rows:], utc=True).tz_localize(None),
+        name="Date",
+    )
     for ticker in tickers:
         expected_open = raw_bars.xs(ticker, level="symbol")["open"].copy()
         expected_open.index = pd.to_datetime(expected_open.index, utc=True).tz_localize(None)
         pd.testing.assert_series_equal(
-            inference[f"Open_{ticker}"].reindex(expected_open.index),
-            expected_open.rename(f"Open_{ticker}"),
+            inference[f"Open_{ticker}"],
+            expected_open.reindex(inference_index).rename(f"Open_{ticker}"),
             check_names=True,
             check_freq=False,
         )
@@ -128,7 +136,10 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
     ]
     inference_matrix = inference.loc[:, inference_columns]
 
-    # Compare actual output matrices, including dates, order, values, and NaN warm-up.
+    # Training computes indicators over the requested range and retains its
+    # leading warm-up rows. Inference removes those rows before returning data.
+    # Compare the identical finite suffix consumed by PPO.
+    training_matrix = training_matrix.iloc[warmup_rows:]
     pd.testing.assert_index_equal(training_matrix.index, inference_matrix.index)
     assert list(training_matrix.columns) == inference_columns
     pd.testing.assert_frame_equal(
@@ -138,12 +149,9 @@ def test_historical_training_and_live_inference_build_identical_feature_matrix(
         check_freq=False,
     )
 
-    # Indicator warm-up legitimately produces NaNs at the start of the series.
-    # Both pipelines must preserve the same NaN mask; infinities are never valid.
     values = inference_matrix.to_numpy(dtype=float)
     assert not np.isinf(values).any()
-    assert np.isfinite(values).any(axis=0).all()
-    assert np.isfinite(values[-1]).all()
+    assert np.isfinite(values).all()
 
     assert inference.attrs["market_data_contract"]
     assert inference.attrs["market_data_fingerprint"]

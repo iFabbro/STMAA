@@ -147,10 +147,9 @@ def test_invalid_inputs_fail_closed(kwargs, message):
     [
         ({"A": 0.2, "B": 0.1}, {"A": 100}, {"A": 0, "B": 0}),
         ({"A": 0.2}, {"A": 100, "B": 50}, {"A": 0}),
-        ({"A": 0.2}, {"A": 100}, {"A": 0, "B": 1}),
     ],
 )
-def test_symbol_sets_must_match_exactly(
+def test_target_weight_and_close_price_symbol_sets_must_match(
     target_weights, close_prices, current_positions
 ):
     with pytest.raises(ValueError, match="same symbols"):
@@ -180,3 +179,26 @@ def test_boolean_values_are_not_accepted_as_numeric_inputs():
             close_prices={"A": 100},
             current_positions={"A": 0},
         )
+
+
+
+def test_unmodeled_fractional_account_position_blocks_entire_batch():
+    with pytest.raises(ValueError, match="fractional position for LEGACY"):
+        build_opg_sizing_plan(
+            equity=1000,
+            target_weights={"A": 0.2},
+            close_prices={"A": 100},
+            current_positions={"A": 0, "LEGACY": 0.25},
+        )
+
+
+def test_unmodeled_whole_share_position_is_checked_but_not_included_in_plan():
+    plan = build_opg_sizing_plan(
+        equity=1000,
+        target_weights={"A": 0.2},
+        close_prices={"A": 100},
+        current_positions={"A": 0, "LEGACY": 2},
+    )
+
+    assert list(plan.assets) == ["A"]
+    assert plan.assets["A"].target_quantity == 2

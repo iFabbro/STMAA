@@ -1211,3 +1211,132 @@ def test_runtime_preflight_fails_when_custom_model_artifact_is_missing(tmp_path,
     with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
         from src.utils.startup_config import validate_ppo_preflight
         validate_ppo_preflight(bot.ppo_agent)
+
+def test_end_to_end_trained_ppo_risk_overlay_and_mocked_execution(
+    tmp_path, monkeypatch
+):
+    """Exercise trained PPO inference through real risk controls to a mock executor."""
+    from types import SimpleNamespace
+
+    from src.agents.ppo_agent import PPOAgent
+    from src.data.market_data_contract import (
+        market_data_contract,
+        market_data_fingerprint,
+    )
+
+    prices = np.linspace(100.0, 124.0, 24)
+    market_data = pd.DataFrame(
+        {
+            "Close_AAPL": prices,
+            "Open_AAPL": np.concatenate(([prices[0]], prices[:-1])),
+            "RSI_AAPL": np.full(len(prices), 50.0),
+            "MACD_AAPL": np.zeros(len(prices)),
+            "BB_middle_AAPL": prices.copy(),
+            "ATR_AAPL": np.ones(len(prices)),
+        },
+        index=pd.date_range("2026-01-01", periods=len(prices), freq="D", tz="UTC"),
+    )
+    market_data.attrs["market_data_contract"] = market_data_contract()
+    market_data.attrs["market_data_fingerprint"] = market_data_fingerprint(market_data)
+
+    agent = PPOAgent(
+        tickers=["AAPL"],
+        initial_capital=100000.0,
+        model_path=str(tmp_path / "ppo-runtime-integration.zip"),
+        load_existing_model=False,
+        n_steps=2,
+        batch_size=2,
+        n_epochs=1,
+        seed=29,
+        verbose=0,
+    )
+    agent.train(market_data, total_timesteps=4)
+
+    class MockExecutionBoundary:
+        paper_trading = True
+
+        def __init__(self):
+            self.state = {}
+            self.submitted_weights = None
+            self.account_reads = 0
+
+        def get_account_status(self):
+            self.account_reads += 1
+            return {
+                "cash": 100000.0,
+                "portfolio_value": 100000.0,
+                "equity": 100000.0,
+                "buying_power": 100000.0,
+                "account_data_fresh": True,
+                "account_id": "mock-paper-account",
+                "account_data_source": "mock",
+            }
+
+        def get_positions(self):
+            return {}
+
+        def reconcile_corporate_actions(self, configured_symbols, positions=None):
+            assert configured_symbols == ["AAPL"]
+            assert positions == {}
+            return {"new_activity_count": 0, "blocked_symbols": []}
+
+        def _save_state(self):
+            return None
+
+        def execute_weights(self, weights):
+            self.submitted_weights = weights
+            return {
+                "orders": [],
+                "portfolio_value": 100000.0,
+                "equity": 100000.0,
+                "account_data_fresh": True,
+                "timestamp": "2026-01-24T00:00:00+00:00",
+                "metrics": {},
+            }
+
+    executor = MockExecutionBoundary()
+    risk = RiskOverlayModule(
+        max_position_size=agent.max_position_size,
+        max_gross_exposure=agent.max_gross_exposure,
+        max_drawdown_threshold=0.15,
+        initial_capital=100000.0,
+    )
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot.tickers = ["AAPL"]
+    bot.initial_capital = 100000.0
+    bot.ppo_agent = agent
+    bot.executor = executor
+    bot.pipeline = SimpleNamespace(
+        risk_module=risk,
+        current_portfolio_value=100000.0,
+    )
+    bot.liquidate_on_drawdown = False
+
+    monkeypatch.setattr(trade, "PPO_AVAILABLE", True)
+    monkeypatch.setattr(bot, "get_vix_value", lambda: 12.0)
+    monkeypatch.setattr(trade, "write_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(trade, "log_event", lambda *args, **kwargs: None)
+
+    target = bot.generate_weights(market_data)
+    assert target.tickers == ["AAPL"]
+    assert target.weights.shape == (1,)
+    assert np.isfinite(target.weights).all()
+
+    result = bot.execute_trade(target)
+
+    assert executor.account_reads == 2
+    assert executor.submitted_weights is not None
+    assert result["target_execution_skipped"] is False
+    assert executor.submitted_weights.metadata["risk_overlay_applied"] is True
+    assert executor.submitted_weights.metadata["vix"] == pytest.approx(12.0)
+    assert np.isfinite(executor.submitted_weights.weights).all()
+    assert np.all(executor.submitted_weights.weights >= 0.0)
+    assert (
+        np.abs(executor.submitted_weights.weights).max()
+        <= risk.max_position_size + 1e-8
+    )
+    assert (
+        np.abs(executor.submitted_weights.weights).sum()
+        <= risk.max_gross_exposure + 1e-8
+    )
+

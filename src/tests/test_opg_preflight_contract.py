@@ -98,7 +98,11 @@ def test_preflight_returns_verified_account_and_aggregate_buy_budget():
         {"trading_blocked": True},
         {"trading_blocked": None},
         {"account_id": None},
+        {"account_identity_verified": False},
+        {"account_data_source": "persisted_cache"},
+        {"account_snapshot_at": None},
         {"buying_power": None},
+        {"buying_power": True},
         {"buying_power": float("nan")},
         {"buying_power": -1},
         {"equity": float("inf")},
@@ -286,3 +290,25 @@ def test_preflight_has_no_broker_mutation_side_effects():
     executor.trading_client.cancel_order_by_id.assert_not_called()
     executor.trading_client.replace_order_by_id.assert_not_called()
     executor.trading_client.close_position.assert_not_called()
+
+
+@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B skips asset lookup for no-order plans")
+def test_preflight_does_not_fetch_assets_when_plan_has_no_orders():
+    plan = _plan(
+        target_weights={"AAPL": 0.30},
+        close_prices={"AAPL": 100},
+        current_positions={"AAPL": 3},
+    )
+    executor = _executor(
+        plan,
+        buying_power=0,
+        positions={"AAPL": {"qty": 3.0, "market_value": 300.0}},
+        assets={},
+    )
+
+    report = executor.preflight_opg_plan(plan)
+
+    assert report["approved"] is True
+    assert report["buy_orders"] == 0
+    assert report["sell_orders"] == 0
+    executor.trading_client.get_asset.assert_not_called()

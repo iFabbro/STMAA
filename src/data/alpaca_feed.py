@@ -441,5 +441,104 @@ class AlpacaFeed:
     def get_latest_quotes(self, tickers: List[str]) -> dict:
         """Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
 
-        Usa delayed SIP per le quotazioni quando il feed live non è disponibile.
+        Usa delayed SIP per le quotazioni recenti sul piano gratuito.
         """
+        request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed=DATA_QUOTE_FEED)
+        try:
+            quotes = self.client.get_stock_latest_quote(request)
+        except Exception as e:
+            logger.error(f"Errore get_latest_quotes: {e}")
+            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None} for t in tickers}
+
+        result = {}
+        for ticker in tickers:
+            q = quotes.get(ticker)
+            if q is None:
+                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
+                continue
+            try:
+                bid = float(q.bid_price)
+                ask = float(q.ask_price)
+                quote_time = getattr(q, "timestamp", None)
+                if (
+                    not pd.notna(bid)
+                    or not pd.notna(ask)
+                    or bid <= 0
+                    or ask <= 0
+                    or ask < bid
+                    or quote_time is None
+                ):
+                    raise ValueError("quote has invalid bid/ask or missing timestamp")
+                timestamp = (
+                    quote_time.isoformat()
+                    if hasattr(quote_time, "isoformat")
+                    else str(quote_time)
+                )
+                mid = (ask + bid) / 2
+                result[ticker] = {
+                    "price": round(mid, 6),
+                    "change_pct": 0.0,
+                    "timestamp": timestamp,
+                }
+            except (TypeError, ValueError, OverflowError) as exc:
+                logger.warning("Invalid latest quote for %s: %s", ticker, exc)
+                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
+
+        # Tenta di arricchire con variazione % usando barre intraday
+        try:
+            prev = self._get_prev_close(
+                tickers,
+                quote_timestamps={
+                    ticker: result[ticker]["timestamp"] for ticker in tickers
+                },
+            )
+            for ticker in tickers:
+                if ticker in prev and prev[ticker] > 0:
+                    cur = result[ticker]["price"]
+                    result[ticker]["change_pct"] = round(
+                        (cur - prev[ticker]) / prev[ticker] * 100, 2
+                    )
+        except Exception as e:
+            logger.warning(f"change_pct non disponibile: {e}")
+
+        return result
+
+    def _get_prev_close(self, tickers: List[str], quote_timestamps=None) -> dict:
+        end = self._historical_request_end()
+        start = end - timedelta(days=5)
+        request = StockBarsRequest(
+            symbol_or_symbols=tickers,
+            timeframe=TimeFrame(1, TimeFrameUnit.Day),
+            start=start,
+            end=end,
+            feed=DATA_FEED,
+            adjustment=DATA_ADJUSTMENT,
+        )
+        try:
+            bars = self.client.get_stock_bars(request).df.reset_index()
+        except Exception:
+            return {}
+        bars.rename(columns={"symbol": "Symbol", "close": "Close"}, inplace=True)
+        result = {}
+        quote_timestamps = quote_timestamps or {}
+        for ticker in tickers:
+            ticker_bars = bars[bars["Symbol"] == ticker]
+            sub = ticker_bars["Close"]
+            if not sub.empty:
+                last_bar_date = pd.to_datetime(
+                    ticker_bars["timestamp"].iloc[-1], utc=True
+                ).tz_convert("America/New_York").date()
+                quote_timestamp = quote_timestamps.get(ticker)
+                quote_date = (
+                    pd.Timestamp(quote_timestamp).tz_convert("America/New_York").date()
+                    if quote_timestamp is not None
+                    else None
+                )
+                # Compare the delayed quote's session with the latest returned
+                # daily bar. If they match, that bar is today's close and the
+                # prior close is the penultimate bar; otherwise use the latest
+                # bar as the previous close.
+                position = -2 if quote_date == last_bar_date else -1
+                if len(sub) >= abs(position):
+                    result[ticker] = float(sub.iloc[position])
+        return result

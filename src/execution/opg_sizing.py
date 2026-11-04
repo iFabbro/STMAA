@@ -133,12 +133,22 @@ def build_opg_sizing_plan(
     prices_input = _validate_symbol_mapping(close_prices, "close_prices")
     positions_input = _validate_symbol_mapping(current_positions, "current_positions")
     symbols = set(weights_input)
-    if symbols != set(prices_input) or symbols != set(positions_input):
-        raise ValueError("target_weights, close_prices and current_positions must contain the same symbols")
+    if symbols != set(prices_input):
+        raise ValueError("target_weights and close_prices must contain the same symbols")
+    if not symbols.issubset(positions_input):
+        raise ValueError("current_positions must include every target symbol")
 
     weights: dict[str, Decimal] = {}
     prices: dict[str, Decimal] = {}
     positions: dict[str, int] = {}
+    for symbol in sorted(positions_input):
+        position = _decimal(positions_input[symbol], f"position for {symbol}")
+        if position < 0:
+            raise ValueError(f"short position for {symbol} is not supported")
+        if position != position.to_integral_value():
+            raise ValueError(f"fractional position for {symbol} blocks the sizing batch")
+        positions[symbol] = int(position)
+
     for symbol in sorted(symbols):
         weight = _decimal(weights_input[symbol], f"target weight for {symbol}")
         if weight < 0 or weight > 1:
@@ -149,13 +159,6 @@ def build_opg_sizing_plan(
         if price <= 0:
             raise ValueError(f"close price for {symbol} must be strictly positive")
         prices[symbol] = price
-
-        position = _decimal(positions_input[symbol], f"position for {symbol}")
-        if position < 0:
-            raise ValueError(f"short position for {symbol} is not supported")
-        if position != position.to_integral_value():
-            raise ValueError(f"fractional position for {symbol} blocks the sizing batch")
-        positions[symbol] = int(position)
 
     target_gross = sum(weights.values(), Decimal("0"))
     if target_gross > 1:

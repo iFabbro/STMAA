@@ -29,11 +29,11 @@ def test_integer_sizing_floors_target_quantities_and_records_residuals():
     assert plan.assets["A"].target_notional == pytest.approx(1000.0)
     assert plan.assets["A"].integer_notional == pytest.approx(990.0)
     assert plan.assets["A"].rounding_residual == pytest.approx(10.0)
-    assert plan.assets["B"].rounding_residual == pytest.approx(40.0)
+    assert plan.assets["B"].rounding_residual == pytest.approx(110.0)
     assert plan.assets["C"].rounding_residual == pytest.approx(500.0)
     assert plan.total_target_notional == pytest.approx(2250.0)
     assert plan.total_integer_notional == pytest.approx(1630.0)
-    assert plan.total_rounding_residual == pytest.approx(550.0)
+    assert plan.total_rounding_residual == pytest.approx(620.0)
     assert plan.integer_gross_weight == pytest.approx(0.326)
     assert plan.target_gross_weight == pytest.approx(0.45)
 

@@ -156,8 +156,7 @@ def test_preflight_counts_only_incremental_buys_and_excludes_sell_proceeds():
     assert report["estimated_buy_notional"] == 300
     assert report["buy_orders"] == 1
     assert report["sell_orders"] == 1
-    assert report["estimated_sell_proceeds"] == 200
-    assert report["estimated_sell_proceeds"] not in report["buying_power_headroom"]
+    assert report["buying_power_headroom"] == 0
 
 
 @pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements side-specific asset eligibility")
@@ -280,9 +279,9 @@ def test_preflight_has_no_broker_mutation_side_effects():
     plan = _plan()
     executor = _executor(plan)
 
-    with pytest.raises((RuntimeError, ValueError, AttributeError)):
-        executor.preflight_opg_plan(plan)
+    report = executor.preflight_opg_plan(plan)
 
+    assert report["approved"] is True
     executor.trading_client.submit_order.assert_not_called()
     executor.trading_client.cancel_order_by_id.assert_not_called()
     executor.trading_client.replace_order_by_id.assert_not_called()

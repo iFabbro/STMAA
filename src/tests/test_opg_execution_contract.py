@@ -152,11 +152,32 @@ def test_opg_executor_rejects_non_paper_mode_without_submission():
     executor.trading_client.submit_order.assert_not_called()
 
 
+def test_opg_executor_requires_verified_account_identity():
+    from src.execution.broker_executor import BrokerExecutor
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor.trading_client = SimpleNamespace(
+        submit_order=Mock(side_effect=AssertionError("must not submit"))
+    )
+    plan = build_opg_sizing_plan(
+        equity=1000, target_weights={"AAPL": 0.2},
+        close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
+    )
+    with pytest.raises(RuntimeError, match="identity is not verified"):
+        executor.execute_opg_plan(
+            plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
+        )
+    executor.trading_client.submit_order.assert_not_called()
+
+
 def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
     events = []
     executor._save_state = lambda: events.append("persist")
 
@@ -188,6 +209,7 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
     executor._save_state = Mock()
     broker = SimpleNamespace(submit_order=Mock(side_effect=lambda request: SimpleNamespace(
         id="broker-1", status="accepted", client_order_id=request.client_order_id,
@@ -251,6 +273,7 @@ def test_opg_ambiguous_submission_stops_batch_without_resubmission():
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
+    executor._current_account_identity_verified = True
     submitted = []
 
     class BrokerMock:
@@ -318,6 +341,7 @@ def test_opg_unresolved_order_blocks_new_batch():
         "account_id": "paper-account-1",
         "opg_batches": {"batch-old": {"status": "unresolved", "orders": {}}},
     }
+    executor._current_account_identity_verified = True
     executor.trading_client = SimpleNamespace(
         submit_order=Mock(side_effect=AssertionError("must not submit"))
     )

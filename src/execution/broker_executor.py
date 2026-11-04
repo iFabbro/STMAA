@@ -2098,11 +2098,6 @@ class BrokerExecutor:
 
 
     @staticmethod
-    def _opg_order_value(order, field, default=None):
-        value = getattr(order, field, default)
-        return getattr(value, "value", value)
-
-    @staticmethod
     def _opg_status(order, default="accepted"):
         value = getattr(order, "status", default)
         return str(getattr(value, "value", value) or default).strip().lower()
@@ -2180,6 +2175,8 @@ class BrokerExecutor:
                 raise RuntimeError("OPG execution is Paper-only; refusing non-Paper account mode")
             if getattr(self, "paper_trading", True) is False:
                 raise RuntimeError("OPG execution is Paper-only; refusing non-Paper broker client")
+            if getattr(self, "_current_account_identity_verified", False) is not True:
+                raise RuntimeError("Current broker account identity is not verified; refusing OPG execution")
             batches = self.state.setdefault("opg_batches", {})
             if not isinstance(batches, dict):
                 raise RuntimeError("Persisted OPG batch state is invalid; refusing execution")

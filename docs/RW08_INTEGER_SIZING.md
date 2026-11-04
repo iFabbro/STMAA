@@ -15,7 +15,7 @@ For one completed daily signal bar (t):
 - (C_{i,t}): positive Close price from the completed signal bar.
 - (Q_i^{current}): current account position quantity.
 
-The target-weight and Close maps must contain the same non-empty symbol set. The account-position map must contain every target symbol and may contain additional account symbols. All account positions are checked: any fractional or short position blocks the whole sizing batch. This includes positions outside the PPO universe.
+The target-weight and Close maps must contain the same non-empty symbol set. The account-position map must contain every target symbol and may contain additional account symbols. All account positions are checked: any fractional or short position blocks the whole sizing batch. A non-zero whole-share position outside the PPO universe also blocks the batch rather than being silently ignored or implicitly liquidated. This includes positions outside the PPO universe.
 
 ## Sizing
 
@@ -56,5 +56,6 @@ This component deliberately does not change PPO v7 training or inference semanti
 - Reject weights outside `[0, 1]` and gross target weights above 1.
 - Reject malformed account-position data.
 - Reject any fractional or short account position, including symbols outside the model universe.
+- Reject non-zero whole-share holdings outside the model universe until an explicit disposition policy exists.
 - Do not round existing positions, liquidate them, ignore them, redistribute residuals, or invent replacement prices.
 - No DAY fallback and no broker interaction.

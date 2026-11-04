@@ -197,8 +197,19 @@ def test_unmodeled_whole_share_position_is_checked_but_not_included_in_plan():
         equity=1000,
         target_weights={"A": 0.2},
         close_prices={"A": 100},
-        current_positions={"A": 0, "LEGACY": 2},
+        current_positions={"A": 0, "LEGACY": 0},
     )
 
     assert list(plan.assets) == ["A"]
     assert plan.assets["A"].target_quantity == 2
+
+
+
+def test_unmodeled_nonzero_account_position_blocks_instead_of_being_ignored():
+    with pytest.raises(ValueError, match="unmodeled account position for LEGACY"):
+        build_opg_sizing_plan(
+            equity=1000,
+            target_weights={"A": 0.2},
+            close_prices={"A": 100},
+            current_positions={"A": 0, "LEGACY": 2},
+        )

@@ -591,6 +591,22 @@ class BrokerExecutor:
             self._reconcile_unresolved_submissions()
             self._refresh_confirmed_submission_statuses()
             self._reconcile_terminal_order_positions()
+            opg_batches = self.state.get("opg_batches", {})
+            opg_report = {"batches_checked": 0, "batches_completed": 0, "batches_blocked": 0}
+            if opg_batches:
+                if getattr(self, "_current_account_identity_verified", False) is True:
+                    opg_report = self._recover_opg_batches()
+                else:
+                    blocking_opg_batches = [
+                        batch for batch in opg_batches.values()
+                        if not isinstance(batch, dict)
+                        or batch.get("status") not in {"completed", "no_orders"}
+                    ] if isinstance(opg_batches, dict) else [None]
+                    opg_report = {
+                        "batches_checked": len(blocking_opg_batches),
+                        "batches_completed": 0,
+                        "batches_blocked": len(blocking_opg_batches),
+                    }
             unresolved = self.state.get("order_submission_unresolved", {})
             confirmed = self.state.get("order_submission_confirmed", {})
             terminal = {"filled", "canceled", "cancelled", "expired", "rejected"}
@@ -601,7 +617,11 @@ class BrokerExecutor:
             }
             open_orders = self._get_open_orders()
             return {
-                "safe_for_new_decision": not (unresolved or active_confirmed or open_orders),
+                "safe_for_new_decision": not (
+                    unresolved or active_confirmed or open_orders or opg_report["batches_blocked"]
+                ),
+                "opg_batches_checked": opg_report["batches_checked"],
+                "opg_batches_blocked": opg_report["batches_blocked"],
                 "unresolved_submissions": len(unresolved),
                 "active_or_unreconciled_confirmed_orders": len(active_confirmed),
                 "open_orders": len(open_orders),
@@ -2118,6 +2138,19 @@ class BrokerExecutor:
 
     @staticmethod
     def _validate_opg_broker_order(order, expected):
+        expected_side = str(expected.get("side") or "").strip().lower()
+        if expected_side not in {"buy", "sell"}:
+            raise RuntimeError("OPG persisted order intent has an invalid side")
+        if str(expected.get("order_type", "market")).strip().lower() != "market":
+            raise RuntimeError("OPG persisted order intent has an invalid order type")
+        if str(expected.get("time_in_force", "opg")).strip().lower() != "opg":
+            raise RuntimeError("OPG persisted order intent has an invalid time-in-force")
+        try:
+            expected_quantity = Decimal(str(expected.get("quantity")))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("OPG persisted order intent has an invalid quantity") from exc
+        if not expected_quantity.is_finite() or expected_quantity <= 0 or expected_quantity != expected_quantity.to_integral_value():
+            raise RuntimeError("OPG persisted order intent quantity must be a positive integer")
         checks = {
             "client_order_id": expected["client_order_id"],
             "symbol": expected["symbol"],
@@ -2164,12 +2197,229 @@ class BrokerExecutor:
                 raise RuntimeError("OPG broker average fill price is invalid")
         return order_id
 
+    @staticmethod
+    def _opg_terminal_statuses():
+        return {"filled", "canceled", "cancelled", "expired", "rejected"}
+
+    @staticmethod
+    def _opg_active_statuses():
+        return {
+            "new", "accepted", "pending_new", "partially_filled", "done_for_day",
+            "pending_cancel", "pending_replace", "accepted_for_bidding", "stopped",
+            "suspended", "held", "calculated",
+        }
+
+    def _opg_reconciliation_snapshot(self, broker_order, expected):
+        order_id = self._validate_opg_broker_order(broker_order, expected)
+        expected_order_id = str(expected.get("order_id") or "").strip()
+        if expected_order_id and order_id != expected_order_id:
+            raise RuntimeError("OPG broker order identity mismatch: broker order ID changed")
+        status = self._opg_status(broker_order, default="unknown")
+        if status not in self._opg_terminal_statuses() | self._opg_active_statuses():
+            raise RuntimeError(f"OPG broker order status is unknown: {status}")
+        try:
+            requested = Decimal(str(expected["quantity"]))
+            filled = Decimal(str(getattr(broker_order, "filled_qty", None)))
+        except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("OPG broker fill quantity is missing or invalid") from exc
+        if (
+            not requested.is_finite() or requested <= 0
+            or requested != requested.to_integral_value()
+            or not filled.is_finite() or filled < 0
+            or filled > requested or filled != filled.to_integral_value()
+        ):
+            raise RuntimeError("OPG broker fill quantity is invalid")
+        if status == "filled" and filled != requested:
+            raise RuntimeError("OPG filled status contradicts filled quantity")
+        if status == "partially_filled" and not (0 < filled < requested):
+            raise RuntimeError("OPG partially_filled status contradicts filled quantity")
+        if status in {"new", "accepted", "pending_new"} and filled != 0:
+            raise RuntimeError("OPG unfilled status contradicts positive filled quantity")
+        if status in self._opg_terminal_statuses() - {"filled"} and filled >= requested:
+            raise RuntimeError("OPG terminal non-filled status contradicts complete fill quantity")
+        average = getattr(broker_order, "filled_avg_price", None)
+        if average in (None, ""):
+            average = None
+        else:
+            try:
+                average_decimal = Decimal(str(average))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise RuntimeError("OPG broker average fill price is invalid") from exc
+            if not average_decimal.is_finite() or average_decimal <= 0:
+                raise RuntimeError("OPG broker average fill price is invalid")
+            average = str(average_decimal)
+        return {
+            "order_id": order_id,
+            "side": str(expected["side"]).strip().lower(),
+            "symbol": str(expected["symbol"]).strip().upper(),
+            "status": status,
+            "filled_qty": int(filled),
+            "average_fill_price": average,
+            "broker_updated_at": str(getattr(broker_order, "updated_at", "") or "") or None,
+        }
+
+    def _recover_opg_batches(self):
+        """Recover and reconcile persisted OPG batches using broker reads only.
+
+        Missing orders are never resubmitted. Orders not reached before a crash
+        are marked skipped, not submitted as catch-up orders. Active and partial
+        orders remain blocking until the broker reports a terminal state.
+        """
+        batches = self.state.get("opg_batches", {})
+        if not isinstance(batches, dict) or any(not isinstance(v, dict) for v in batches.values()):
+            raise RuntimeError("Persisted OPG batch state is invalid; refusing recovery")
+        if not batches:
+            return {"batches_checked": 0, "batches_completed": 0, "batches_blocked": 0}
+        if self.state.get("account_mode") != "paper" or getattr(self, "paper_trading", True) is False:
+            raise RuntimeError("OPG recovery is Paper-only; refusing broker reconciliation")
+
+        checked = completed = blocked = 0
+        for batch_id in sorted(batches):
+            batch = copy.deepcopy(batches[batch_id])
+            batch_status = str(batch.get("status", "unknown")).strip().lower()
+            if batch_status in {"completed", "no_orders"}:
+                continue
+            checked += 1
+            batch_account = str(batch.get("account_id") or "").strip()
+            current_account = str(self.state.get("account_id") or "").strip()
+            if (
+                not batch_account
+                or not current_account
+                or getattr(self, "_current_account_identity_verified", False) is not True
+                or current_account != batch_account
+            ):
+                raise RuntimeError("Current verified broker account identity does not match OPG batch")
+            if batch.get("account_mode") != "paper":
+                raise RuntimeError("Persisted OPG batch is not explicitly Paper; refusing recovery")
+            orders = batch.get("orders")
+            if not isinstance(orders, dict):
+                raise RuntimeError("Persisted OPG batch orders are malformed; manual reconciliation required")
+            if not orders and batch_status == "unresolved":
+                blocked += 1
+                continue
+
+            terminal_symbols = []
+            active_symbols = []
+            skipped_symbols = []
+            for symbol in sorted(orders):
+                order_record = dict(orders[symbol]) if isinstance(orders[symbol], dict) else None
+                if order_record is None:
+                    raise RuntimeError("Persisted OPG order record is malformed; manual reconciliation required")
+                symbol = str(order_record.get("symbol") or symbol).strip().upper()
+                order_status = str(order_record.get("status", "unknown")).strip().lower()
+                if order_status in {"not_submitted", "skipped_after_restart"}:
+                    order_record["status"] = "skipped_after_restart"
+                    order_record["blocking_reason"] = "submission_not_attempted_before_restart_no_catch_up"
+                    orders[symbol] = order_record
+                    skipped_symbols.append(symbol)
+                    batch["orders"] = orders
+                    batch["status"] = "unresolved"
+                    batch["blocking_reason"] = "one_or_more_orders_were_not_submitted_before_restart"
+                    self._persist_opg_batch(batch_id, batch)
+                    continue
+
+                expected = dict(order_record)
+                expected["symbol"] = symbol
+                client_order_id = str(expected.get("client_order_id") or "").strip()
+                if not client_order_id:
+                    raise RuntimeError("Persisted OPG order has no client ID; manual reconciliation required")
+                try:
+                    if expected.get("order_id"):
+                        broker_order = self.trading_client.get_order_by_id(expected["order_id"])
+                    else:
+                        broker_order = self.trading_client.get_order_by_client_id(client_order_id)
+                    snapshot = self._opg_reconciliation_snapshot(broker_order, expected)
+                except Exception as exc:
+                    order_record["status"] = "unresolved"
+                    order_record["blocking_reason"] = "broker_order_not_verifiably_recovered"
+                    batch["orders"] = orders
+                    batch["status"] = "unresolved"
+                    batch["blocking_reason"] = str(exc)[:500]
+                    self._persist_opg_batch(batch_id, batch)
+                    raise RuntimeError(
+                        f"OPG recovery unresolved for {symbol}: {exc}; no resubmission or catch-up performed"
+                    ) from exc
+
+                order_record.update(snapshot)
+                order_record["recovered_at"] = datetime.now(timezone.utc).isoformat()
+                order_record["blocking_reason"] = None
+                orders[symbol] = order_record
+                batch["orders"] = orders
+                if snapshot["status"] in self._opg_terminal_statuses():
+                    terminal_symbols.append(symbol)
+                else:
+                    active_symbols.append(symbol)
+                self._persist_opg_batch(batch_id, batch)
+
+            if terminal_symbols and not active_symbols and not skipped_symbols:
+                try:
+                    positions = self.get_positions()
+                    position_checked_at = datetime.now(timezone.utc).isoformat()
+                    for symbol in terminal_symbols:
+                        order_record = orders[symbol]
+                        baseline = order_record.get("pre_order_position_qty")
+                        if baseline is None:
+                            raise RuntimeError(
+                                f"OPG terminal order {symbol} lacks pre-order position baseline; manual reconciliation required"
+                            )
+                        try:
+                            baseline_qty = Decimal(str(baseline))
+                            filled_qty = Decimal(str(order_record["filled_qty"]))
+                            actual_qty = Decimal(str(positions.get(symbol, {}).get("qty", 0)))
+                        except (InvalidOperation, TypeError, ValueError) as exc:
+                            raise RuntimeError(f"OPG position snapshot is invalid for {symbol}") from exc
+                        if not all(v.is_finite() for v in (baseline_qty, filled_qty, actual_qty)):
+                            raise RuntimeError(f"OPG position snapshot is non-finite for {symbol}")
+                        expected_qty = baseline_qty + filled_qty if order_record["side"] == "buy" else baseline_qty - filled_qty
+                        if expected_qty < 0:
+                            raise RuntimeError(f"OPG sell fill implies a negative position for {symbol}")
+                        tolerance = max(Decimal("0.000001"), max(abs(expected_qty), abs(actual_qty), Decimal(1)) * Decimal("0.00001"))
+                        if abs(actual_qty - expected_qty) > tolerance:
+                            raise RuntimeError(
+                                f"OPG broker position has not reconciled {symbol}: expected {expected_qty}, observed {actual_qty}"
+                            )
+                        order_record["position_reconciled"] = True
+                        order_record["position_reconciled_at"] = position_checked_at
+                        orders[symbol] = order_record
+                    batch["orders"] = orders
+                    batch["status"] = "completed"
+                    batch["blocking_reason"] = None
+                    batch["position_snapshot_at"] = position_checked_at
+                    completed += 1
+                except Exception as exc:
+                    batch["status"] = "unresolved"
+                    batch["blocking_reason"] = str(exc)[:500]
+                    self._persist_opg_batch(batch_id, batch)
+                    raise RuntimeError(
+                        f"OPG position reconciliation unresolved for batch {batch_id}: {exc}"
+                    ) from exc
+            elif skipped_symbols:
+                batch["status"] = "unresolved"
+                batch["blocking_reason"] = "one_or_more_orders_were_not_submitted_before_restart_no_catch_up"
+            elif active_symbols:
+                batch["status"] = "reconciliation_pending"
+                batch["blocking_reason"] = "broker_orders_not_terminal"
+            else:
+                batch["status"] = "unresolved"
+                batch["blocking_reason"] = "batch_contains_orders_without_reconciliation_evidence"
+            if batch["status"] != "completed":
+                blocked += 1
+            self._persist_opg_batch(batch_id, batch)
+        return {"batches_checked": checked, "batches_completed": completed, "batches_blocked": blocked}
+
+    def reconcile_opg_batches_read_only(self):
+        """Public, read-only recovery entry point; requires a fresh account identity."""
+        with self.execution_lock():
+            if self.state.get("opg_batches") and getattr(self, "_current_account_identity_verified", False) is not True:
+                raise RuntimeError("A fresh verified broker account identity is required for OPG recovery")
+            return self._recover_opg_batches()
+
     def execute_opg_plan(self, plan, *, signal_bar_at: str, target_session: str):
         """Persist and submit one deterministic Paper-only OPG batch sequentially.
 
-        This path is deliberately separate from execute_weights/DAY. It never
-        retries an ambiguous submission and stops before the next symbol on any
-        failure. Restart recovery and position reconciliation are PR C.
+        This path is deliberately separate from execute_weights/DAY. Recovery is
+        read-only and runs before idempotency/blocking checks; no residual retry or
+        catch-up submission is ever performed.
         """
         lock = self.execution_lock() if hasattr(self, "state_file") else nullcontext()
         with lock:
@@ -2184,6 +2434,9 @@ class BrokerExecutor:
                 not isinstance(batch, dict) for batch in batches.values()
             ):
                 raise RuntimeError("Persisted OPG batch state is invalid; refusing execution")
+            if batches:
+                self._recover_opg_batches()
+                batches = self.state.get("opg_batches", {})
             blocking = [
                 key for key, value in batches.items()
                 if value.get("status") not in {"completed", "no_orders"}
@@ -2456,6 +2709,16 @@ class BrokerExecutor:
         self._reconcile_unresolved_submissions()
         self._refresh_confirmed_submission_statuses()
         self._reconcile_terminal_order_positions()
+        opg_batches = self.state.get("opg_batches", {})
+        blocking_opg = [
+            batch_id for batch_id, batch in opg_batches.items()
+            if isinstance(batch, dict) and batch.get("status") not in {"completed", "no_orders"}
+        ] if isinstance(opg_batches, dict) else ["invalid_state"]
+        if blocking_opg:
+            raise RuntimeError(
+                "Persisted OPG batch requires read-only recovery before DAY execution: "
+                + ", ".join(sorted(blocking_opg))
+            )
         unresolved_submissions = self.state.get("order_submission_unresolved", {})
         confirmed_submissions = self.state.get("order_submission_confirmed", {})
         active_confirmed = {

@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock
 
 from src.utils.startup_config import (
     load_hub_refresh_seconds,
@@ -183,6 +184,14 @@ def test_broker_preflight_uses_only_read_only_account_snapshot():
     status = validate_broker_preflight(executor)
     assert status["account_id"] == "paper-account-123"
     assert executor.calls == 1
+
+
+def test_broker_preflight_recovers_persisted_opg_batches_after_account_identity():
+    executor = FakeExecutor(good_status())
+    executor.reconcile_opg_batches_read_only = Mock()
+    status = validate_broker_preflight(executor)
+    assert status["account_id"] == "paper-account-123"
+    executor.reconcile_opg_batches_read_only.assert_called_once_with()
 
 
 def test_broker_preflight_rejects_live_executor_before_account_call():

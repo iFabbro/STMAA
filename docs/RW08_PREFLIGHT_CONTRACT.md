@@ -93,3 +93,12 @@ On any failed, missing, contradictory, stale, or unparseable input it raises a c
 - Final gate: full pytest, Ruff, Gitleaks, review of the complete diff, and explicit operator authorization before merge.
 
 RW-08.4 does not authorize Live trading and does not change the Paper-only boundary established by RW-08.3.
+
+
+## References
+
+- [Alpaca account endpoint](https://docs.alpaca.markets/us/docs/working-with-account) — account status, trading restriction and buying-power fields.
+- [Alpaca asset endpoint](https://docs.alpaca.markets/us/docs/working-with-assets) — asset status, tradability and per-symbol lookup.
+- [Alpaca asset model](https://docs.alpaca.markets/us/reference/get-v2-assets-1) — asset class, status, tradable and IPO attributes.
+- [Alpaca order buying-power checks](https://docs.alpaca.markets/us/v1.1/docs/orders-at-alpaca) — available buying power and the effect of existing opening orders.
+- [Alpaca asset FAQ](https://docs.alpaca.markets/us/docs/broker-api-faq) — distinction between active-but-nontradable close-only assets and tradable assets.

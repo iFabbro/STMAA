@@ -21,10 +21,22 @@ def _market_data():
     )
 
 
+def _safe_monitoring_executor(**overrides):
+    values = {
+        "get_account_status": Mock(return_value={"account_data_fresh": True}),
+        "reconcile_daily_decision_if_required": Mock(),
+        "reconcile_broker_state_read_only": Mock(return_value={"safe_for_new_decision": True}),
+        "claim_daily_decision": Mock(return_value=True),
+        "complete_daily_decision": Mock(),
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
 def test_opg_daily_cycle_waits_until_submission_window():
     bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
     bot.tickers = ["AAPL"]
-    bot.executor = SimpleNamespace()
+    bot.executor = _safe_monitoring_executor()
 
     result = bot.generate_and_execute_opg_daily_cycle(
         _market_data(),
@@ -34,12 +46,13 @@ def test_opg_daily_cycle_waits_until_submission_window():
     assert result["execution_mode"] == "opg"
     assert result["opg_schedule_state"] == "waiting_for_window"
     assert result["orders"] == []
+    bot.executor.reconcile_broker_state_read_only.assert_called_once_with()
 
 
 def test_opg_daily_cycle_marks_missed_open_without_catch_up():
     bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
     bot.tickers = ["AAPL"]
-    bot.executor = SimpleNamespace()
+    bot.executor = _safe_monitoring_executor()
 
     result = bot.generate_and_execute_opg_daily_cycle(
         _market_data(),
@@ -55,7 +68,9 @@ def test_opg_daily_cycle_routes_claimed_signal_to_opg_context():
     bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
     bot.tickers = ["AAPL"]
     bot.executor = SimpleNamespace(
+        get_account_status=Mock(return_value={"account_data_fresh": True}),
         reconcile_daily_decision_if_required=Mock(),
+        reconcile_broker_state_read_only=Mock(return_value={"safe_for_new_decision": True}),
         claim_daily_decision=Mock(return_value=True),
         complete_daily_decision=Mock(),
     )
@@ -73,6 +88,7 @@ def test_opg_daily_cycle_routes_claimed_signal_to_opg_context():
     )
 
     bot.executor.reconcile_daily_decision_if_required.assert_called_once_with()
+    bot.executor.reconcile_broker_state_read_only.assert_called_once_with()
     bot.executor.claim_daily_decision.assert_called_once()
     bot.generate_weights.assert_called_once()
     bot.execute_and_persist_cycle.assert_called_once()

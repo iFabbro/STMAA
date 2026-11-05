@@ -196,6 +196,32 @@ A ogni polling il broker executor continua le verifiche operative read-only su s
 
 La prenotazione della decisione viene salvata prima dell'inferenza. Se il processo si interrompe prima del completamento persistito, il ciclo resta bloccato: al riavvio STMAA tenta esclusivamente la riconciliazione read-only degli ordini e delle posizioni. Se l'evidenza del broker non è conclusiva, non viene effettuata una nuova submission. La barra interrotta resta consumata anche dopo una riconciliazione riuscita. Uno stato broker preesistente con storico di esecuzione ma senza il nuovo marcatore giornaliero richiede una verifica manuale dell'operatore e non viene azzerato automaticamente.
 
+### Esecuzione MOO/OPG pianificata (Paper)
+
+Il percorso MOO/OPG è un'opzione esplicita e separata dal percorso DAY esistente. Per avviarlo:
+
+```bash
+uv run --locked python trade.py --execution-mode opg
+```
+
+Senza `--execution-mode opg`, `trade.py` mantiene il percorso DAY predefinito. La modalità OPG non effettua fallback automatici al percorso DAY.
+
+Il ciclo OPG usa la barra giornaliera completata come segnale e risolve la sessione successiva tramite il calendario XNYS. La finestra prevista è dalle **19:00 ET della sessione del segnale alle 09:25 ET della sessione target**. Prima dell'apertura della finestra il processo attende; dalle 09:25 ET in poi il segnale è considerato mancato e non viene recuperato né spostato automaticamente a una sessione successiva. Gli orari sono basati su `America/New_York`, quindi seguono automaticamente il cambio tra ora solare e legale.
+
+Durante la finestra:
+1. STMAA genera i pesi PPO e applica i controlli del risk overlay già previsti dal ciclo Paper.
+2. Il piano OPG converte i target in quantità intere, usando l'equity verificata e il Close della barra completata. Le quantità correnti sono lette dal broker; posizioni short, frazionarie o non modellate bloccano il piano.
+3. Sotto il broker execution lock, il preflight legge nuovamente account e posizioni Paper e verifica identità dell'account, stato operativo, coerenza delle quantità, idoneità degli asset e budget aggregato degli acquisti.
+4. Solo dopo il preflight approvato, STMAA persiste il batch e le intenzioni d'ordine, quindi invia gli ordini market con time-in-force OPG in sequenza. Il report del preflight viene conservato nel batch come evidenza della verifica.
+
+Il preflight è read-only: non invia, cancella, sostituisce o chiude ordini. Gli asset IPO sono esclusi dal percorso market-on-open. Un asset attivo ma non negoziabile può essere ammesso soltanto per una vendita di chiusura coperta da una posizione long verificata. I proventi SELL non vengono conteggiati nel budget BUY.
+
+**Limite di prezzo:** il budget BUY è stimato con il Close della barra del segnale, non con il prezzo dell'asta successiva. Un gap overnight può rendere il costo effettivo superiore alla stima; il preflight non è un limite di prezzo e non garantisce che il broker accetti ogni ordine all'apertura.
+
+Gli identificativi batch e client-order sono deterministici. In caso di esito ambiguo di una submission, il sistema effettua la verifica prevista tramite client-order ID e non ripete alla cieca l'invio. Dopo un riavvio, il recupero è read-only: ordini attivi o parziali e posizioni non riconciliate mantengono il batch bloccante. Non vengono ritentate quantità residue e non vengono recuperate automaticamente le sessioni mancate. Un errore o una verifica inconcludente lascia il ciclo bloccato per riconciliazione; non attiva il percorso DAY come alternativa.
+
+La modalità OPG è **Paper-only**. Richiede un account Alpaca Paper, un modello PPO compatibile già addestrato e verificato, feed dati validi e un processo STMAA attivo durante la finestra di submission. Il codice OPG non rende la strategia redditizia né abilita il trading con capitale reale.
+
 ## Struttura del repository
 
 ```text

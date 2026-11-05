@@ -168,6 +168,7 @@ def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
     executor._current_account_identity_verified = True
+    executor.preflight_opg_plan = Mock(return_value={"approved": True, "source": "test_stub"})
     events = []
     executor._save_state = lambda: events.append("persist")
 
@@ -200,6 +201,7 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
     executor._current_account_identity_verified = True
+    executor.preflight_opg_plan = Mock(return_value={"approved": True, "source": "test_stub"})
     executor._save_state = Mock()
     broker_order = SimpleNamespace(
         id="broker-1", status="accepted", client_order_id="", symbol="AAPL", side="buy",
@@ -279,6 +281,7 @@ def test_opg_ambiguous_submission_stops_batch_without_resubmission():
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {"account_mode": "paper", "account_id": "paper-account-1", "opg_batches": {}}
     executor._current_account_identity_verified = True
+    executor.preflight_opg_plan = Mock(return_value={"approved": True, "source": "test_stub"})
     submitted = []
 
     class BrokerMock:

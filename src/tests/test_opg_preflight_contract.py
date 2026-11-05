@@ -73,7 +73,6 @@ def _executor(plan, *, buying_power=1000, positions=None, assets=None, account_o
     return executor
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements the operational preflight")
 def test_preflight_returns_verified_account_and_aggregate_buy_budget():
     plan = _plan()
     executor = _executor(plan, buying_power=500)
@@ -88,7 +87,6 @@ def test_preflight_returns_verified_account_and_aggregate_buy_budget():
     executor.trading_client.get_asset.assert_called_once_with("AAPL")
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements the operational preflight")
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -118,7 +116,6 @@ def test_preflight_rejects_unverified_or_blocked_account(overrides):
     executor.trading_client.submit_order.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements account identity matching")
 def test_preflight_rejects_account_id_different_from_persisted_state():
     plan = _plan()
     executor = _executor(plan, account_overrides={"account_id": "different-paper-account"})
@@ -127,7 +124,6 @@ def test_preflight_rejects_account_id_different_from_persisted_state():
         executor.preflight_opg_plan(plan)
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements the aggregate buying-power gate")
 def test_preflight_blocks_when_aggregate_buy_estimate_exceeds_buying_power():
     plan = _plan(
         target_weights={"AAPL": 0.30, "MSFT": 0.30},
@@ -142,7 +138,6 @@ def test_preflight_blocks_when_aggregate_buy_estimate_exceeds_buying_power():
     executor.trading_client.submit_order.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements incremental BUY-only budget accounting")
 def test_preflight_counts_only_incremental_buys_and_excludes_sell_proceeds():
     plan = _plan(
         target_weights={"AAPL": 0.30, "MSFT": 0.00},
@@ -163,7 +158,6 @@ def test_preflight_counts_only_incremental_buys_and_excludes_sell_proceeds():
     assert report["buying_power_headroom"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements side-specific asset eligibility")
 @pytest.mark.parametrize(
     "asset",
     [
@@ -184,7 +178,6 @@ def test_preflight_rejects_ineligible_buy_asset(asset):
         executor.preflight_opg_plan(plan)
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements close-only asset policy")
 def test_preflight_allows_active_nontradable_asset_only_for_verified_long_close():
     plan = _plan(
         target_weights={"AAPL": 0.0},
@@ -206,7 +199,6 @@ def test_preflight_allows_active_nontradable_asset_only_for_verified_long_close(
     assert report["estimated_buy_notional"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements position consistency checks")
 def test_preflight_rejects_position_drift_since_sizing():
     plan = _plan()
     executor = _executor(
@@ -218,7 +210,6 @@ def test_preflight_rejects_position_drift_since_sizing():
         executor.preflight_opg_plan(plan)
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements full-universe position checks")
 def test_preflight_rejects_new_unmodeled_nonzero_position():
     plan = _plan()
     executor = _executor(
@@ -230,7 +221,6 @@ def test_preflight_rejects_new_unmodeled_nonzero_position():
         executor.preflight_opg_plan(plan)
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B implements sell-only budget semantics")
 def test_sell_only_batch_does_not_require_positive_buying_power():
     plan = _plan(
         target_weights={"AAPL": 0.0},
@@ -250,7 +240,6 @@ def test_sell_only_batch_does_not_require_positive_buying_power():
     assert report["buying_power_headroom"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B integrates preflight before persistence and submission")
 def test_execute_opg_plan_runs_preflight_before_persist_or_submit():
     from src.execution.broker_executor import BrokerExecutor
 
@@ -278,7 +267,6 @@ def test_execute_opg_plan_runs_preflight_before_persist_or_submit():
     executor.trading_client.submit_order.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B guarantees read-only preflight")
 def test_preflight_has_no_broker_mutation_side_effects():
     plan = _plan()
     executor = _executor(plan)
@@ -292,7 +280,6 @@ def test_preflight_has_no_broker_mutation_side_effects():
     executor.trading_client.close_position.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, reason="RW-08.4 PR B skips asset lookup for no-order plans")
 def test_preflight_does_not_fetch_assets_when_plan_has_no_orders():
     plan = _plan(
         target_weights={"AAPL": 0.30},

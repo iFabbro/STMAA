@@ -11,7 +11,7 @@ import sys
 import time
 import signal
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 
 sys.path.append(str(Path(__file__).parent / "src"))
@@ -34,6 +34,7 @@ import yfinance as yf
 import pandas_market_calendars as mcal
 
 from src.execution.broker_executor import BrokerExecutor
+from src.execution.opg_scheduler import OpgSessionScheduler
 from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
@@ -289,14 +290,14 @@ class PaperTradingBot:
                 "Cannot obtain a valid VIX close (missing, invalid, or stale); refusing to submit new target weights"
             ) from exc
 
-    def execute_trade(self, weights: PortfolioWeights):
-        """Serialize the complete risk decision and broker execution cycle."""
+    def execute_trade(self, weights: PortfolioWeights, *, opg_context=None):
+        """Serialize the risk decision and either DAY or explicitly selected OPG execution."""
         execution_lock = getattr(self.executor, "execution_lock", None)
         lock_context = execution_lock() if callable(execution_lock) else nullcontext()
         with lock_context:
-            return self._execute_trade_locked(weights)
+            return self._execute_trade_locked(weights, opg_context=opg_context)
 
-    def _execute_trade_locked(self, weights: PortfolioWeights):
+    def _execute_trade_locked(self, weights: PortfolioWeights, *, opg_context=None):
         """Apply portfolio risk controls before submitting target weights."""
         print("🔄 Esecuzione trade...")
         risk_module = getattr(self.pipeline, "risk_module", None)
@@ -445,7 +446,11 @@ class PaperTradingBot:
                 "liquidate_on_circuit_breaker": False,
             }
         else:
-            result = self.executor.execute_weights(weights)
+            if opg_context is None:
+                result = self.executor.execute_weights(weights)
+                result["execution_mode"] = "day"
+            else:
+                result = self._execute_opg_plan(weights, opg_context)
             result["target_execution_skipped"] = False
         print(f"✅ Trade eseguito: {len(result['orders'])} ordini")
         for order in result['orders']:
@@ -469,6 +474,93 @@ class PaperTradingBot:
         )
         log_event(RUN_ID, "trade", "bars_loaded", "bars loaded", payload={"rows": len(result), "tickers": self.tickers})
         return result
+
+    def _execute_opg_plan(self, weights: PortfolioWeights, opg_context: Dict) -> Dict:
+        """Build and execute one integer-share OPG plan; never fall back to DAY."""
+        from src.execution.opg_sizing import build_opg_sizing_plan
+
+        if not isinstance(opg_context, dict):
+            raise RuntimeError("OPG execution context is missing or invalid")
+        market_data = opg_context.get("market_data")
+        signal_bar_at = opg_context.get("signal_bar_at")
+        target_session = opg_context.get("target_session")
+        if not isinstance(market_data, pd.DataFrame) or market_data.empty:
+            raise RuntimeError("OPG execution requires the completed signal-bar market data")
+        if not isinstance(signal_bar_at, str) or not signal_bar_at.strip():
+            raise RuntimeError("OPG execution requires a canonical signal-bar timestamp")
+        if not isinstance(target_session, str) or not target_session.strip():
+            raise RuntimeError("OPG execution requires a resolved NYSE target session")
+
+        account = self.executor.get_account_status()
+        if not isinstance(account, dict) or account.get("account_data_fresh") is not True:
+            raise RuntimeError("OPG sizing requires a fresh verified Paper account snapshot")
+        equity = account.get("equity")
+        positions = self.executor.get_positions()
+        if not isinstance(positions, dict):
+            raise RuntimeError("OPG sizing requires a fresh broker positions snapshot")
+
+        current_positions = {}
+        for symbol, position in positions.items():
+            if not isinstance(symbol, str) or not isinstance(position, dict):
+                raise RuntimeError("OPG sizing received a malformed broker position")
+            current_positions[symbol.strip().upper()] = position.get("qty")
+        for ticker in self.tickers:
+            current_positions.setdefault(ticker, 0)
+
+        close_prices = {}
+        target_weights = {}
+        if list(weights.tickers) != list(self.tickers):
+            raise RuntimeError("OPG target ticker order differs from the configured PPO universe")
+        for ticker, weight in zip(weights.tickers, weights.weights):
+            column = f"Close_{ticker}"
+            if column not in market_data.columns:
+                raise RuntimeError(f"OPG signal-bar Close is missing for {ticker}")
+            close_prices[ticker] = market_data[column].iloc[-1]
+            target_weights[ticker] = weight
+
+        plan = build_opg_sizing_plan(
+            equity=equity,
+            target_weights=target_weights,
+            close_prices=close_prices,
+            current_positions=current_positions,
+        )
+        batch = self.executor.execute_opg_plan(
+            plan,
+            signal_bar_at=signal_bar_at,
+            target_session=target_session,
+        )
+        order_rows = []
+        for symbol, order in sorted(batch.get("orders", {}).items()):
+            order_rows.append({
+                "ticker": symbol,
+                "side": order.get("side"),
+                "quantity": order.get("quantity"),
+                "status": order.get("status"),
+                "order_id": order.get("order_id"),
+                "client_order_id": order.get("client_order_id"),
+                "filled_qty": order.get("filled_qty", 0),
+                "average_fill_price": order.get("average_fill_price"),
+                "time_in_force": "opg",
+            })
+        metrics_provider = getattr(self.executor, "metrics", None)
+        metrics_reader = getattr(metrics_provider, "get_all_metrics", None)
+        return {
+            "orders": order_rows,
+            "portfolio_value": account.get("portfolio_value", equity),
+            "equity": equity,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "account_data_fresh": True,
+            "account_data_source": account.get("account_data_source"),
+            "account_snapshot_at": account.get("account_snapshot_at"),
+            "pre_execution_portfolio_value": account.get("portfolio_value", equity),
+            "pre_execution_equity": equity,
+            "metrics_equity": None,
+            "metrics": metrics_reader() if callable(metrics_reader) else {},
+            "execution_mode": "opg",
+            "opg_batch": batch,
+            "target_session": target_session,
+            "signal_bar_at": signal_bar_at,
+        }
 
     def update_hub_state(self, result: Dict):
         """Persist the complete dashboard snapshot through the single atomic writer."""
@@ -518,12 +610,15 @@ class PaperTradingBot:
             raise
         self.equity_curve = equity_curve
 
-    def execute_and_persist_cycle(self, weights: PortfolioWeights):
+    def execute_and_persist_cycle(self, weights: PortfolioWeights, *, opg_context=None):
         """Serialize broker execution and its matching dashboard snapshot as one cycle."""
         execution_lock = getattr(self.executor, "execution_lock", None)
         lock_context = execution_lock() if callable(execution_lock) else nullcontext()
         with lock_context:
-            result = self.execute_trade(weights)
+            if opg_context is None:
+                result = self.execute_trade(weights)
+            else:
+                result = self.execute_trade(weights, opg_context=opg_context)
             self.update_hub_state(result)
             return result
 
@@ -573,13 +668,82 @@ class PaperTradingBot:
             weights = self.generate_weights(market_data)
             return self.execute_and_persist_cycle(weights)
 
-    def run_loop(self, interval_seconds: int = 60):
-        """Run loop trading continuo"""
+    def generate_and_execute_opg_daily_cycle(self, market_data: pd.DataFrame, *, now=None):
+        """Submit only inside the deterministic OPG window; never catch up after cutoff."""
+        if not isinstance(market_data, pd.DataFrame) or market_data.empty:
+            raise RuntimeError("OPG scheduler requires non-empty completed daily market data")
+        signal_session = pd.Timestamp(market_data.index[-1]).date()
+        scheduler = OpgSessionScheduler()
+        current_time = datetime.now(timezone.utc) if now is None else now
+        schedule_state = scheduler.state_for(signal_session, current_time)
+        target_session = scheduler.next_session(signal_session).isoformat()
+
+        # OPG order recovery is independent of the submission window. Keep
+        # reconciling active/partial orders on every polling cycle, including
+        # after the 09:25 cutoff, before returning from a waiting/missed window.
+        account = self.executor.get_account_status()
+        if not isinstance(account, dict) or account.get("account_data_fresh") is not True:
+            raise RuntimeError("OPG polling requires a fresh verified Paper account snapshot")
+        reconcile = getattr(self.executor, "reconcile_daily_decision_if_required", None)
+        broker_reconcile = getattr(self.executor, "reconcile_broker_state_read_only", None)
+        claim = getattr(self.executor, "claim_daily_decision", None)
+        complete = getattr(self.executor, "complete_daily_decision", None)
+        if not all(callable(method) for method in (reconcile, broker_reconcile, claim, complete)):
+            raise RuntimeError("Daily/broker reconciliation guard is unavailable; refusing OPG execution")
+        reconcile()
+        broker_state = broker_reconcile()
+        if not isinstance(broker_state, dict) or broker_state.get("safe_for_new_decision") is not True:
+            return {
+                "execution_mode": "opg",
+                "opg_schedule_state": schedule_state.value,
+                "broker_state_blocked": True,
+                "broker_reconciliation": broker_state,
+                "orders": [],
+            }
+
+        if schedule_state.value == "waiting_for_window":
+            return {"execution_mode": "opg", "opg_schedule_state": schedule_state.value, "orders": []}
+        if schedule_state.value == "missed_open":
+            return {"execution_mode": "opg", "opg_schedule_state": schedule_state.value, "orders": []}
+
+        bar_timestamp = self._daily_bar_timestamp(market_data)
+        if not claim(bar_timestamp, self.tickers):
+            return {
+                "execution_mode": "opg",
+                "opg_schedule_state": schedule_state.value,
+                "daily_decision_skipped": True,
+                "daily_bar_timestamp": bar_timestamp,
+                "orders": [],
+            }
+
+        # A failure leaves the durable daily marker unresolved. Restart recovery is
+        # read-only; the consumed signal is never automatically resubmitted.
+        execution_lock = getattr(self.executor, "execution_lock", None)
+        lock_context = execution_lock() if callable(execution_lock) else nullcontext()
+        with lock_context:
+            weights = self.generate_weights(market_data)
+            result = self.execute_and_persist_cycle(
+                weights,
+                opg_context={
+                    "market_data": market_data,
+                    "signal_bar_at": bar_timestamp,
+                    "target_session": target_session,
+                },
+            )
+        complete(bar_timestamp)
+        result["opg_schedule_state"] = schedule_state.value
+        return result
+
+    def run_loop(self, interval_seconds: int = 60, *, execution_mode: str = "day"):
+        """Run the Paper loop in the selected, explicit execution mode."""
+        if execution_mode not in {"day", "opg"}:
+            raise ValueError("execution_mode must be 'day' or 'opg'")
         print("\n" + "=" * 62)
         print("🚀 AVVIO PAPER TRADING BOT")
         print("=" * 62)
         print(f"Tickers: {self.tickers}")
         print(f"Intervallo: {interval_seconds} secondi")
+        print(f"Modalità esecuzione: {execution_mode.upper()}")
         print(f"Paper Trading: {self.executor.paper_trading}")
         print("=" * 62 + "\n")
 
@@ -592,7 +756,11 @@ class PaperTradingBot:
 
             try:
                 market_data = self.get_market_data()
-                self.generate_and_execute_daily_cycle(market_data)
+                if execution_mode == "opg":
+                    opg_result = self.generate_and_execute_opg_daily_cycle(market_data)
+                    print(f"OPG scheduler: {opg_result.get('opg_schedule_state', 'not_evaluated')}")
+                else:
+                    self.generate_and_execute_daily_cycle(market_data)
 
                 status = self.executor.get_account_status()
                 if status.get("account_data_fresh") is not True:
@@ -618,6 +786,12 @@ class PaperTradingBot:
 def main(argv=None):
     global RUN_ID
     parser = argparse.ArgumentParser(description="STMAA paper-trading entry point")
+    parser.add_argument(
+        "--execution-mode",
+        choices=("day", "opg"),
+        default="day",
+        help="Paper execution path: existing DAY rebalance (default) or scheduled MOO/OPG",
+    )
     parser.add_argument(
         "--preflight-only",
         action="store_true",
@@ -682,7 +856,7 @@ def main(argv=None):
             status = "completed"
             return 0
 
-        bot.run_loop(interval_seconds=config.interval_seconds)
+        bot.run_loop(interval_seconds=config.interval_seconds, execution_mode=args.execution_mode)
         status = "completed"
         return 0
     except Exception as exc:

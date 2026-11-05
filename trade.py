@@ -615,7 +615,10 @@ class PaperTradingBot:
         execution_lock = getattr(self.executor, "execution_lock", None)
         lock_context = execution_lock() if callable(execution_lock) else nullcontext()
         with lock_context:
-            result = self.execute_trade(weights, opg_context=opg_context)
+            if opg_context is None:
+                result = self.execute_trade(weights)
+            else:
+                result = self.execute_trade(weights, opg_context=opg_context)
             self.update_hub_state(result)
             return result
 

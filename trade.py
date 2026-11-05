@@ -677,18 +677,36 @@ class PaperTradingBot:
         current_time = datetime.now(timezone.utc) if now is None else now
         schedule_state = scheduler.state_for(signal_session, current_time)
         target_session = scheduler.next_session(signal_session).isoformat()
+
+        # OPG order recovery is independent of the submission window. Keep
+        # reconciling active/partial orders on every polling cycle, including
+        # after the 09:25 cutoff, before returning from a waiting/missed window.
+        account = self.executor.get_account_status()
+        if not isinstance(account, dict) or account.get("account_data_fresh") is not True:
+            raise RuntimeError("OPG polling requires a fresh verified Paper account snapshot")
+        reconcile = getattr(self.executor, "reconcile_daily_decision_if_required", None)
+        broker_reconcile = getattr(self.executor, "reconcile_broker_state_read_only", None)
+        claim = getattr(self.executor, "claim_daily_decision", None)
+        complete = getattr(self.executor, "complete_daily_decision", None)
+        if not all(callable(method) for method in (reconcile, broker_reconcile, claim, complete)):
+            raise RuntimeError("Daily/broker reconciliation guard is unavailable; refusing OPG execution")
+        reconcile()
+        broker_state = broker_reconcile()
+        if not isinstance(broker_state, dict) or broker_state.get("safe_for_new_decision") is not True:
+            return {
+                "execution_mode": "opg",
+                "opg_schedule_state": schedule_state.value,
+                "broker_state_blocked": True,
+                "broker_reconciliation": broker_state,
+                "orders": [],
+            }
+
         if schedule_state.value == "waiting_for_window":
             return {"execution_mode": "opg", "opg_schedule_state": schedule_state.value, "orders": []}
         if schedule_state.value == "missed_open":
             return {"execution_mode": "opg", "opg_schedule_state": schedule_state.value, "orders": []}
 
         bar_timestamp = self._daily_bar_timestamp(market_data)
-        reconcile = getattr(self.executor, "reconcile_daily_decision_if_required", None)
-        claim = getattr(self.executor, "claim_daily_decision", None)
-        complete = getattr(self.executor, "complete_daily_decision", None)
-        if not all(callable(method) for method in (reconcile, claim, complete)):
-            raise RuntimeError("Daily decision guard is unavailable; refusing OPG inference and execution")
-        reconcile()
         if not claim(bar_timestamp, self.tickers):
             return {
                 "execution_mode": "opg",

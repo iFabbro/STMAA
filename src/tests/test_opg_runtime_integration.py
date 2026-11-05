@@ -64,6 +64,26 @@ def test_opg_daily_cycle_marks_missed_open_without_catch_up():
     assert result["orders"] == []
 
 
+def test_opg_daily_cycle_blocks_when_broker_reconciliation_is_unsafe():
+    executor = _safe_monitoring_executor(
+        reconcile_broker_state_read_only=Mock(return_value={"safe_for_new_decision": False})
+    )
+    bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
+    bot.tickers = ["AAPL"]
+    bot.executor = executor
+    bot.generate_weights = Mock(side_effect=AssertionError("PPO must not run while broker state is blocked"))
+
+    result = bot.generate_and_execute_opg_daily_cycle(
+        _market_data(),
+        now=datetime(2026, 11, 3, 19, 0, tzinfo=ET),
+    )
+
+    assert result["broker_state_blocked"] is True
+    assert result["orders"] == []
+    executor.claim_daily_decision.assert_not_called()
+    bot.generate_weights.assert_not_called()
+
+
 def test_opg_daily_cycle_routes_claimed_signal_to_opg_context():
     bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
     bot.tickers = ["AAPL"]

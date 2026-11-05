@@ -2414,6 +2414,190 @@ class BrokerExecutor:
                 raise RuntimeError("A fresh verified broker account identity is required for OPG recovery")
             return self._recover_opg_batches()
 
+
+    @staticmethod
+    def _opg_decimal(value, field):
+        """Parse a finite Decimal without accepting booleans or lossy fallbacks."""
+        if isinstance(value, bool) or value in (None, ""):
+            raise RuntimeError(f"OPG preflight {field} is missing or invalid")
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError(f"OPG preflight {field} is not numeric") from exc
+        if not parsed.is_finite():
+            raise RuntimeError(f"OPG preflight {field} must be finite")
+        return parsed
+
+    @staticmethod
+    def _opg_metadata_value(value):
+        raw = getattr(value, "value", value)
+        return str(raw or "").strip().lower().rsplit(".", 1)[-1]
+
+    def preflight_opg_plan(self, plan):
+        """Read-only, fail-closed account/position/asset/budget gate for one OPG plan.
+
+        The caller must hold execution_lock. This method performs broker reads only;
+        it never persists OPG intent or mutates broker orders or positions.
+        """
+        if not isinstance(getattr(self, "state", None), dict):
+            raise RuntimeError("OPG preflight requires initialized broker state")
+        if self.state.get("account_mode") != "paper" or getattr(self, "paper_trading", False) is not True:
+            raise RuntimeError("OPG preflight is Paper-only")
+        configured_url = str(getattr(self, "base_url", "") or "").lower()
+        if configured_url and "paper-api.alpaca.markets" not in configured_url:
+            raise RuntimeError("OPG preflight TradingClient endpoint is not Alpaca Paper")
+        if not callable(getattr(plan, "to_dict", None)) or not isinstance(getattr(plan, "assets", None), dict):
+            raise RuntimeError("OPG preflight requires a valid immutable sizing plan")
+
+        account = self.get_account_status()
+        if not isinstance(account, dict):
+            raise RuntimeError("OPG preflight account snapshot is unavailable")
+        if account.get("account_data_fresh") is not True or account.get("account_data_source") != "alpaca_account":
+            raise RuntimeError("OPG preflight requires a fresh Alpaca account snapshot")
+        if getattr(self, "_current_account_identity_verified", False) is not True or account.get("account_identity_verified") is not True:
+            raise RuntimeError("OPG preflight account identity is not currently verified")
+        account_id = str(account.get("account_id") or "").strip()
+        persisted_account_id = str(self.state.get("account_id") or "").strip()
+        if not account_id or not persisted_account_id or account_id != persisted_account_id:
+            raise RuntimeError("OPG preflight account ID does not match persisted Paper state")
+        if self.state.get("account_mode") != "paper":
+            raise RuntimeError("OPG preflight persisted account mode is not Paper")
+        if self._opg_metadata_value(account.get("status")) != "active":
+            raise RuntimeError("OPG preflight account status is not active")
+        if account.get("trading_blocked") is not False:
+            raise RuntimeError("OPG preflight account trading is blocked or unknown")
+        snapshot_at = account.get("account_snapshot_at")
+        if not isinstance(snapshot_at, str) or not snapshot_at.strip():
+            raise RuntimeError("OPG preflight account snapshot timestamp is missing")
+        try:
+            parsed_snapshot_at = datetime.fromisoformat(snapshot_at.strip().replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise RuntimeError("OPG preflight account snapshot timestamp is invalid") from exc
+        if parsed_snapshot_at.tzinfo is None:
+            raise RuntimeError("OPG preflight account snapshot timestamp must be timezone-aware")
+
+        equity = self._opg_decimal(account.get("equity"), "account equity")
+        buying_power = self._opg_decimal(account.get("buying_power"), "buying power")
+        if equity <= 0 or buying_power < 0:
+            raise RuntimeError("OPG preflight account equity or buying power is outside valid bounds")
+
+        plan_assets = plan.assets
+        normalized_assets = {}
+        for raw_symbol, item in plan_assets.items():
+            if not isinstance(raw_symbol, str) or not raw_symbol.strip():
+                raise RuntimeError("OPG preflight plan contains an invalid symbol")
+            symbol = raw_symbol.strip().upper()
+            if symbol in normalized_assets:
+                raise RuntimeError("OPG preflight plan contains duplicate normalized symbols")
+            if str(getattr(item, "symbol", symbol) or "").strip().upper() != symbol:
+                raise RuntimeError(f"OPG preflight plan symbol identity mismatch for {symbol}")
+            normalized_assets[symbol] = item
+        if not normalized_assets:
+            raise RuntimeError("OPG preflight sizing plan has no assets")
+
+        positions = self.get_positions()
+        if not isinstance(positions, dict):
+            raise RuntimeError("OPG preflight broker positions snapshot is invalid")
+        broker_positions = {}
+        for raw_symbol, position in positions.items():
+            if not isinstance(raw_symbol, str) or not raw_symbol.strip() or not isinstance(position, dict):
+                raise RuntimeError("OPG preflight broker position row is malformed")
+            symbol = raw_symbol.strip().upper()
+            if symbol in broker_positions:
+                raise RuntimeError(f"OPG preflight duplicate broker position for {symbol}")
+            quantity = self._opg_decimal(position.get("qty"), f"position quantity for {symbol}")
+            if quantity < 0 or quantity != quantity.to_integral_value():
+                raise RuntimeError(f"OPG preflight position for {symbol} is fractional or short")
+            broker_positions[symbol] = quantity
+        for symbol, item in normalized_assets.items():
+            expected = self._opg_decimal(getattr(item, "current_quantity", None), f"planned position for {symbol}")
+            if expected < 0 or expected != expected.to_integral_value():
+                raise RuntimeError(f"OPG preflight planned position for {symbol} is not a non-negative whole share quantity")
+            actual = broker_positions.get(symbol, Decimal("0"))
+            if actual != expected:
+                raise RuntimeError(f"OPG preflight position drift for {symbol}: broker={actual}, plan={expected}")
+        for symbol, quantity in broker_positions.items():
+            if symbol not in normalized_assets and quantity != 0:
+                raise RuntimeError(f"OPG preflight found unmodeled broker position outside plan: {symbol}")
+
+        buy_orders = 0
+        sell_orders = 0
+        estimated_buy_notional = Decimal("0")
+        asset_checks = []
+        for symbol, item in sorted(normalized_assets.items()):
+            delta = getattr(item, "delta_quantity", None)
+            if isinstance(delta, bool) or not isinstance(delta, int):
+                raise RuntimeError(f"OPG preflight delta quantity for {symbol} must be an integer")
+            if delta == 0:
+                continue
+            side = "buy" if delta > 0 else "sell"
+            quantity = abs(delta)
+            current_quantity = broker_positions.get(symbol, Decimal("0"))
+            if side == "buy":
+                buy_orders += 1
+                close_price = self._opg_decimal(getattr(item, "close_price", None), f"signal-bar Close for {symbol}")
+                if close_price <= 0:
+                    raise RuntimeError(f"OPG preflight signal-bar Close for {symbol} must be positive")
+                estimated_buy_notional += Decimal(quantity) * close_price
+            else:
+                sell_orders += 1
+                if current_quantity <= 0 or Decimal(quantity) > current_quantity:
+                    raise RuntimeError(f"OPG preflight SELL for {symbol} exceeds the verified long position")
+
+            try:
+                asset = self.trading_client.get_asset(symbol)
+            except Exception as exc:
+                raise RuntimeError(f"OPG preflight could not retrieve asset metadata for {symbol}") from exc
+            asset_symbol = str(getattr(asset, "symbol", "") or "").strip().upper()
+            asset_class = self._opg_metadata_value(getattr(asset, "asset_class", None))
+            asset_status = self._opg_metadata_value(getattr(asset, "status", None))
+            tradable = getattr(asset, "tradable", None)
+            attributes = getattr(asset, "attributes", None)
+            if asset_symbol != symbol or asset_class != "us_equity" or asset_status != "active":
+                raise RuntimeError(f"OPG preflight asset identity, class, or status is invalid for {symbol}")
+            if type(tradable) is not bool:
+                raise RuntimeError(f"OPG preflight tradability metadata is missing or invalid for {symbol}")
+            if not isinstance(attributes, (list, tuple, set)):
+                raise RuntimeError(f"OPG preflight asset attributes are missing or invalid for {symbol}")
+            normalized_attributes = {self._opg_metadata_value(value) for value in attributes}
+            if "ipo" in normalized_attributes:
+                raise RuntimeError(f"OPG preflight blocks IPO asset {symbol} for MOO market orders")
+            if side == "buy" and tradable is not True:
+                raise RuntimeError(f"OPG preflight BUY asset {symbol} is not tradable")
+            if side == "sell" and tradable is not True:
+                if tradable is not False or current_quantity <= 0 or Decimal(quantity) > current_quantity:
+                    raise RuntimeError(f"OPG preflight non-tradable asset {symbol} is not eligible for close-only SELL")
+            asset_checks.append({
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "asset_class": asset_class,
+                "status": asset_status,
+                "tradable": tradable,
+                "close_only": side == "sell" and tradable is False,
+            })
+
+        if not estimated_buy_notional.is_finite() or estimated_buy_notional < 0:
+            raise RuntimeError("OPG preflight aggregate BUY estimate is invalid")
+        if buy_orders and buying_power < estimated_buy_notional:
+            raise RuntimeError(
+                f"OPG preflight estimated BUY budget {estimated_buy_notional} exceeds buying power {buying_power}"
+            )
+        headroom = buying_power - estimated_buy_notional
+        return {
+            "approved": True,
+            "source": "alpaca_account_and_positions_plus_alpaca_asset_metadata",
+            "account_id": account_id,
+            "account_snapshot_at": snapshot_at,
+            "equity": float(equity),
+            "buying_power": float(buying_power),
+            "asset_checks": asset_checks,
+            "buy_orders": buy_orders,
+            "sell_orders": sell_orders,
+            "estimated_buy_notional": float(estimated_buy_notional),
+            "buying_power_headroom": float(headroom),
+        }
+
     def execute_opg_plan(self, plan, *, signal_bar_at: str, target_session: str):
         """Persist and submit one deterministic Paper-only OPG batch sequentially.
 
@@ -2462,6 +2646,8 @@ class BrokerExecutor:
             if record["account_mode"] != self.state.get("account_mode"):
                 raise RuntimeError("OPG batch account mode differs from persisted broker state")
 
+            preflight_report = self.preflight_opg_plan(plan)
+            record["preflight"] = copy.deepcopy(preflight_report)
             self._persist_opg_batch(batch_id, record)
             if record["status"] == "no_orders":
                 return copy.deepcopy(record)

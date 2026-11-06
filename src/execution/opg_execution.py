@@ -4,9 +4,10 @@ import hashlib
 import json
 import re
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 
 from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 
 
 def _normalize_signal_timestamp(value: str) -> str:
@@ -60,7 +61,20 @@ def build_opg_client_order_id(batch_id: str, symbol: str) -> str:
     return value
 
 
-def build_opg_order_request(symbol: str, quantity: int, client_order_id: str, side: str = "buy") -> MarketOrderRequest:
+def build_opg_order_request(
+    symbol: str,
+    quantity: int,
+    client_order_id: str,
+    side: str = "buy",
+    *,
+    limit_price=None,
+):
+    """Build a price-bounded LOO BUY or risk-reducing MOO SELL.
+
+    A market-on-open BUY cannot enforce a hard dollar exposure limit because
+    its execution price is unknown until the opening auction. BUYs therefore
+    use a limit-on-open order capped at the completed signal-bar Close.
+    """
     normalized = str(symbol or "").strip().upper()
     if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", normalized):
         raise ValueError("symbol is invalid")
@@ -71,10 +85,28 @@ def build_opg_order_request(symbol: str, quantity: int, client_order_id: str, si
     normalized_side = str(side or "").strip().lower()
     if normalized_side not in {"buy", "sell"}:
         raise ValueError("OPG side must be buy or sell")
+    order_side = OrderSide.BUY if normalized_side == "buy" else OrderSide.SELL
+    if normalized_side == "buy":
+        try:
+            price = Decimal(str(limit_price))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError("OPG BUY requires a finite positive limit price") from exc
+        if not price.is_finite() or price <= 0:
+            raise ValueError("OPG BUY requires a finite positive limit price")
+        return LimitOrderRequest(
+            symbol=normalized,
+            qty=quantity,
+            side=order_side,
+            time_in_force=TimeInForce.OPG,
+            limit_price=float(price),
+            client_order_id=client_order_id,
+        )
+    if limit_price is not None:
+        raise ValueError("OPG SELL uses a market-on-open order without a limit price")
     return MarketOrderRequest(
         symbol=normalized,
         qty=quantity,
-        side=OrderSide.BUY if normalized_side == "buy" else OrderSide.SELL,
+        side=order_side,
         time_in_force=TimeInForce.OPG,
         client_order_id=client_order_id,
     )
@@ -114,7 +146,8 @@ def build_opg_batch_record(*, account_id, signal_bar_at, target_session, plan) -
             "requested_quantity": quantity,
             "pre_order_position_qty": getattr(asset, "current_quantity", None),
             "client_order_id": client_id,
-            "order_type": "market",
+            "order_type": "limit" if side == "buy" else "market",
+            "limit_price": float(asset.close_price) if side == "buy" else None,
             "time_in_force": "opg",
             "status": "not_submitted",
             "order_id": None,

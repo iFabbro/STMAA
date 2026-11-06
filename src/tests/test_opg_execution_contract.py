@@ -18,17 +18,41 @@ def _opg_api():
     return build_opg_batch_id, build_opg_client_order_id, build_opg_order_request
 
 
-def test_opg_order_request_uses_market_opg():
+def test_opg_buy_request_uses_price_bounded_limit_on_open():
     from alpaca.trading.enums import OrderSide, TimeInForce
 
     _, _, build_order = _opg_api()
-    request = build_order("AAPL", 3, "stmaa-opg-0123456789abcdef")
+    request = build_order(
+        "AAPL", 3, "stmaa-opg-0123456789abcdef", limit_price=100
+    )
 
     assert request.symbol == "AAPL"
     assert request.qty == 3
     assert request.side is OrderSide.BUY
+    assert str(getattr(request.type, "value", request.type)).lower() == "limit"
+    assert request.limit_price == 100
     assert request.time_in_force is TimeInForce.OPG
     assert request.client_order_id == "stmaa-opg-0123456789abcdef"
+
+
+def test_opg_sell_request_remains_market_on_open():
+    from alpaca.trading.enums import OrderSide, TimeInForce
+
+    _, _, build_order = _opg_api()
+    request = build_order(
+        "AAPL", 3, "stmaa-opg-0123456789abcdef", side="sell"
+    )
+
+    assert request.side is OrderSide.SELL
+    assert str(getattr(request.type, "value", request.type)).lower() == "market"
+    assert request.time_in_force is TimeInForce.OPG
+
+
+def test_opg_buy_request_requires_valid_limit_price():
+    _, _, build_order = _opg_api()
+    for price in (None, 0, -1, float("nan"), float("inf"), "bad"):
+        with pytest.raises(ValueError, match="limit price"):
+            build_order("AAPL", 1, "stable-id", limit_price=price)
 
 
 @pytest.mark.parametrize("quantity", [0, -1, 1.5, True, False, "1.5"])
@@ -84,7 +108,37 @@ def test_opg_batch_record_contains_immutable_sizing_snapshot():
     assert record["plan"] == plan.to_dict()
     assert record["account_mode"] == "paper"
     assert record["orders"]["AAPL"]["quantity"] == 2
+    assert record["orders"]["AAPL"]["order_type"] == "limit"
+    assert record["orders"]["AAPL"]["limit_price"] == 100.0
     json.dumps(record)
+
+
+def test_opg_buy_acknowledgement_must_match_persisted_limit_price():
+    from src.execution.broker_executor import BrokerExecutor
+
+    expected = {
+        "client_order_id": "stable-buy",
+        "symbol": "AAPL",
+        "side": "buy",
+        "quantity": 2,
+        "order_type": "limit",
+        "limit_price": 100,
+        "time_in_force": "opg",
+    }
+    order = SimpleNamespace(
+        id="broker-1",
+        client_order_id="stable-buy",
+        symbol="AAPL",
+        side="buy",
+        qty="2",
+        type="limit",
+        limit_price="101",
+        time_in_force="opg",
+        filled_qty="0",
+    )
+
+    with pytest.raises(RuntimeError, match="limit price mismatch"):
+        BrokerExecutor._validate_opg_broker_order(order, expected)
 
 
 def test_opg_state_v1_migration_preserves_existing_orders_and_safety_maps(tmp_path, monkeypatch):
@@ -178,7 +232,8 @@ def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
             return SimpleNamespace(
                 id="broker-1", status="accepted", client_order_id=request.client_order_id,
                 symbol=request.symbol, side=request.side, qty=str(request.qty),
-                type="market", time_in_force="opg", filled_qty="0",
+                type=request.type, limit_price=request.limit_price,
+                time_in_force="opg", filled_qty="0",
             )
 
     executor.trading_client = BrokerMock()
@@ -205,12 +260,15 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
     executor._save_state = Mock()
     broker_order = SimpleNamespace(
         id="broker-1", status="accepted", client_order_id="", symbol="AAPL", side="buy",
-        qty="2", type="market", time_in_force="opg", filled_qty="0", filled_avg_price=None,
+        qty="2", type="limit", limit_price="100", time_in_force="opg",
+        filled_qty="0", filled_avg_price=None,
     )
     def submit(request):
         broker_order.client_order_id = request.client_order_id
         broker_order.qty = str(request.qty)
         broker_order.side = request.side
+        broker_order.type = request.type
+        broker_order.limit_price = request.limit_price
         return broker_order
     broker = SimpleNamespace(
         submit_order=Mock(side_effect=submit),

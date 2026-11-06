@@ -75,11 +75,12 @@ class FakePaperTradingClient:
                 symbol="AAPL",
                 side="buy",
                 qty="2",
-                type="market",
+                type="limit",
+                limit_price="100",
                 time_in_force="opg",
                 status=self.order_status,
                 filled_qty="2" if self.order_status == "filled" else "0",
-                filled_avg_price="101" if self.order_status == "filled" else None,
+                filled_avg_price="100" if self.order_status == "filled" else None,
             )
         return SimpleNamespace(
             id=self.order_id,
@@ -87,7 +88,8 @@ class FakePaperTradingClient:
             symbol=request.symbol,
             side=request.side.value,
             qty=str(request.qty),
-            type="market",
+            type=request.type,
+            limit_price=request.limit_price,
             time_in_force=request.time_in_force.value,
             status=self.order_status,
             filled_qty="0",
@@ -218,6 +220,8 @@ def test_opg_vertical_flow_from_ppo_inference_through_persisted_fill_reconciliat
     assert request.symbol == "AAPL"
     assert request.qty == 2
     assert request.side.value == "buy"
+    assert str(getattr(request.type, "value", request.type)).lower() == "limit"
+    assert request.limit_price == 100.0
     assert request.time_in_force.value == "opg"
 
     persisted = json.loads(executor.state_file.read_text(encoding="utf-8"))

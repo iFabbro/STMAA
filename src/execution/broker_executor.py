@@ -16,13 +16,19 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta, timezone
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
+from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
 from src.data.alpaca_feed import AlpacaFeed
 from src.execution.corporate_action_reconciler import CorporateActionReconciler
 from src.utils.metrics import PortfolioMetrics
+from src.execution.notional_cap import (
+    MAX_GROSS_NOTIONAL_USD,
+    calculate_aggregate_gross_notional,
+    calculate_position_gross_notional,
+    enforce_aggregate_gross_notional_cap,
+)
 
 RISK_LIMITS = {
     "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", "0.50")),
@@ -1028,6 +1034,50 @@ class BrokerExecutor:
             "no valid limit price, market price, or notional"
         )
 
+    def _get_reserved_buy_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
+        """Reserve only active BUY orders against gross long exposure.
+
+        SELL orders do not create gross exposure and must never consume the
+        operational BUY budget. Missing side metadata is conservatively treated
+        as BUY; an explicit unknown side blocks new exposure.
+        """
+        if not isinstance(orders, (list, tuple)):
+            raise RuntimeError("Cannot verify aggregate exposure: open-order snapshot is invalid")
+        buy_orders = []
+        for order in orders:
+            symbol = str(getattr(order, "symbol", "") or "").strip().upper()
+            if not symbol:
+                raise RuntimeError("Cannot verify aggregate exposure: active order symbol is unknown")
+            # Legacy test doubles and older snapshots may omit side; treating
+            # them as BUY is conservative because their full notional is reserved.
+            raw_side = getattr(order, "side", "buy")
+            side = str(getattr(raw_side, "value", raw_side) or "").strip().lower()
+            if side == "buy":
+                buy_orders.append(order)
+            elif side == "sell":
+                continue
+            else:
+                raise RuntimeError("Cannot verify aggregate exposure: active order side is unknown")
+        return self._get_reserved_notional(buy_orders, prices=prices)
+
+    def _get_aggregate_gross_notional(
+        self, positions, open_orders, prices: Optional[Dict[str, float]] = None
+    ) -> tuple[float, float]:
+        """Return (positions + pending BUY reserve, pending BUY reserve).
+
+        Both DAY and OPG call this same broker-boundary calculation. Position
+        marks and every active BUY must be determinable before new exposure.
+        Partial fills conservatively reserve the original order notional until
+        broker positions and order state are reconciled.
+        """
+        position_notional = calculate_position_gross_notional(positions, prices)
+        pending_buy_notional = self._get_reserved_buy_notional(open_orders, prices=prices)
+        gross = calculate_aggregate_gross_notional(
+            position_notional=position_notional,
+            pending_buy_notional=pending_buy_notional,
+        )
+        return float(gross), float(pending_buy_notional)
+
     def _get_reserved_notional(self, orders, prices: Optional[Dict[str, float]] = None) -> float:
         """Return reserved notional or raise if any active order is unestimable."""
         estimates = [
@@ -1835,6 +1885,34 @@ class BrokerExecutor:
                 )
                 continue
 
+            expected_order_type = str(intent.get("order_type") or "").strip().lower()
+            if expected_order_type:
+                actual_order_type = str(
+                    getattr(getattr(order, "type", None), "value", getattr(order, "type", None)) or ""
+                ).strip().lower()
+                if actual_order_type != expected_order_type:
+                    self.logger.error(
+                        "Broker order type differs from unresolved intent for %s; retaining fail-closed state",
+                        ticker,
+                    )
+                    continue
+                if expected_order_type == "limit":
+                    try:
+                        broker_limit_price = Decimal(str(getattr(order, "limit_price", None)))
+                        intent_limit_price = Decimal(str(intent.get("limit_price")))
+                    except (InvalidOperation, TypeError, ValueError):
+                        continue
+                    if (
+                        not broker_limit_price.is_finite()
+                        or not intent_limit_price.is_finite()
+                        or broker_limit_price != intent_limit_price
+                    ):
+                        self.logger.error(
+                            "Broker limit price differs from unresolved intent for %s; retaining fail-closed state",
+                            ticker,
+                        )
+                        continue
+
             broker_status = self._status_text(
                 getattr(order, "status", "unknown"), default="unknown"
             )
@@ -1892,6 +1970,8 @@ class BrokerExecutor:
                 "status": self._status_text(getattr(order, "status", "unknown"), default="unknown"),
                 "timestamp": intent.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "price": intent.get("price"),
+                "order_type": intent.get("order_type"),
+                "limit_price": intent.get("limit_price"),
                 "pre_order_position_qty": intent.get("pre_order_position_qty"),
                 "filled_qty": broker_filled_qty,
                 "reconciled": True,
@@ -1961,6 +2041,31 @@ class BrokerExecutor:
                     f"{status_label} broker order identity differs from persisted intent; "
                     "manual reconciliation required"
                 )
+            expected_order_type = str(stored_order.get("order_type") or "").strip().lower()
+            if expected_order_type:
+                actual_order_type = str(
+                    getattr(getattr(order, "type", None), "value", getattr(order, "type", None)) or ""
+                ).strip().lower()
+                if actual_order_type != expected_order_type:
+                    raise RuntimeError(
+                        "Broker order type differs from persisted intent; manual reconciliation required"
+                    )
+                if expected_order_type == "limit":
+                    try:
+                        broker_limit_price = Decimal(str(getattr(order, "limit_price", None)))
+                        expected_limit_price = Decimal(str(stored_order.get("limit_price")))
+                    except (InvalidOperation, TypeError, ValueError) as exc:
+                        raise RuntimeError(
+                            "Broker order limit price is invalid; manual reconciliation required"
+                        ) from exc
+                    if (
+                        not broker_limit_price.is_finite()
+                        or not expected_limit_price.is_finite()
+                        or broker_limit_price != expected_limit_price
+                    ):
+                        raise RuntimeError(
+                            "Broker order limit price differs from persisted intent; manual reconciliation required"
+                        )
             if broker_status != stored_order.get("status"):
                 updated["status"] = broker_status
                 changed = True
@@ -2141,7 +2246,8 @@ class BrokerExecutor:
         expected_side = str(expected.get("side") or "").strip().lower()
         if expected_side not in {"buy", "sell"}:
             raise RuntimeError("OPG persisted order intent has an invalid side")
-        if str(expected.get("order_type", "market")).strip().lower() != "market":
+        expected_order_type = str(expected.get("order_type", "market")).strip().lower()
+        if expected_order_type not in {"market", "limit"}:
             raise RuntimeError("OPG persisted order intent has an invalid order type")
         if str(expected.get("time_in_force", "opg")).strip().lower() != "opg":
             raise RuntimeError("OPG persisted order intent has an invalid time-in-force")
@@ -2175,10 +2281,24 @@ class BrokerExecutor:
             raise RuntimeError("OPG broker acknowledgement has no order ID")
         order_type = getattr(order, "type", None)
         tif = getattr(order, "time_in_force", None)
-        if order_type is None or str(getattr(order_type, "value", order_type)).lower() != "market":
+        actual_order_type = str(getattr(order_type, "value", order_type) or "").strip().lower()
+        if order_type is None or actual_order_type != expected_order_type:
             raise RuntimeError("OPG broker order type mismatch")
         if tif is None or str(getattr(tif, "value", tif)).lower() != "opg":
             raise RuntimeError("OPG broker time-in-force mismatch")
+        if expected_order_type == "limit":
+            try:
+                expected_limit_price = Decimal(str(expected.get("limit_price")))
+                actual_limit_price = Decimal(str(getattr(order, "limit_price", None)))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise RuntimeError("OPG broker limit price is missing or invalid") from exc
+            if (
+                not expected_limit_price.is_finite()
+                or expected_limit_price <= 0
+                or not actual_limit_price.is_finite()
+                or actual_limit_price != expected_limit_price
+            ):
+                raise RuntimeError("OPG broker limit price mismatch")
         raw_filled = getattr(order, "filled_qty", None)
         try:
             filled = Decimal(str(raw_filled))
@@ -2520,6 +2640,83 @@ class BrokerExecutor:
             if symbol not in normalized_assets and quantity != 0:
                 raise RuntimeError(f"OPG preflight found unmodeled broker position outside plan: {symbol}")
 
+        # The OPG target is a complete account target. Mark every projected
+        # position at its validated signal-bar Close, then add pending BUY
+        # reserves from the broker. Existing SELL orders are not new exposure.
+        opg_prices = {
+            symbol: float(self._opg_decimal(
+                getattr(item, "close_price", None), f"signal-bar Close for {symbol}"
+            ))
+            for symbol, item in normalized_assets.items()
+        }
+        projected_position_notional = Decimal("0")
+        for symbol, item in normalized_assets.items():
+            target_quantity = self._opg_decimal(
+                getattr(item, "target_quantity", None), f"target quantity for {symbol}"
+            )
+            close_price = self._opg_decimal(
+                getattr(item, "close_price", None), f"signal-bar Close for {symbol}"
+            )
+            if (
+                target_quantity < 0
+                or target_quantity != target_quantity.to_integral_value()
+                or close_price <= 0
+            ):
+                raise RuntimeError(f"OPG preflight target exposure is invalid for {symbol}")
+            projected_position_notional += target_quantity * close_price
+        current_position_notional = Decimal("0")
+        for symbol, quantity in broker_positions.items():
+            if quantity == 0:
+                continue
+            if symbol not in opg_prices:
+                raise RuntimeError(
+                    f"OPG preflight cannot mark broker position outside the target price map: {symbol}"
+                )
+            current_position_notional += quantity * self._opg_decimal(
+                opg_prices[symbol], f"signal-bar Close for broker position {symbol}"
+            )
+
+        active_orders = self._get_open_orders()
+        pending_buy_notional = self._opg_decimal(
+            self._get_reserved_buy_notional(active_orders, prices=opg_prices),
+            "aggregate pending BUY notional",
+        )
+        # Do not credit planned SELLs before they actually fill. A mixed OPG
+        # batch may submit BUYs only if current positions + pending BUYs +
+        # proposed BUYs are already within the cap.
+        planned_deltas = {
+            symbol: getattr(item, "delta_quantity", None)
+            for symbol, item in normalized_assets.items()
+        }
+        for order in active_orders:
+            order_symbol = str(getattr(order, "symbol", "") or "").strip().upper()
+            if not order_symbol:
+                raise RuntimeError("OPG preflight found an active order without a symbol")
+            if order_symbol in planned_deltas and planned_deltas[order_symbol] not in (0, None):
+                raise RuntimeError(
+                    f"OPG preflight active broker order already exists for planned symbol {order_symbol}"
+                )
+
+        # Persisted DAY submission intents with unknown outcomes are not
+        # necessarily visible in the active-order endpoint. Block OPG until
+        # their broker state has been reconciled after restart/reconnect.
+        unresolved_day = self.state.get("order_submission_unresolved", {})
+        confirmed_day = self.state.get("order_submission_confirmed", {})
+        terminal_day_statuses = {"filled", "canceled", "cancelled", "expired", "rejected"}
+        active_day = {
+            client_id: order
+            for client_id, order in confirmed_day.items()
+            if (
+                self._status_text(order.get("status", "unknown"), default="unknown")
+                not in terminal_day_statuses
+                or order.get("position_reconciled") is not True
+            )
+        } if isinstance(confirmed_day, dict) else {"invalid_state": {}}
+        if unresolved_day or active_day:
+            raise RuntimeError(
+                "OPG preflight requires DAY order reconciliation before new exposure"
+            )
+
         buy_orders = 0
         sell_orders = 0
         estimated_buy_notional = Decimal("0")
@@ -2579,6 +2776,18 @@ class BrokerExecutor:
 
         if not estimated_buy_notional.is_finite() or estimated_buy_notional < 0:
             raise RuntimeError("OPG preflight aggregate BUY estimate is invalid")
+        projected_gross_notional = calculate_aggregate_gross_notional(
+            position_notional=current_position_notional,
+            pending_buy_notional=pending_buy_notional,
+            additional_buy_notional=estimated_buy_notional,
+        )
+        cap_check_applied = buy_orders > 0
+        if cap_check_applied:
+            enforce_aggregate_gross_notional_cap(
+                position_notional=current_position_notional,
+                pending_buy_notional=pending_buy_notional,
+                additional_buy_notional=estimated_buy_notional,
+            )
         if buy_orders and buying_power < estimated_buy_notional:
             raise RuntimeError(
                 f"OPG preflight estimated BUY budget {estimated_buy_notional} exceeds buying power {buying_power}"
@@ -2595,6 +2804,13 @@ class BrokerExecutor:
             "buy_orders": buy_orders,
             "sell_orders": sell_orders,
             "estimated_buy_notional": float(estimated_buy_notional),
+            "projected_position_notional": float(projected_position_notional),
+            "current_position_notional": float(current_position_notional),
+            "pending_buy_notional": float(pending_buy_notional),
+            "planned_buy_notional": float(estimated_buy_notional),
+            "projected_gross_notional": float(projected_gross_notional),
+            "cap_check_applied": cap_check_applied,
+            "max_gross_notional_usd": float(MAX_GROSS_NOTIONAL_USD),
             "buying_power_headroom": float(headroom),
         }
 
@@ -2646,6 +2862,12 @@ class BrokerExecutor:
             if record["account_mode"] != self.state.get("account_mode"):
                 raise RuntimeError("OPG batch account mode differs from persisted broker state")
 
+            # Reconcile DAY state under the same broker execution lock before
+            # OPG preflight. Terminal DAY fills are not safe to forget until the
+            # broker position snapshot confirms their quantity effect.
+            self._reconcile_unresolved_submissions()
+            self._refresh_confirmed_submission_statuses()
+            self._reconcile_terminal_order_positions()
             preflight_report = self.preflight_opg_plan(plan)
             record["preflight"] = copy.deepcopy(preflight_report)
             self._persist_opg_batch(batch_id, record)
@@ -2658,7 +2880,11 @@ class BrokerExecutor:
                 record["status"] = "submission_pending"
                 self._persist_opg_batch(batch_id, record)
                 request = build_opg_order_request(
-                    symbol, order_record["quantity"], order_record["client_order_id"], order_record["side"]
+                    symbol,
+                    order_record["quantity"],
+                    order_record["client_order_id"],
+                    order_record["side"],
+                    limit_price=order_record.get("limit_price"),
                 )
                 try:
                     broker_order = self.trading_client.submit_order(request)
@@ -3148,6 +3374,12 @@ class BrokerExecutor:
                 "risk_mark_price": float(price),
             }
         positions = marked_positions
+        # This is the shared hard USD cap used by both DAY and OPG. Existing
+        # BUY orders reserve their full notional (including partial fills);
+        # pending SELL orders do not increase gross exposure.
+        gross_exposure, pending_buy_notional = self._get_aggregate_gross_notional(
+            positions, open_orders, prices=prices
+        )
         reserved_notional = self._get_reserved_notional(open_orders, prices=prices)
         if reserved_notional > 0:
             self.logger.warning(
@@ -3308,6 +3540,50 @@ class BrokerExecutor:
                 # order sized from the earlier snapshot.
                 price = self._verify_quote_before_submission(ticker, price)
                 qty = round(abs(order_notional) / price, 6)
+                if side == OrderSide.BUY:
+                    raw_position = positions.get(ticker, {})
+                    try:
+                        signed_position_qty = Decimal(str(raw_position.get("qty", 0)))
+                        verified_price = Decimal(str(price))
+                    except (InvalidOperation, TypeError, ValueError) as exc:
+                        raise RuntimeError(
+                            f"Cannot determine BUY exposure for {ticker}: invalid position quantity or price"
+                        ) from exc
+                    if not signed_position_qty.is_finite() or not verified_price.is_finite() or verified_price <= 0:
+                        raise RuntimeError(
+                            f"Cannot determine BUY exposure for {ticker}: invalid position quantity or price"
+                        )
+                    # A BUY that covers an existing short reduces gross exposure.
+                    # Permit that cover even when the account is already above cap;
+                    # only the residual BUY that opens/increases a long is capped.
+                    cover_qty = min(Decimal(str(qty)), max(Decimal("0"), -signed_position_qty))
+                    cover_notional_decimal = cover_qty * verified_price
+                    cover_notional = float(cover_notional_decimal)
+                    gross_after_cover = max(0.0, gross_exposure - cover_notional)
+                    available_gross_notional = max(
+                        0.0, float(MAX_GROSS_NOTIONAL_USD) - gross_after_cover
+                    )
+                    cap_quantity = float(cover_qty) + (
+                        np.floor((available_gross_notional / price) * 1_000_000) / 1_000_000
+                    )
+                    qty = min(qty, cap_quantity)
+                    if qty < 0.000001:
+                        self.logger.warning(
+                            "Aggregate gross-notional cap blocks new BUY for %s "
+                            "(gross=%.2f USD, cap=%.2f USD)",
+                            ticker, gross_exposure, float(MAX_GROSS_NOTIONAL_USD),
+                        )
+                        continue
+                    new_long_qty = max(0.0, qty - float(cover_qty))
+                    if new_long_qty > 0:
+                        position_notional = calculate_position_gross_notional(positions, prices)
+                        enforce_aggregate_gross_notional_cap(
+                            position_notional=max(
+                                Decimal("0"), position_notional - cover_notional_decimal
+                            ),
+                            pending_buy_notional=pending_buy_notional,
+                            additional_buy_notional=new_long_qty * price,
+                        )
                 if qty < 0.000001:
                     continue
 
@@ -3315,11 +3591,15 @@ class BrokerExecutor:
                 # Persist intent before calling the broker: a lost response must not
                 # cause an automatic duplicate order on this or a later process run.
                 unresolved = dict(self.state.get("order_submission_unresolved", {}))
+                order_type = "limit" if side == OrderSide.BUY else "market"
+                limit_price = price if side == OrderSide.BUY else None
                 unresolved[ticker] = {
                     "client_order_id": client_order_id,
                     "side": side.value,
                     "quantity": qty,
                     "price": price,
+                    "order_type": order_type,
+                    "limit_price": limit_price,
                     "pre_order_position_qty": float(
                         positions.get(ticker, {}).get("qty", 0.0) or 0.0
                     ),
@@ -3329,17 +3609,39 @@ class BrokerExecutor:
                 self.state["order_submission_unresolved"] = unresolved
                 self._save_state()
                 try:
-                    order_req = MarketOrderRequest(
-                        symbol=ticker,
-                        qty=qty,
-                        side=side,
-                        time_in_force=TimeInForce.DAY,
-                        client_order_id=client_order_id,
-                    )
+                    if side == OrderSide.BUY:
+                        order_req = LimitOrderRequest(
+                            symbol=ticker,
+                            qty=qty,
+                            side=side,
+                            time_in_force=TimeInForce.DAY,
+                            limit_price=price,
+                            client_order_id=client_order_id,
+                        )
+                    else:
+                        order_req = MarketOrderRequest(
+                            symbol=ticker,
+                            qty=qty,
+                            side=side,
+                            time_in_force=TimeInForce.DAY,
+                            client_order_id=client_order_id,
+                        )
                     order = self.trading_client.submit_order(order_req)
                     order_id = getattr(order, "id", None)
                     if not order_id:
                         raise RuntimeError("Broker response did not include an order ID")
+                    broker_order_type = str(
+                        getattr(getattr(order, "type", None), "value", getattr(order, "type", None)) or ""
+                    ).strip().lower()
+                    if broker_order_type != order_type:
+                        raise RuntimeError("Broker acknowledged order type differs from persisted intent")
+                    if order_type == "limit":
+                        try:
+                            broker_limit_price = Decimal(str(getattr(order, "limit_price", None)))
+                        except (InvalidOperation, TypeError, ValueError) as exc:
+                            raise RuntimeError("Broker acknowledgement limit price is missing or invalid") from exc
+                        if not broker_limit_price.is_finite() or broker_limit_price != Decimal(str(limit_price)):
+                            raise RuntimeError("Broker acknowledged limit price differs from persisted intent")
                     order_info = {
                         "ticker": ticker,
                         "side": side.value,
@@ -3349,6 +3651,8 @@ class BrokerExecutor:
                         "status": self._status_text(order.status, default="unknown"),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "price": price,
+                        "order_type": order_type,
+                        "limit_price": limit_price,
                         "pre_order_position_qty": float(
                             positions.get(ticker, {}).get("qty", 0.0) or 0.0
                         ),
@@ -3370,6 +3674,8 @@ class BrokerExecutor:
                         "side": side.value,
                         "quantity": qty,
                         "price": price,
+                        "order_type": order_type,
+                        "limit_price": limit_price,
                         "pre_order_position_qty": float(
                             positions.get(ticker, {}).get("qty", 0.0) or 0.0
                         ),

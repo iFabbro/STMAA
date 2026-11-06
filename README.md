@@ -53,6 +53,7 @@ Il repository contiene codice relativo a PPO, ma la presenza di un agente o di d
 - Il file `.env.example` configura `STMAA_TRADING_MODE=paper` e l'endpoint API di Alpaca Paper.
 - Il punto di ingresso `trade.py` costruisce il broker executor con il paper trading abilitato.
 - La configurazione del rischio include `MAX_PORTFOLIO_EXPOSURE` (valore predefinito `0.50`) e `MAX_DRAWDOWN` (valore predefinito `0.15`); i valori vengono validati all'avvio. Altri controlli sono configurati nei moduli di strategia ed esecuzione pertinenti.
+- Il limite operativo di esposizione nozionale lorda è fissato a **1.000 USD**, condiviso tra DAY e OPG. Somma il valore lordo delle posizioni aperte e le riserve degli ordini BUY pendenti, inclusi quelli parzialmente eseguiti; il nuovo BUY viene ridotto o bloccato se supererebbe il limite. Le SELL di riduzione restano consentite e gli ordini SELL pendenti non vengono conteggiati come nuova esposizione. I BUY DAY sono inviati come limit order al prezzo della quotazione verificata, così il fill non può superare il prezzo usato per il sizing. Nel preflight OPG le SELL pianificate non vengono sottratte prima del fill: un batch misto può inviare BUY soltanto se posizioni correnti, BUY pendenti e nuovi BUY restano già entro 1.000 USD. Dati di posizione, prezzi, lato o stato ordine non determinabili bloccano fail-closed le nuove esposizioni. Il limite è indipendente dal capitale strategico di riferimento.
 - Il percorso di esecuzione include controlli fail-closed per importanti condizioni di errore o indeterminatezza relative a broker, ordini, posizioni, dati di mercato e stato persistito.
 - La liquidazione di emergenza al superamento della soglia di drawdown è opzionale e, nel file `.env.example`, è disabilitata per impostazione predefinita.
 - Molti scenari di errore vengono verificati tramite mock e stato locale. Un test superato con mock non prova il comportamento end-to-end del broker in tutte le condizioni reali.
@@ -118,7 +119,7 @@ uv pip check
 
 Il training PPO è un'attività di ricerca separata dal ciclo di paper trading. Usa lo stesso contratto versionato dell'inferenza:
 
-Il capitale strategico predefinito è **100.000 USD** (`STMAA_INITIAL_CAPITAL`), coerente con l'equity dell'account Alpaca Paper di riferimento attualmente adottato per lo sviluppo. Può essere sovrascritto tramite `.env` o `--initial-capital` durante il training. Questo valore è la base di calcolo della strategia: **non costituisce un limite operativo agli ordini** e non sostituisce un eventuale cap monetario separato, che deve essere applicato e verificato nel percorso di esecuzione.
+Il capitale strategico predefinito è **100.000 USD** (`STMAA_INITIAL_CAPITAL`), coerente con l'equity dell'account Alpaca Paper di riferimento attualmente adottato per lo sviluppo. Può essere sovrascritto tramite `.env` o `--initial-capital` durante il training. Questo valore è la base di calcolo della strategia: **non costituisce un limite operativo agli ordini**. Il limite operativo separato del percorso DAY/OPG è fissato a 1.000 USD di esposizione nozionale lorda aggregata.
 
 - **Contratto modello:** versione `7`.
 - **Contratto osservazioni:** `dimensionless_ohlc_features_v1`. Per ogni ticker la policy riceve rendimento close-to-close a una barra, RSI centrato, MACD/Close, Close/BB_middle - 1 e ATR/Close; il vettore include inoltre liquidità e pesi correnti.
@@ -223,10 +224,10 @@ Il ciclo OPG usa la barra giornaliera completata come segnale e risolve la sessi
 Durante la finestra:
 1. STMAA genera i pesi PPO e applica i controlli del risk overlay già previsti dal ciclo Paper.
 2. Il piano OPG converte i target in quantità intere, usando l'equity verificata e il Close della barra completata. Le quantità correnti sono lette dal broker; posizioni short, frazionarie o non modellate bloccano il piano.
-3. Sotto il broker execution lock, il preflight legge nuovamente account e posizioni Paper e verifica identità dell'account, stato operativo, coerenza delle quantità, idoneità degli asset e budget aggregato degli acquisti.
-4. Solo dopo il preflight approvato, STMAA persiste il batch e le intenzioni d'ordine, quindi invia gli ordini market con time-in-force OPG in sequenza. Il report del preflight viene conservato nel batch come evidenza della verifica.
+3. Sotto il broker execution lock, il preflight legge nuovamente account, posizioni e ordini Paper e verifica identità dell'account, stato operativo, coerenza delle quantità, idoneità degli asset, budget BUY e limite aggregato di 1.000 USD.
+4. Solo dopo il preflight approvato, STMAA persiste il batch e le intenzioni d'ordine, quindi invia i BUY come limit-on-open (LOO), con limit price pari al Close usato per il sizing, e le SELL come market-on-open (MOO), in sequenza. Il report del preflight viene conservato nel batch come evidenza della verifica.
 
-Il preflight è read-only: non invia, cancella, sostituisce o chiude ordini. Gli asset IPO sono esclusi dal percorso market-on-open. Un asset attivo ma non negoziabile può essere ammesso soltanto per una vendita di chiusura coperta da una posizione long verificata. I proventi SELL non vengono conteggiati nel budget BUY.
+Il preflight è read-only: non invia, cancella, sostituisce o chiude ordini. I BUY LOO non possono essere eseguiti sopra il Close usato per il sizing; se l'asta apre sopra il limite, l'ordine può non essere eseguito. Le SELL MOO restano ordini market-on-open di riduzione. Gli asset IPO sono esclusi dal percorso market-on-open. Un asset attivo ma non negoziabile può essere ammesso soltanto per una vendita di chiusura coperta da una posizione long verificata. I proventi SELL non vengono conteggiati nel budget BUY.
 
 **Limite di prezzo:** il budget BUY è stimato con il Close della barra del segnale, non con il prezzo dell'asta successiva. Un gap overnight può rendere il costo effettivo superiore alla stima; il preflight non è un limite di prezzo e non garantisce che il broker accetti ogni ordine all'apertura.
 

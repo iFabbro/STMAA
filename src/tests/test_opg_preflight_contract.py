@@ -62,6 +62,7 @@ def _executor(plan, *, buying_power=1000, positions=None, assets=None, account_o
         if asset.current_quantity
     }
     executor.get_positions = Mock(return_value=broker_positions)
+    executor._get_open_orders = Mock(return_value=[])
     assets = assets or {symbol: _asset(symbol) for symbol, item in plan.assets.items() if item.delta_quantity}
     executor.trading_client = SimpleNamespace(
         get_asset=Mock(side_effect=lambda symbol: assets[symbol]),
@@ -264,6 +265,157 @@ def test_execute_opg_plan_runs_preflight_before_persist_or_submit():
         )
 
     executor._persist_opg_batch.assert_not_called()
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_blocks_projected_target_gross_above_one_thousand_usd():
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=2000,
+        target_weights={"AAPL": 0.60, "MSFT": 0.40},
+        close_prices={"AAPL": 100, "MSFT": 100},
+        current_positions={"AAPL": 0, "MSFT": 0},
+    )
+    executor = _executor(plan, buying_power=2000)
+
+    with pytest.raises(RuntimeError, match="exceeds hard cap"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_adds_full_partial_fill_buy_reserve_to_projected_positions():
+    plan = _plan(
+        target_weights={"AAPL": 0.50},
+        close_prices={"AAPL": 100},
+        current_positions={"AAPL": 0},
+    )
+    executor = _executor(plan, buying_power=2000)
+    executor._get_open_orders = Mock(return_value=[
+        SimpleNamespace(
+            id="partial-msft", symbol="MSFT", side="buy",
+            status="partially_filled", qty="6", filled_qty="3",
+            limit_price="100", notional=None,
+        )
+    ])
+
+    with pytest.raises(RuntimeError, match="exceeds hard cap"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_does_not_count_pending_sell_as_new_gross_exposure():
+    plan = _plan(
+        target_weights={"AAPL": 0.80},
+        close_prices={"AAPL": 100},
+        current_positions={"AAPL": 0},
+    )
+    executor = _executor(plan, buying_power=2000)
+    executor._get_open_orders = Mock(return_value=[
+        SimpleNamespace(
+            id="pending-sell", symbol="MSFT", side="sell",
+            status="accepted", qty="20", filled_qty="0",
+            limit_price="100", notional=None,
+        )
+    ])
+
+    report = executor.preflight_opg_plan(plan)
+
+    assert report["projected_gross_notional"] == 800
+    assert report["pending_buy_notional"] == 0
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_allows_sell_only_reduction_from_above_hard_cap():
+    plan = _plan(
+        target_weights={"AAPL": 0.0},
+        close_prices={"AAPL": 100},
+        current_positions={"AAPL": 20},
+    )
+    executor = _executor(
+        plan,
+        buying_power=0,
+        positions={"AAPL": {"qty": 20.0, "market_value": 2000.0}},
+    )
+
+    report = executor.preflight_opg_plan(plan)
+
+    assert report["approved"] is True
+    assert report["buy_orders"] == 0
+    assert report["sell_orders"] == 1
+    assert report["projected_gross_notional"] == 2000
+    assert report["cap_check_applied"] is False
+
+
+def test_preflight_does_not_credit_unfilled_sells_to_fund_new_buys():
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=2000,
+        target_weights={"AAPL": 0.0, "MSFT": 0.10},
+        close_prices={"AAPL": 100, "MSFT": 100},
+        current_positions={"AAPL": 15, "MSFT": 0},
+    )
+    executor = _executor(
+        plan,
+        buying_power=2000,
+        positions={
+            "AAPL": {"qty": 15.0, "market_value": 1500.0},
+            "MSFT": {"qty": 0.0, "market_value": 0.0},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="exceeds hard cap"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_blocks_new_order_when_same_symbol_has_active_broker_order():
+    plan = _plan()
+    executor = _executor(plan)
+    executor._get_open_orders = Mock(return_value=[
+        SimpleNamespace(
+            id="existing-sell", symbol="AAPL", side="sell",
+            status="accepted", qty="1", filled_qty="0",
+            limit_price="100", notional=None,
+        )
+    ])
+
+    with pytest.raises(RuntimeError, match="already exists for planned symbol"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_blocks_terminal_day_fill_until_position_reconciliation():
+    plan = _plan()
+    executor = _executor(plan)
+    executor.state["order_submission_confirmed"] = {
+        "day-order-1": {
+            "status": "filled",
+            "position_reconciled": False,
+        }
+    }
+
+    with pytest.raises(RuntimeError, match="DAY order reconciliation"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_blocks_when_day_submission_state_is_unresolved():
+    plan = _plan()
+    executor = _executor(plan)
+    executor.state["order_submission_unresolved"] = {
+        "MSFT": {"client_order_id": "unknown-day-submit"}
+    }
+
+    with pytest.raises(RuntimeError, match="DAY order reconciliation"):
+        executor.preflight_opg_plan(plan)
+
     executor.trading_client.submit_order.assert_not_called()
 
 

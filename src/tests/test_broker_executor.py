@@ -72,7 +72,10 @@ def test_execute_weights_mock(alpaca_env, monkeypatch):
         return type(
             "_OrderResponse",
             (),
-            {"id": f"order-{request.symbol}", "status": "accepted"},
+            {
+                "id": f"order-{request.symbol}", "status": "accepted",
+                "type": request.type, "limit_price": getattr(request, "limit_price", None),
+            },
         )()
 
     monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
@@ -1068,7 +1071,10 @@ def test_zero_buying_power_still_allows_short_cover(alpaca_env, monkeypatch):
 
     def submit_order(request):
         submitted.append(request)
-        return SimpleNamespace(id="cover-short", status="accepted")
+        return SimpleNamespace(
+            id="cover-short", status="accepted",
+            type=request.type, limit_price=getattr(request, "limit_price", None),
+        )
 
     monkeypatch.setattr(executor.trading_client, "submit_order", submit_order)
     result = executor.execute_weights(
@@ -3765,6 +3771,8 @@ def test_accepted_submission_state_write_failure_persists_unresolved_intent_acro
             "side": request.side,
             "qty": str(request.qty),
             "filled_qty": "0",
+            "type": request.type,
+            "limit_price": getattr(request, "limit_price", None),
         })
         return type("BrokerOrder", (), accepted_order)()
 

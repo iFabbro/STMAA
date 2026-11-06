@@ -44,6 +44,7 @@ def test_aggregate_pending_order_exposure_blocks_new_position(
             SimpleNamespace(
                 id="pending-msft-1",
                 symbol="MSFT",
+                side="buy",
                 status="accepted",
                 qty="20",
                 filled_qty="0",
@@ -53,6 +54,7 @@ def test_aggregate_pending_order_exposure_blocks_new_position(
             SimpleNamespace(
                 id="pending-nvda-1",
                 symbol="NVDA",
+                side="buy",
                 status="accepted",
                 qty="20",
                 filled_qty="0",

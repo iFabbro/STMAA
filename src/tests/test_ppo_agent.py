@@ -828,7 +828,7 @@ def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_pat
     from src.agents.ppo_agent import _artifact_lock
 
     model_path = tmp_path / "concurrent.zip"
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     result_queue = context.Queue()
 
     # A second process must time out while the first process owns the lock.
@@ -1239,7 +1239,7 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
     initial_manifest = json.loads(manifest_path.read_text())
     initial_artifact = tmp_path / initial_manifest["artifact_file"]
 
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     started = context.Event()
     release = context.Event()
     prune_started = context.Event()

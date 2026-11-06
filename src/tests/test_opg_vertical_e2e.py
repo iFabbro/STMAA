@@ -143,6 +143,12 @@ def _real_executor_with_fake_broker(state_file: Path, broker: FakePaperTradingCl
     executor.state = {
         "account_mode": "paper",
         "account_id": None,
+        # Model a previously initialized account with a verified, account-scoped
+        # high-water mark. The risk gate must not be bypassed or re-anchored.
+        "risk_peak_portfolio_value": 1000.0,
+        "risk_peak_equity_source": "alpaca_account",
+        "risk_peak_account_mode": "paper",
+        "risk_peak_account_id": "fake-paper-account",
         "opg_batches": {},
         "order_submission_unresolved": {},
         "order_submission_confirmed": {},

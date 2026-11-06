@@ -4019,7 +4019,7 @@ def test_execution_lock_serializes_independent_processes(alpaca_env, tmp_path):
     import multiprocessing
 
     executor = BrokerExecutor()
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     result_queue = context.Queue()
 
     with executor.execution_lock():

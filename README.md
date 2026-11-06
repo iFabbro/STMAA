@@ -160,6 +160,16 @@ Per avviare il flusso Alpaca Paper dopo aver generato e verificato un modello co
 uv run --locked python trade.py
 ```
 
+#### Preflight operativo senza avviare il ciclo
+
+Per verificare la configurazione e l'accesso all'account Alpaca Paper senza avviare il ciclo di trading:
+
+```bash
+uv run --locked python trade.py --preflight-only
+```
+
+Questa modalità richiede credenziali Alpaca Paper valide e un account raggiungibile. Esegue la validazione locale della configurazione e una lettura read-only dello stato dell'account; non richiede un modello PPO caricato, non avvia il polling e non invia, modifica o cancella ordini. Può eseguire la riconciliazione read-only dei batch OPG persistiti. Un esito positivo verifica soltanto il preflight in quel momento: non dimostra che il modello sia disponibile né che il ciclo Paper completo possa essere eseguito.
+
 Avviare l'hub di monitoraggio da terminale in una finestra separata:
 
 ```bash

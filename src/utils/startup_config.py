@@ -251,7 +251,7 @@ def validate_ppo_preflight(agent) -> None:
 
 
 def validate_broker_preflight(executor) -> dict:
-    """Require a fresh, identified, numerically valid account snapshot; read-only."""
+    """Build a read-only Paper account/positions/orders/exposure preflight report."""
     if getattr(executor, "paper_trading", None) is not True:
         raise RuntimeError("Broker preflight refused: executor is not explicitly in paper mode")
 
@@ -262,12 +262,6 @@ def validate_broker_preflight(executor) -> dict:
     account_id = status.get("account_id")
     if not isinstance(account_id, str) or not account_id.strip():
         raise RuntimeError("Broker preflight failed: current broker account identity is unverified")
-
-    # Account identity is now fresh and verified. Recover persisted OPG batches
-    # before the application enters its normal trading loop; this is read-only.
-    recover_opg = getattr(executor, "reconcile_opg_batches_read_only", None)
-    if callable(recover_opg):
-        recover_opg()
 
     for field in ("equity", "cash", "buying_power"):
         value = status.get(field)
@@ -280,4 +274,58 @@ def validate_broker_preflight(executor) -> dict:
 
     if float(status["equity"]) <= 0:
         raise RuntimeError("Broker preflight failed: account equity must be positive")
+
+    # Reconcile persisted DAY/OPG intents against broker evidence. This may update
+    # local recovery metadata, but it must never mutate broker orders.
+    recover_opg = getattr(executor, "reconcile_opg_batches_read_only", None)
+    if callable(recover_opg):
+        recover_opg()
+
+    reconcile = getattr(executor, "reconcile_broker_state_read_only", None)
+    positions_reader = getattr(executor, "get_positions", None)
+    open_orders_reader = getattr(executor, "_get_open_orders", None)
+    exposure_reader = getattr(executor, "_get_aggregate_gross_notional", None)
+    if not all(callable(method) for method in (reconcile, positions_reader, open_orders_reader, exposure_reader)):
+        raise RuntimeError("Broker preflight failed: read-only positions/orders/exposure diagnostics are unavailable")
+
+    reconciliation = reconcile()
+    if not isinstance(reconciliation, dict) or reconciliation.get("read_only") is not True:
+        raise RuntimeError("Broker preflight failed: broker reconciliation report is invalid")
+
+    positions = positions_reader()
+    if not isinstance(positions, dict):
+        raise RuntimeError("Broker preflight failed: broker positions snapshot is invalid")
+    open_orders = open_orders_reader()
+    if not isinstance(open_orders, (list, tuple)):
+        raise RuntimeError("Broker preflight failed: broker open-orders snapshot is invalid")
+
+    try:
+        gross_notional, pending_buy_notional = exposure_reader(positions, open_orders)
+        gross_notional = float(gross_notional)
+        pending_buy_notional = float(pending_buy_notional)
+    except Exception as exc:
+        raise RuntimeError("Broker preflight failed: aggregate gross exposure cannot be verified") from exc
+
+    if (not math.isfinite(gross_notional) or gross_notional < 0
+            or not math.isfinite(pending_buy_notional) or pending_buy_notional < 0):
+        raise RuntimeError("Broker preflight failed: aggregate exposure values are invalid")
+
+    from src.execution.notional_cap import MAX_GROSS_NOTIONAL_USD
+
+    cap_usd = float(MAX_GROSS_NOTIONAL_USD)
+    cap_compliant = gross_notional <= cap_usd + 1e-8
+    safe_for_new_decision = reconciliation.get("safe_for_new_decision") is True and cap_compliant
+    status["preflight_report"] = {
+        "read_only": True,
+        "account_id": account_id.strip(),
+        "positions": positions,
+        "position_count": len(positions),
+        "open_order_count": len(open_orders),
+        "gross_notional_usd": gross_notional,
+        "pending_buy_notional_usd": pending_buy_notional,
+        "max_gross_notional_usd": cap_usd,
+        "cap_compliant": cap_compliant,
+        "reconciliation": reconciliation,
+        "safe_for_new_decision": safe_for_new_decision,
+    }
     return status

@@ -24,7 +24,7 @@ def test_startup_config_defaults_to_paper_and_safe_liquidation_setting():
     assert config.max_portfolio_exposure == pytest.approx(0.50)
     assert config.max_drawdown == pytest.approx(0.15)
     assert config.tickers == ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
-    assert config.initial_capital == pytest.approx(500000.0)
+    assert config.initial_capital == pytest.approx(100000.0)
     assert config.max_position_size == pytest.approx(0.20)
     assert config.transaction_cost == pytest.approx(0.001)
     assert config.slippage == pytest.approx(0.0005)
@@ -223,7 +223,7 @@ def test_broker_preflight_fails_closed_on_unverified_account(status):
 def test_shared_strategy_config_defaults_match_runtime_contract_without_credentials():
     config = load_strategy_config({})
     assert config.tickers == ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
-    assert config.initial_capital == pytest.approx(500000.0)
+    assert config.initial_capital == pytest.approx(100000.0)
     assert config.max_gross_exposure == pytest.approx(0.50)
     assert config.max_position_size == pytest.approx(0.20)
     assert config.transaction_cost == pytest.approx(0.001)

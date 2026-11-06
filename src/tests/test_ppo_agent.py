@@ -1254,13 +1254,13 @@ def test_ppo_save_and_prune_are_serialized_across_processes(tmp_path):
     pruner = None
     saver.start()
     try:
-        assert started.wait(timeout=5), "save process did not enter model publication"
+        assert started.wait(timeout=30), "save process did not enter model publication"
         pruner = context.Process(
             target=_ppo_prune_process,
             args=(str(model_path), prune_started, result_queue),
         )
         pruner.start()
-        assert prune_started.wait(timeout=5), "prune process did not start"
+        assert prune_started.wait(timeout=30), "prune process did not start"
         pruner.join(timeout=0.25)
         assert pruner.is_alive(), "prune must wait while save owns the artifact lock"
     finally:

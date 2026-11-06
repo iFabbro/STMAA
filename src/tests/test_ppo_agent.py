@@ -1778,7 +1778,7 @@ def test_prediction_rejects_market_data_without_fingerprint():
 
 
 def test_ppo_lifecycle_distinguishes_initialized_from_inference_ready(tmp_path):
-    data, tickers = market_data()
+    data, tickers = market_data(prices_a=tuple(np.linspace(100.0, 124.0, 24)))
     missing = PPOAgent(tickers=tickers, model_path=str(tmp_path / "missing.zip"))
     assert missing.lifecycle_status == {
         "ppo_initialized": True,

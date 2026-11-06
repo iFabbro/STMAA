@@ -1,6 +1,6 @@
 # STMAA PPO artifacts and manifest
 
-This document describes the artifact format emitted by `PPOAgent.save()`. The manifest is the authoritative pointer to the active immutable model generation. The repository does not commit a trained PPO model.
+This document describes the artifact format emitted by `PPOAgent.save()`. The manifest is the authoritative pointer to the active immutable model generation. The repository does not commit a trained PPO model. A checkout without a local artifact is expected to block normal operation until the documented training workflow has produced and validated one.
 
 ## Files and publication model
 
@@ -51,6 +51,20 @@ The standard `train.py` entry point records:
 The dataset fingerprint is calculated from a deterministic CSV representation of the processed frame after cleaning and feature calculation. It identifies the exact in-memory training/validation input but does not archive the underlying dataset. `git_commit` and `git_worktree_clean` are `null` when Git provenance is unavailable (for example, when running from a source archive). A non-clean working tree is explicitly identified; the recorded commit alone does not capture uncommitted modifications. Lower-level `PPOAgent.save()` calls emit the hyperparameter and capital fields; dataset fingerprint and Git provenance are `null` unless supplied by the caller.
 
 The holdout is later in time than the training interval. Its metrics are diagnostic, not an automatic profitability gate or a guarantee of future performance. Lower-level `PPOAgent.save()` calls include the standard provenance defaults and merge any caller-supplied `training` metadata.
+
+## Runtime lifecycle and readiness
+
+The runtime reports five separate states; none is implied by another:
+
+1. ppo_initialized: the PPO agent object was constructed.
+2. model_discovered: an artifact entry point (manifest or legacy base path) exists.
+3. model_loaded: the active manifest generation passed digest verification and was deserialized.
+4. model_validated: the loaded Stable-Baselines3 observation/action spaces, action bounds and training-timestep metadata match the active STMAA contract.
+5. inference_available: a deterministic finite-output probe completed with the expected action shape.
+
+Normal Paper operation requires all five states to be true. Missing, corrupt, untrained or incompatible artifacts stop at startup before the broker preflight and before the trading loop. The --preflight-only mode remains a broker/configuration diagnostic and intentionally does not assert PPO readiness.
+
+The deterministic probe checks technical inference availability only. It does not establish strategy quality, profitability, robustness or suitability for deployment.
 
 ## Compatibility
 

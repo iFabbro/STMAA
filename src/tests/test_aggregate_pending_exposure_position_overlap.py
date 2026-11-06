@@ -12,6 +12,7 @@ def _order(order_id, symbol, status, qty, filled_qty, limit_price):
     return SimpleNamespace(
         id=order_id,
         symbol=symbol,
+        side="buy",
         status=status,
         qty=str(qty),
         filled_qty=str(filled_qty),

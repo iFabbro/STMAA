@@ -63,6 +63,7 @@ def test_estimable_order_does_not_mask_an_unestimable_pending_order(
             SimpleNamespace(
                 id="priced-msft",
                 symbol="MSFT",
+                side="buy",
                 status="accepted",
                 qty="10",
                 filled_qty="0",
@@ -72,6 +73,7 @@ def test_estimable_order_does_not_mask_an_unestimable_pending_order(
             SimpleNamespace(
                 id="unpriced-external",
                 symbol="XYZ",
+                side="buy",
                 status="accepted",
                 qty="10",
                 filled_qty="0",
@@ -101,6 +103,7 @@ def test_non_finite_aggregate_pending_order_exposure_blocks_execution(
             SimpleNamespace(
                 id="overflowing-notional",
                 symbol="XYZ",
+                side="buy",
                 status="accepted",
                 qty="1e308",
                 filled_qty="0",

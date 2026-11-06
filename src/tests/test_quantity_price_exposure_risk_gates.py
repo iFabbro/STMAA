@@ -130,6 +130,7 @@ def test_partial_fill_with_lagging_position_snapshot_reserves_full_order_exposur
     partial_order = SimpleNamespace(
         id="external-partial-msft",
         symbol="MSFT",
+        side="buy",
         status="partially_filled",
         qty="50",
         filled_qty="20",
@@ -176,6 +177,7 @@ def test_unpriced_external_order_blocks_new_positions(
     external_order = SimpleNamespace(
         id="manual-order-unknown",
         symbol="XYZ",
+        side="buy",
         status="accepted",
         qty="10",
         filled_qty="0",

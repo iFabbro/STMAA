@@ -260,7 +260,7 @@ def test_ppo_preflight_rejects_initialized_agent_without_validated_model():
     with pytest.raises(RuntimeError, match="model lifecycle is not fully ready"):
         validate_ppo_preflight(FakeAgent())
 
-    with pytest.raises(RuntimeError, match="no trained, compatible model"):
+    with pytest.raises(RuntimeError, match="model lifecycle is not fully ready"):
         validate_ppo_preflight(type("MissingModelAgent", (), {"model": None})())
 
     with pytest.raises(RuntimeError, match="callable predict"):

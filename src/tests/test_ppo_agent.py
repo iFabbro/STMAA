@@ -1140,7 +1140,7 @@ def test_ppo_save_post_manifest_fsync_failure_leaves_new_generation_loadable(
     captured = {}
     def load_verified_buffer(buffer):
         captured["payload"] = buffer.read()
-        return object()
+        return _valid_loaded_model()
 
     monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(

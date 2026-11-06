@@ -9,6 +9,18 @@ from src.backtest.backtest_engine import ExecutionConsistentBacktest
 from src.data.market_data_contract import market_data_contract, market_data_fingerprint
 
 
+def _valid_loaded_model(n_assets=1):
+    from types import SimpleNamespace
+    from gymnasium import spaces
+
+    return SimpleNamespace(
+        observation_space=spaces.Box(low=-np.inf, high=np.inf, shape=(1 + n_assets * 6,), dtype=np.float32),
+        action_space=spaces.Box(low=-1.0, high=1.0, shape=(n_assets,), dtype=np.float32),
+        num_timesteps=1,
+        predict=lambda observation, deterministic=True: (np.zeros(n_assets, dtype=np.float32), None),
+    )
+
+
 def market_data(prices_a=(100.0, 110.0, 121.0), prices_b=None):
     size = len(prices_a)
     data = {}
@@ -516,7 +528,7 @@ def test_model_save_interruption_before_manifest_replace_preserves_previous_gene
 
     def load_verified_buffer(buffer):
         captured["payload"] = buffer.read()
-        return LoadedModel()
+        return _valid_loaded_model()
 
     monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     loaded.load()
@@ -641,7 +653,7 @@ def test_model_load_deserializes_the_exact_bytes_that_passed_digest_verification
         # before the model loader consumes its input.
         artifact_path.write_bytes(b"unverified-replacement-model")
         loaded["payload"] = artifact_buffer.read()
-        return object()
+        return _valid_loaded_model()
 
     monkeypatch.setattr(ppo_agent.PPO, "load", replace_path_then_load)
     restarted = PPOAgent(
@@ -669,7 +681,7 @@ def test_model_restart_loads_manifest_generation(tmp_path, monkeypatch):
     writer.model = SavedModel()
     writer.save()
 
-    loaded_model = object()
+    loaded_model = _valid_loaded_model()
     monkeypatch.setattr(ppo_agent.PPO, "load", lambda _path: loaded_model)
     restarted = PPOAgent(tickers=["A"], model_path=str(model_path))
     assert restarted.model is loaded_model
@@ -1064,7 +1076,7 @@ def test_ppo_save_publication_failures_before_manifest_replace_preserve_previous
     captured = {}
     def load_verified_buffer(buffer):
         captured["payload"] = buffer.read()
-        return object()
+        return _valid_loaded_model()
 
     monkeypatch.setattr(ppo_agent.PPO, "load", load_verified_buffer)
     restarted = PPOAgent(
@@ -1763,6 +1775,57 @@ def test_prediction_rejects_market_data_without_fingerprint():
     agent.model = object()
     with pytest.raises(ValueError, match="fingerprint"):
         agent.predict_weights(data)
+
+
+def test_ppo_lifecycle_distinguishes_initialized_from_inference_ready(tmp_path):
+    data, tickers = market_data()
+    missing = PPOAgent(tickers=tickers, model_path=str(tmp_path / "missing.zip"))
+    assert missing.lifecycle_status == {
+        "ppo_initialized": True,
+        "model_discovered": False,
+        "model_loaded": False,
+        "model_validated": False,
+        "inference_available": False,
+    }
+
+    path = tmp_path / "trained-runtime.zip"
+    agent = PPOAgent(
+        tickers=tickers, model_path=str(path), load_existing_model=False,
+        n_steps=2, batch_size=2, n_epochs=1, seed=23, verbose=0,
+    )
+    agent.train(data, total_timesteps=4)
+    assert agent.lifecycle_status == {
+        "ppo_initialized": True,
+        "model_discovered": True,
+        "model_loaded": True,
+        "model_validated": True,
+        "inference_available": True,
+    }
+
+
+def test_ppo_lifecycle_rejects_policy_with_incompatible_spaces(tmp_path, monkeypatch):
+    from pathlib import Path
+    from src.agents import ppo_agent
+
+    path = tmp_path / "wrong-space.zip"
+    writer = PPOAgent(tickers=["A"], model_path=str(path), load_existing_model=False)
+
+    class SavedModel:
+        def save(self, destination):
+            Path(destination).write_bytes(b"wrong-space-model")
+
+    writer.model = SavedModel()
+    writer.save()
+    monkeypatch.setattr(
+        ppo_agent.PPO, "load", lambda _artifact: _valid_loaded_model(n_assets=2)
+    )
+    restarted = PPOAgent(tickers=["A"], model_path=str(path), load_existing_model=False)
+    with pytest.raises(ValueError, match="observation space|action space"):
+        restarted.load()
+    assert restarted.model is None
+    assert restarted.model_loaded is False
+    assert restarted.model_validated is False
+    assert restarted.inference_available is False
 
 
 def test_trained_ppo_artifact_reloads_and_runs_runtime_inference(tmp_path):

@@ -1,4 +1,4 @@
-""""Vertical OPG integration test using the real bot and BrokerExecutor with a fake broker."""
+"""Vertical OPG integration test using the real bot and BrokerExecutor with a fake broker."""
 
 import json
 import logging

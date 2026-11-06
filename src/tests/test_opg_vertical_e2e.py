@@ -175,7 +175,7 @@ def test_opg_vertical_flow_from_ppo_inference_through_persisted_fill_reconciliat
         current_portfolio_value=1000.0,
     )
     bot.liquidate_on_drawdown = False
-    bot.get_vix_value = lambda: 20.0
+    bot.get_vix_value = lambda: 10.0
     bot.ppo_agent = SimpleNamespace(
         predict_weights=lambda market_data, current_weights: np.array([0.20]),
         max_position_size=0.20,

@@ -484,13 +484,62 @@ class PPOAgent:
         self.model: Optional[PPO] = None
         self.env = None
         self.seed = seed
+        self.ppo_initialized = True
+        self.model_discovered = False
+        self.model_loaded = False
+        self.model_validated = False
+        self.inference_available = False
 
         metadata_path = Path(str(self.model_path) + ".metadata.json")
-        if load_existing_model and (Path(self.model_path).exists() or metadata_path.exists()):
+        self.model_discovered = Path(self.model_path).exists() or metadata_path.exists()
+        logger.info("PPO lifecycle status: %s", self.lifecycle_status)
+        if load_existing_model and self.model_discovered:
             self.load()
-            logger.info("PPOAgent loaded from %s", self.model_path)
-        else:
-            logger.info("PPO model not loaded; inference will fail closed until a compatible model is trained or loaded")
+            logger.info("PPO lifecycle status: %s", self.lifecycle_status)
+
+    @property
+    def lifecycle_status(self) -> dict:
+        """Return explicit, non-interchangeable PPO initialization/readiness states."""
+        return {
+            "ppo_initialized": self.ppo_initialized,
+            "model_discovered": self.model_discovered,
+            "model_loaded": self.model_loaded,
+            "model_validated": self.model_validated,
+            "inference_available": self.inference_available,
+        }
+
+    def _validate_loaded_model(self) -> None:
+        """Validate the deserialized SB3 policy against the active STMAA contract."""
+        model = self.model
+        if model is None:
+            raise RuntimeError("PPO model is absent; cannot validate inference readiness")
+        expected_observation_shape = (1 + len(self.tickers) * 6,)
+        expected_action_shape = (len(self.tickers),)
+        observation_space = getattr(model, "observation_space", None)
+        action_space = getattr(model, "action_space", None)
+        if getattr(observation_space, "shape", None) != expected_observation_shape:
+            raise ValueError("Loaded PPO observation space is incompatible with the active STMAA feature contract")
+        if getattr(action_space, "shape", None) != expected_action_shape:
+            raise ValueError("Loaded PPO action space is incompatible with the configured ticker universe")
+        action_low = np.asarray(getattr(action_space, "low", []), dtype=float)
+        action_high = np.asarray(getattr(action_space, "high", []), dtype=float)
+        if (
+            action_low.shape != expected_action_shape
+            or action_high.shape != expected_action_shape
+            or not np.allclose(action_low, -1.0)
+            or not np.allclose(action_high, 1.0)
+        ):
+            raise ValueError("Loaded PPO action bounds are incompatible with the STMAA action contract")
+        timesteps = getattr(model, "num_timesteps", None)
+        if not isinstance(timesteps, (int, np.integer)) or isinstance(timesteps, bool) or timesteps <= 0:
+            raise ValueError("PPO artifact has no completed training timesteps; refusing inference")
+        probe = np.zeros(expected_observation_shape, dtype=np.float32)
+        action, _ = model.predict(probe, deterministic=True)
+        action = np.asarray(action, dtype=float)
+        if action.shape != expected_action_shape or not np.isfinite(action).all():
+            raise ValueError("Loaded PPO policy failed its deterministic inference probe")
+        self.model_validated = True
+        self.inference_available = True
 
     def train(
         self,
@@ -538,7 +587,10 @@ class PPOAgent:
         if validation_metrics is not None:
             metadata["validation_metrics"] = validation_metrics
         self.save(training_metadata=metadata)
-        logger.info("PPO training completed")
+        # Prove the persisted manifest generation can be reloaded and inferred.
+        self.model = None
+        self.load()
+        logger.info("PPO training completed; lifecycle status: %s", self.lifecycle_status)
         return validation_metrics
 
     def evaluate(
@@ -880,6 +932,11 @@ class PPOAgent:
     def _load_locked(self):
         model_path = Path(self.model_path)
         metadata_path = Path(str(model_path) + ".metadata.json")
+        self.model = None
+        self.model_loaded = False
+        self.model_validated = False
+        self.inference_available = False
+        self.model_discovered = metadata_path.exists() or model_path.exists()
         if metadata_path.is_symlink():
             raise ValueError("PPO model metadata must not be a symbolic link")
         if not metadata_path.exists():
@@ -947,3 +1004,12 @@ class PPOAgent:
         # non-cooperating writer to replace the artifact in between.
         with _verified_artifact_buffer(artifact_path, expected_digest) as artifact_file:
             self.model = PPO.load(artifact_file)
+        self.model_loaded = True
+        try:
+            self._validate_loaded_model()
+        except Exception:
+            self.model = None
+            self.model_loaded = False
+            self.model_validated = False
+            self.inference_available = False
+            raise

@@ -813,13 +813,25 @@ def test_ppo_artifact_operations_fail_closed_when_lock_cannot_be_acquired(
 
 
 
-def _artifact_lock_process_worker(model_path, timeout_seconds, result_queue):
+def _artifact_lock_process_worker(model_path, release_event, result_queue):
     from pathlib import Path
     from src.agents.ppo_agent import _artifact_lock
 
     try:
-        with _artifact_lock(Path(model_path), timeout_seconds=timeout_seconds):
-            result_queue.put("acquired")
+        with _artifact_lock(Path(model_path), timeout_seconds=0.2):
+            result_queue.put("unexpectedly acquired while owner held lock")
+            return
+    except RuntimeError as exc:
+        result_queue.put(str(exc))
+
+    # Reuse this spawned process so the release assertion does not pay the
+    # expensive interpreter/import startup cost a second time.
+    if not release_event.wait(timeout=30):
+        result_queue.put("timed out waiting for parent to release lock")
+        return
+    try:
+        with _artifact_lock(Path(model_path), timeout_seconds=5.0):
+            result_queue.put("acquired after release")
     except RuntimeError as exc:
         result_queue.put(str(exc))
 
@@ -830,37 +842,28 @@ def test_ppo_artifact_lock_serializes_independent_processes_and_releases(tmp_pat
     model_path = tmp_path / "concurrent.zip"
     context = multiprocessing.get_context("spawn")
     result_queue = context.Queue()
+    release_event = context.Event()
 
-    # A second process must time out while the first process owns the lock.
+    # The child must time out while the parent owns the lock, then acquire it
+    # after the parent releases it.
     with _artifact_lock(model_path):
-        blocked = context.Process(
+        worker = context.Process(
             target=_artifact_lock_process_worker,
-            args=(str(model_path), 0.2, result_queue),
+            args=(str(model_path), release_event, result_queue),
         )
-        blocked.start()
-        blocked.join(timeout=5)
-        if blocked.is_alive():
-            blocked.terminate()
-            blocked.join(timeout=2)
-            pytest.fail("child process did not finish while testing lock contention")
-        assert blocked.exitcode == 0
-        assert result_queue.get(timeout=1) == (
+        worker.start()
+        assert result_queue.get(timeout=30) == (
             "Timed out acquiring PPO artifact lock; refusing artifact operation"
         )
 
-    # Once the owner exits, a fresh process must be able to acquire the same lock.
-    acquired = context.Process(
-        target=_artifact_lock_process_worker,
-        args=(str(model_path), 1.0, result_queue),
-    )
-    acquired.start()
-    acquired.join(timeout=5)
-    if acquired.is_alive():
-        acquired.terminate()
-        acquired.join(timeout=2)
+    release_event.set()
+    worker.join(timeout=30)
+    if worker.is_alive():
+        worker.terminate()
+        worker.join(timeout=2)
         pytest.fail("child process did not finish after the lock owner released it")
-    assert acquired.exitcode == 0
-    assert result_queue.get(timeout=1) == "acquired"
+    assert worker.exitcode == 0
+    assert result_queue.get(timeout=1) == "acquired after release"
     result_queue.close()
     result_queue.join_thread()
 

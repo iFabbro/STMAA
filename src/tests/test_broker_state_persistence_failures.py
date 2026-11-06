@@ -152,7 +152,7 @@ def test_concurrent_processes_cannot_overwrite_newer_broker_state(
 ):
     executor = persistence_executor
     state_file = str(executor.state_file)
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     barrier = context.Barrier(2)
     result_queue = context.Queue()
     workers = [

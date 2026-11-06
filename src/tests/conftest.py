@@ -1,9 +1,30 @@
-"""Test-wide isolation for durable broker state.
+"""Test-wide isolation for durable broker state and external network access.
 
 Production defaults to a repository-anchored path; tests use a per-test file so
 restarts are reproducible and tests never share broker state.
 """
+import socket
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def block_network_access(monkeypatch):
+    """Prevent test code from opening or using external network sockets."""
+
+    def deny_network(*args, **kwargs):
+        raise RuntimeError("Network access is disabled during STMAA tests")
+
+    monkeypatch.setattr(socket.socket, "connect", deny_network)
+    monkeypatch.setattr(socket.socket, "connect_ex", deny_network)
+    monkeypatch.setattr(socket.socket, "send", deny_network)
+    monkeypatch.setattr(socket.socket, "sendall", deny_network)
+    monkeypatch.setattr(socket.socket, "sendto", deny_network)
+    monkeypatch.setattr(socket, "create_connection", deny_network)
+    monkeypatch.setattr(socket, "getaddrinfo", deny_network)
+
+    if hasattr(socket.socket, "sendmsg"):
+        monkeypatch.setattr(socket.socket, "sendmsg", deny_network)
 
 
 @pytest.fixture(autouse=True)

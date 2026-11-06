@@ -171,7 +171,9 @@ Per verificare la configurazione e l'accesso all'account Alpaca Paper senza avvi
 uv run --locked python trade.py --preflight-only
 ```
 
-Questa modalità richiede credenziali Alpaca Paper valide e un account raggiungibile. Esegue la validazione locale della configurazione e una lettura read-only dello stato dell'account; non richiede un modello PPO caricato, non avvia il polling e non invia, modifica o cancella ordini. Può eseguire la riconciliazione read-only dei batch OPG persistiti. Un esito positivo verifica soltanto il preflight in quel momento: non dimostra che il modello sia disponibile né che il ciclo Paper completo possa essere eseguito.
+Questa modalità richiede credenziali Alpaca Paper valide e un account raggiungibile. Esegue la validazione locale della configurazione e acquisisce snapshot read-only di account, posizioni e ordini aperti; riconcilia inoltre le submission DAY e i batch OPG persistiti usando evidenza del broker. Calcola l'esposizione nozionale lorda aggregata (posizioni più riserve BUY pendenti) e la confronta con il limite operativo di **1.000 USD**. Il report indica separatamente se il broker è riconciliato e se una nuova decisione sarebbe consentita. Se esistono ordini aperti/irrisolti o l'esposizione supera il limite, il comando termina con codice di uscita `2` e segnala il blocco: non tenta di correggere la situazione.
+
+Il preflight non avvia il polling, non carica né richiede un modello PPO e non invia, modifica, sostituisce, cancella o chiude ordini. La riconciliazione può aggiornare metadati e stato locale persistito, ma le chiamate al broker restano di lettura. Gli snapshot Alpaca non sono atomici tra endpoint: il report è una fotografia diagnostica del momento, non una garanzia che lo stato non cambi subito dopo. Un esito senza blocchi non autorizza automaticamente un test con ordini e non dimostra che il ciclo Paper completo possa essere eseguito.
 
 Avviare l'hub di monitoraggio da terminale in una finestra separata:
 

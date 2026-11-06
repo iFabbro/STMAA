@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import Mock
 
 from src.utils.startup_config import (
     load_hub_refresh_seconds,
@@ -165,6 +164,7 @@ class FakeExecutor:
         self.positions = {"AAPL": {"qty": 1.0, "market_value": 100.0}}
         self.open_orders = []
         self.pending_buy_notional = 0.0
+        self.reconcile_calls = 0
 
     def get_account_status(self):
         self.calls += 1
@@ -182,6 +182,7 @@ class FakeExecutor:
         return (gross, pending)
 
     def reconcile_broker_state_read_only(self):
+        self.reconcile_calls += 1
         return {
             "safe_for_new_decision": not self.open_orders,
             "read_only": True,
@@ -249,12 +250,11 @@ def test_broker_preflight_marks_open_orders_as_blocked():
     assert status["preflight_report"]["safe_for_new_decision"] is False
 
 
-def test_broker_preflight_recovers_persisted_opg_batches_after_account_identity():
+def test_broker_preflight_runs_read_only_order_reconciliation_after_account_identity():
     executor = FakeExecutor(good_status())
-    executor.reconcile_opg_batches_read_only = Mock()
     status = validate_broker_preflight(executor)
     assert status["account_id"] == "paper-account-123"
-    executor.reconcile_opg_batches_read_only.assert_called_once_with()
+    assert executor.reconcile_calls == 1
 
 
 def test_broker_preflight_rejects_live_executor_before_account_call():

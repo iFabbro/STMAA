@@ -848,13 +848,33 @@ def main(argv=None):
         # Read-only broker request; no loop or order submission before it passes.
         account = validate_broker_preflight(bot.executor)
         print(
-            "Preflight Alpaca superato: account paper verificato, "
+            "Account Alpaca Paper verificato: "
             "equity=" + format(float(account["equity"]), ",.2f")
         )
+        report = account["preflight_report"]
+        print("Preflight broker read-only:")
+        print(f"  Posizioni aperte: {report['position_count']}")
+        print(f"  Ordini aperti: {report['open_order_count']}")
+        print(f"  Esposizione lorda aggregata: ${report['gross_notional_usd']:,.2f}")
+        print(f"  Riserva BUY pendenti: ${report['pending_buy_notional_usd']:,.2f}")
+        print(f"  Limite operativo: ${report['max_gross_notional_usd']:,.2f}")
+        print(f"  Limite rispettato: {'SI' if report['cap_compliant'] else 'NO'}")
+        reconciliation = report["reconciliation"]
+        print("  Riconciliazione ordini: " + (
+            "NESSUN BLOCCO" if reconciliation.get("safe_for_new_decision") else "BLOCCATA"
+        ))
+        print("  Nuova decisione consentita: " + (
+            "SI" if report["safe_for_new_decision"] else "NO"
+        ))
         if args.preflight_only:
-            print("Preflight-only completato: nessun ciclo di trading avviato e nessun ordine richiesto")
+            print("Preflight-only completato: nessun ciclo avviato e nessun ordine inviato/modificato/cancellato")
             status = "completed"
-            return 0
+            return 0 if report["safe_for_new_decision"] else 2
+
+        if not report["safe_for_new_decision"]:
+            print("Avvio bloccato: il preflight read-only non autorizza una nuova decisione")
+            status = "failed"
+            return 2
 
         bot.run_loop(interval_seconds=config.interval_seconds, execution_mode=args.execution_mode)
         status = "completed"

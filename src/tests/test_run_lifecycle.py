@@ -70,6 +70,20 @@ def test_trade_main_finalizes_successful_preflight_run(monkeypatch):
                 "buying_power": 18000.0,
             }
 
+        def reconcile_broker_state_read_only(self):
+            return {"read_only": True, "safe_for_new_decision": True}
+
+        def get_positions(self):
+            return {}
+
+        def _get_open_orders(self):
+            return []
+
+        def _get_aggregate_gross_notional(self, positions, open_orders):
+            assert positions == {}
+            assert open_orders == []
+            return 0.0, 0.0
+
     class FakeBot:
         def __init__(self, **_kwargs):
             self.executor = FakeExecutor()

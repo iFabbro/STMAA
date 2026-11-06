@@ -27,6 +27,20 @@ class FakePreflightExecutor:
         self.calls += 1
         return self.account
 
+    def reconcile_broker_state_read_only(self):
+        return {"read_only": True, "safe_for_new_decision": True}
+
+    def get_positions(self):
+        return {}
+
+    def _get_open_orders(self):
+        return []
+
+    def _get_aggregate_gross_notional(self, positions, open_orders):
+        assert positions == {}
+        assert open_orders == []
+        return 0.0, 0.0
+
 
 def test_production_preflight_requires_fresh_active_paper_account():
     executor = FakePreflightExecutor()

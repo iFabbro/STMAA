@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import Mock
 
 from src.utils.startup_config import (
     load_hub_refresh_seconds,
@@ -162,10 +161,35 @@ class FakeExecutor:
         self.status = status
         self.paper_trading = paper_trading
         self.calls = 0
+        self.positions = {"AAPL": {"qty": 1.0, "market_value": 100.0}}
+        self.open_orders = []
+        self.pending_buy_notional = 0.0
+        self.reconcile_calls = 0
 
     def get_account_status(self):
         self.calls += 1
         return self.status
+
+    def get_positions(self):
+        return self.positions
+
+    def _get_open_orders(self):
+        return self.open_orders
+
+    def _get_aggregate_gross_notional(self, positions, open_orders):
+        pending = self.pending_buy_notional
+        gross = sum(abs(float(p["market_value"])) for p in positions.values()) + pending
+        return (gross, pending)
+
+    def reconcile_broker_state_read_only(self):
+        self.reconcile_calls += 1
+        return {
+            "safe_for_new_decision": not self.open_orders,
+            "read_only": True,
+            "unresolved_submissions": 0,
+            "active_or_unreconciled_confirmed_orders": 0,
+            "open_orders": len(self.open_orders),
+        }
 
 
 def good_status(**overrides):
@@ -179,19 +203,58 @@ def good_status(**overrides):
     }
 
 
-def test_broker_preflight_uses_only_read_only_account_snapshot():
+def test_broker_preflight_returns_read_only_positions_orders_and_aggregate_cap_report():
     executor = FakeExecutor(good_status())
     status = validate_broker_preflight(executor)
+    report = status["preflight_report"]
     assert status["account_id"] == "paper-account-123"
+    assert report["read_only"] is True
+    assert report["position_count"] == 1
+    assert report["open_order_count"] == 0
+    assert report["gross_notional_usd"] == pytest.approx(100.0)
+    assert report["max_gross_notional_usd"] == pytest.approx(1000.0)
+    assert report["cap_compliant"] is True
+    assert report["safe_for_new_decision"] is True
     assert executor.calls == 1
 
 
-def test_broker_preflight_recovers_persisted_opg_batches_after_account_identity():
+def test_broker_preflight_marks_existing_exposure_above_cap_as_blocked():
     executor = FakeExecutor(good_status())
-    executor.reconcile_opg_batches_read_only = Mock()
+    executor.positions = {"AAPL": {"qty": 11.0, "market_value": 1100.0}}
+    status = validate_broker_preflight(executor)
+    report = status["preflight_report"]
+    assert report["gross_notional_usd"] == pytest.approx(1100.0)
+    assert report["cap_compliant"] is False
+    assert report["safe_for_new_decision"] is False
+
+
+
+
+def test_broker_preflight_includes_pending_buy_reserve_in_aggregate_cap():
+    executor = FakeExecutor(good_status())
+    executor.positions = {"AAPL": {"qty": 1.0, "market_value": 900.0}}
+    executor.pending_buy_notional = 200.0
+    executor.open_orders = [object()]
+    status = validate_broker_preflight(executor)
+    report = status["preflight_report"]
+    assert report["pending_buy_notional_usd"] == pytest.approx(200.0)
+    assert report["gross_notional_usd"] == pytest.approx(1100.0)
+    assert report["cap_compliant"] is False
+    assert report["safe_for_new_decision"] is False
+
+def test_broker_preflight_marks_open_orders_as_blocked():
+    executor = FakeExecutor(good_status())
+    executor.open_orders = [object()]
+    status = validate_broker_preflight(executor)
+    assert status["preflight_report"]["open_order_count"] == 1
+    assert status["preflight_report"]["safe_for_new_decision"] is False
+
+
+def test_broker_preflight_runs_read_only_order_reconciliation_after_account_identity():
+    executor = FakeExecutor(good_status())
     status = validate_broker_preflight(executor)
     assert status["account_id"] == "paper-account-123"
-    executor.reconcile_opg_batches_read_only.assert_called_once_with()
+    assert executor.reconcile_calls == 1
 
 
 def test_broker_preflight_rejects_live_executor_before_account_call():

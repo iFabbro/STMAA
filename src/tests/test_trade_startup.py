@@ -28,6 +28,20 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
                 "buying_power": 18000.0,
             }
 
+        def reconcile_broker_state_read_only(self):
+            return {"read_only": True, "safe_for_new_decision": True}
+
+        def get_positions(self):
+            return {}
+
+        def _get_open_orders(self):
+            return []
+
+        def _get_aggregate_gross_notional(self, positions, open_orders):
+            assert positions == {}
+            assert open_orders == []
+            return 0.0, 0.0
+
         def execute_weights(self, *_args, **_kwargs):
             raise AssertionError("preflight-only must never submit target weights")
 

@@ -164,6 +164,7 @@ class FakeExecutor:
         self.calls = 0
         self.positions = {"AAPL": {"qty": 1.0, "market_value": 100.0}}
         self.open_orders = []
+        self.pending_buy_notional = 0.0
 
     def get_account_status(self):
         self.calls += 1
@@ -176,7 +177,9 @@ class FakeExecutor:
         return self.open_orders
 
     def _get_aggregate_gross_notional(self, positions, open_orders):
-        return (sum(abs(float(p["market_value"])) for p in positions.values()), 0.0)
+        pending = self.pending_buy_notional
+        gross = sum(abs(float(p["market_value"])) for p in positions.values()) + pending
+        return (gross, pending)
 
     def reconcile_broker_state_read_only(self):
         return {
@@ -223,6 +226,20 @@ def test_broker_preflight_marks_existing_exposure_above_cap_as_blocked():
     assert report["cap_compliant"] is False
     assert report["safe_for_new_decision"] is False
 
+
+
+
+def test_broker_preflight_includes_pending_buy_reserve_in_aggregate_cap():
+    executor = FakeExecutor(good_status())
+    executor.positions = {"AAPL": {"qty": 1.0, "market_value": 900.0}}
+    executor.pending_buy_notional = 200.0
+    executor.open_orders = [object()]
+    status = validate_broker_preflight(executor)
+    report = status["preflight_report"]
+    assert report["pending_buy_notional_usd"] == pytest.approx(200.0)
+    assert report["gross_notional_usd"] == pytest.approx(1100.0)
+    assert report["cap_compliant"] is False
+    assert report["safe_for_new_decision"] is False
 
 def test_broker_preflight_marks_open_orders_as_blocked():
     executor = FakeExecutor(good_status())

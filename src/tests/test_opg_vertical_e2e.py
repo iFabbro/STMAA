@@ -1,4 +1,4 @@
-"""Vertical OPG integration test using the real bot and BrokerExecutor with a fake broker."""
+""""Vertical OPG integration test using the real bot and BrokerExecutor with a fake broker."""
 
 import json
 import logging
@@ -236,7 +236,8 @@ def test_opg_vertical_flow_from_ppo_inference_through_persisted_fill_reconciliat
     recovered = json.loads(executor.state_file.read_text(encoding="utf-8"))
     final_batch = recovered["opg_batches"][batch_id]
     assert final_batch["status"] == "completed"
-    assert final_batch["orders"]["AAPL"]["filled_qty"] == "2"
+    # Reconciliation persists normalized quantities as JSON numbers, not strings.
+    assert final_batch["orders"]["AAPL"]["filled_qty"] == 2
     assert final_batch["orders"]["AAPL"]["position_reconciled"] is True
     assert len(broker.submitted_requests) == 1
     assert broker.cancel_calls == 0

@@ -871,6 +871,11 @@ def main(argv=None):
             status = "completed"
             return 0 if report["safe_for_new_decision"] else 2
 
+        if not report["safe_for_new_decision"]:
+            print("Avvio bloccato: il preflight read-only non autorizza una nuova decisione")
+            status = "failed"
+            return 2
+
         bot.run_loop(interval_seconds=config.interval_seconds, execution_mode=args.execution_mode)
         status = "completed"
         return 0

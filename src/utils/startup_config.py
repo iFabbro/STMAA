@@ -275,12 +275,8 @@ def validate_broker_preflight(executor) -> dict:
     if float(status["equity"]) <= 0:
         raise RuntimeError("Broker preflight failed: account equity must be positive")
 
-    # Reconcile persisted DAY/OPG intents against broker evidence. This may update
-    # local recovery metadata, but it must never mutate broker orders.
-    recover_opg = getattr(executor, "reconcile_opg_batches_read_only", None)
-    if callable(recover_opg):
-        recover_opg()
-
+    # This reconciliation also recovers persisted OPG batches, using broker reads
+    # only. It may update local recovery metadata, never broker orders.
     reconcile = getattr(executor, "reconcile_broker_state_read_only", None)
     positions_reader = getattr(executor, "get_positions", None)
     open_orders_reader = getattr(executor, "_get_open_orders", None)

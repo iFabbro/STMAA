@@ -114,7 +114,10 @@ class PaperTradingBot:
             max_gross_exposure=self.max_gross_exposure,
         ) if PPO_AVAILABLE else None
 
-        print("PaperTradingBot inizializzato (PPO disponibile)" if PPO_AVAILABLE else "PPO non disponibile: la generazione dei pesi e il trading sono disabilitati")
+        if self.ppo_agent is None:
+            print("PPO lifecycle: package unavailable; inference and operational cycles are disabled")
+        else:
+            print(f"PPO lifecycle status: {self.ppo_agent.lifecycle_status}")
 
     def get_market_data(self) -> pd.DataFrame:
         """Ottieni dati di mercato reali da Alpaca (bars giornaliere)."""

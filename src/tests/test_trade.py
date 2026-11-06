@@ -1167,6 +1167,13 @@ def _build_bot_for_model_path_tests(monkeypatch, model_path=None, *, real_agent=
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
                 self.model = object()
+                self.lifecycle_status = {
+                    "ppo_initialized": True,
+                    "model_discovered": False,
+                    "model_loaded": False,
+                    "model_validated": False,
+                    "inference_available": False,
+                }
 
         monkeypatch.setattr(trade, "PPOAgent", FakePPOAgent)
     return PaperTradingBot(
@@ -1208,7 +1215,7 @@ def test_runtime_preflight_fails_when_custom_model_artifact_is_missing(tmp_path,
     custom = tmp_path / "does-not-exist.zip"
     bot = _build_bot_for_model_path_tests(monkeypatch, custom, real_agent=True)
     assert not Path(bot.ppo_agent.model_path).exists()
-    with pytest.raises(RuntimeError, match="no trained, compatible model is loaded"):
+    with pytest.raises(RuntimeError, match="model lifecycle is not fully ready"):
         from src.utils.startup_config import validate_ppo_preflight
         validate_ppo_preflight(bot.ppo_agent)
 

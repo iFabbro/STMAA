@@ -235,14 +235,46 @@ def test_ppo_preflight_accepts_only_a_loaded_inference_model():
 
     class FakeAgent:
         model = FakeModel()
+        lifecycle_status = {
+            "ppo_initialized": True,
+            "model_discovered": True,
+            "model_loaded": True,
+            "model_validated": True,
+            "inference_available": True,
+        }
 
     validate_ppo_preflight(FakeAgent())
 
-    with pytest.raises(RuntimeError, match="no trained, compatible model"):
+
+def test_ppo_preflight_rejects_initialized_agent_without_validated_model():
+    class FakeAgent:
+        model = object()
+        lifecycle_status = {
+            "ppo_initialized": True,
+            "model_discovered": False,
+            "model_loaded": False,
+            "model_validated": False,
+            "inference_available": False,
+        }
+
+    with pytest.raises(RuntimeError, match="model lifecycle is not fully ready"):
+        validate_ppo_preflight(FakeAgent())
+
+    with pytest.raises(RuntimeError, match="model lifecycle is not fully ready"):
         validate_ppo_preflight(type("MissingModelAgent", (), {"model": None})())
 
-    with pytest.raises(RuntimeError, match="callable predict"):
-        validate_ppo_preflight(type("InvalidModelAgent", (), {"model": object()})())
+    class InvalidModelAgent:
+        model = object()
+        lifecycle_status = {
+            "ppo_initialized": True,
+            "model_discovered": True,
+            "model_loaded": True,
+            "model_validated": True,
+            "inference_available": True,
+        }
+
+    with pytest.raises(RuntimeError, match="validated inference model is unavailable"):
+        validate_ppo_preflight(InvalidModelAgent())
 
     with pytest.raises(RuntimeError, match="agent is unavailable"):
         validate_ppo_preflight(None)

@@ -231,22 +231,30 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
 
 
 def validate_ppo_preflight(agent) -> None:
-    """Require a loaded PPO policy with a callable inference interface."""
+    """Require every explicit PPO lifecycle state before an operational cycle."""
     if agent is None:
         raise RuntimeError(
             "PPO startup preflight failed: PPO agent is unavailable; "
             "install the declared ML dependencies before normal operation"
         )
-
-    model = getattr(agent, "model", None)
-    if model is None:
+    lifecycle = getattr(agent, "lifecycle_status", None)
+    required_states = (
+        "ppo_initialized", "model_discovered", "model_loaded",
+        "model_validated", "inference_available",
+    )
+    if not isinstance(lifecycle, dict) or any(
+        lifecycle.get(state) is not True for state in required_states
+    ):
+        states = lifecycle if isinstance(lifecycle, dict) else "unreported"
         raise RuntimeError(
-            "PPO startup preflight failed: no trained, compatible model is loaded; "
-            "run the documented training workflow before normal operation"
+            "PPO startup preflight failed: model lifecycle is not fully ready "
+            f"(required={required_states}, actual={states}); train and validate a "
+            "compatible artifact with train.py before normal operation"
         )
-    if not callable(getattr(model, "predict", None)):
+    model = getattr(agent, "model", None)
+    if model is None or not callable(getattr(model, "predict", None)):
         raise RuntimeError(
-            "PPO startup preflight failed: loaded model has no callable predict method"
+            "PPO startup preflight failed: validated inference model is unavailable"
         )
 
 

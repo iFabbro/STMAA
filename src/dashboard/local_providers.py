@@ -178,7 +178,7 @@ def _open_readonly_database(
 
 
 def _sqlite_error(path: Path, error: Exception) -> SourceResult[Any]:
-    if isinstance(error, FileNotFoundError):
+    if not Path(path).expanduser().exists():
         status = SourceStatus.MISSING
         detail = "database file is missing"
     elif isinstance(error, sqlite3.OperationalError) and "no such table" in str(error).lower():

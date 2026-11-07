@@ -25,10 +25,16 @@ STMAA è un framework modulare e sperimentale per la ricerca sul trading sistema
 - **Riconciliazione degli ordini:** controlli per gestire aggiornamenti ritardati delle posizioni dopo l'esecuzione, inclusi i riempimenti parziali e le discrepanze non risolte.
 - **Persistenza dello stato di esecuzione:** gestione dello stato locale con protezioni per la scrittura atomica, blocco dei processi concorrenti e verifiche contro scritture obsolete.
 - **Componenti di backtesting:** motore di ricerca per il backtesting e interfacce condivise basate sui pesi.
-- **Visibilità operativa:** registrazione di eventi e sessioni tramite SQLite e interfaccia di monitoraggio da terminale.
+- **Visibilità operativa:** registrazione di eventi e sessioni tramite SQLite e shell di monitoraggio Textual da terminale. La shell presenta quattro viste, ma i provider locali introdotti nella fase corrente non sono ancora collegati alle viste.
 - **Test di regressione automatizzati:** copertura di strategie, dati, esecuzione, rischio e scenari di errore.
 
 Queste descrizioni riguardano funzionalità presenti nel codice; non garantiscono che ogni possibile errore di mercato, broker, rete o processo sia coperto. Prima di fare affidamento su un comportamento, esaminare il codice e i risultati CI più recenti.
+
+## Dashboard terminale: stato e scritture locali
+
+La dashboard Textual è attualmente una shell di navigazione; non mostra ancora dati operativi collegati ai provider locali. I provider in `src/dashboard/local_providers.py` leggono soltanto `logs/hub_state.json` e le tabelle di monitoraggio SQLite approvate, senza inizializzare o modificare le fonti.
+
+**La dashboard non è un processo zero-write.** `hub.py` conserva le scritture di audit della propria sessione tramite `start_run()`, `log_event()` ed `end_run()`. In particolare, `start_run()` usa il lifecycle SQLite esistente, che può inizializzare il database e recuperare sessioni orfane. Queste operazioni sono separate dai provider: lettura, refresh e rendering dei provider non devono scrivere, migrare, recuperare o modificare dati. Nessuna di queste operazioni di audit implica una chiamata al broker o l'invio di ordini.
 
 ## Architettura
 

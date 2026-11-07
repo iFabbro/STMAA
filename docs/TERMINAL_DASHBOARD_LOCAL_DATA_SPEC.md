@@ -157,3 +157,13 @@ Each implementation step is a separate PR and must pass CI, lint and secrets sca
 ## 9. Non-goals
 
 This phase does not add Alpaca Paper or live connectivity, broker account/position/order requests, market quotes, real-time polling, trading controls, PPO inference, strategy execution, risk recalculation, broker reconciliation, model loading, database schema changes, or claims of production/live-trading readiness.
+
+## 10. Implementation decision — dashboard audit lifecycle
+
+**Decision for the first provider implementation (PR #309): retain the existing dashboard-session audit lifecycle.**
+
+- `hub.py` continues to call `start_run()`, `log_event()` and `end_run()` for its own session.
+- These writes are a deliberately narrow local audit exception. They do not authorize writes from provider reads, refresh handlers, rendering, or view-model construction.
+- Provider code must not import or call the SQLite logger's write helpers, database initialization, migration, or orphan-recovery functions.
+- This dashboard is therefore read-only with respect to operational monitoring sources and trading state, but it is not a process-level zero-write application.
+- The distinction must be reflected in tests and user-facing documentation. Any future removal or opt-out mode for lifecycle audit writes requires a separate reviewed change.

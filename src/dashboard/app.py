@@ -77,7 +77,7 @@ def _age(observed_at: str | None) -> str:
 def _source_header(label: str, result: providers.SourceResult[Any]) -> str:
     observed = f" | {escape(result.observed_at)} | {_age(result.observed_at)}" if result.observed_at else ""
     detail = f" — {escape(result.detail)}" if result.detail else ""
-    return f"[b]{escape(label)}[/b]  [{escape(result.status.value)}]{observed}{detail}"
+    return f"[b]{escape(label)}[/b]  STATUS: {escape(result.status.value)}{observed}{detail}"
 
 
 def _snapshot_lines(label: str, result: providers.SourceResult[dict[str, Any]]) -> list[str]:
@@ -282,7 +282,7 @@ class STMAADashboard(App):
                     level = _text(event.get("level"), limit=12)
                     event_type = _text(event.get("event_type"), limit=32)
                     source = _text(event.get("source"), limit=24)
-                    symbol = f" [{_text(event.get('symbol'), limit=16)}]" if event.get("symbol") else ""
+                    symbol = f" · {_text(event.get('symbol'), limit=16)}" if event.get("symbol") else ""
                     message = _text(event.get("message"), limit=120)
                     system.append(f"  {timestamp} {level:<8} {event_type} {source}{symbol}")
                     system.append(f"    {message}")

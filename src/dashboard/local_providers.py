@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Iterator, TypeVar
 
 from src.utils.monitoring_state import HUB_STATE_PATH
 from src.utils.sqlite_logger import DB_PATH
@@ -166,20 +167,24 @@ def read_json_snapshot(
     return SourceResult(status, source, normalized, observed_at, detail)
 
 
+@contextmanager
 def _open_readonly_database(
     path: Path,
     timeout_seconds: float = DEFAULT_QUERY_TIMEOUT_SECONDS,
-) -> sqlite3.Connection:
-    """Open an existing SQLite database in URI read-only and query-only modes."""
+) -> Iterator[sqlite3.Connection]:
+    """Yield an existing SQLite database in URI read-only and query-only modes."""
     resolved = Path(path).expanduser().resolve()
     connection = sqlite3.connect(
         f"{resolved.as_uri()}?mode=ro",
         uri=True,
         timeout=timeout_seconds,
     )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only = ON")
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        yield connection
+    finally:
+        connection.close()
 
 
 def _sqlite_error(path: Path, error: Exception) -> SourceResult[Any]:

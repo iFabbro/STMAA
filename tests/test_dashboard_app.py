@@ -140,3 +140,62 @@ def test_dashboard_app_has_no_broker_or_execution_dependencies():
     assert "start_run(" not in source
     assert "log_event(" not in source
     assert "end_run(" not in source
+
+
+def _patch_empty_sources(monkeypatch):
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+
+
+def test_dashboard_keyboard_navigation_switches_all_four_views(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            assert app.current_view == "overview"
+            await pilot.press("2")
+            assert app.current_view == "portfolio"
+            assert "PORTFOLIO" in str(app.query_one("#content", Static).render())
+            await pilot.press("3")
+            assert app.current_view == "orders"
+            assert "ORDERS & EXECUTIONS" in str(app.query_one("#content", Static).render())
+            await pilot.press("4")
+            assert app.current_view == "system"
+            assert "SYSTEM" in str(app.query_one("#content", Static).render())
+            await pilot.press("1")
+            assert app.current_view == "overview"
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_dashboard_displays_narrow_terminal_warning(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(79, 24)):
+            assert app.query_one("#size-warning", Static).display is True
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_dashboard_refresh_help_and_quit_are_local_ui_actions(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press("r")
+            assert app.current_view == "overview"
+            await pilot.press("question_mark")
+            assert app.current_view == "overview"
+            await pilot.press("q")
+            assert app.is_running is False
+
+    import asyncio
+    asyncio.run(run())

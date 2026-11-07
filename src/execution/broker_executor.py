@@ -2601,6 +2601,24 @@ class BrokerExecutor:
         if equity <= 0 or buying_power < 0:
             raise RuntimeError("OPG preflight account equity or buying power is outside valid bounds")
 
+        # The plan must be based on the same verified account equity and on
+        # the smaller of that equity or the shared operational notional cap.
+        plan_equity = self._opg_decimal(
+            getattr(plan, "equity", None), "planned account equity"
+        )
+        sizing_capital = self._opg_decimal(
+            getattr(plan, "sizing_capital", None), "planned sizing capital"
+        )
+        expected_sizing_capital = min(equity, MAX_GROSS_NOTIONAL_USD)
+        if abs(plan_equity - equity) > Decimal("0.01"):
+            raise RuntimeError(
+                "OPG preflight account equity changed after target sizing; rebuild the plan"
+            )
+        if abs(sizing_capital - expected_sizing_capital) > Decimal("0.01"):
+            raise RuntimeError(
+                "OPG preflight sizing capital does not match the verified operational budget"
+            )
+
         plan_assets = plan.assets
         normalized_assets = {}
         for raw_symbol, item in plan_assets.items():

@@ -13,7 +13,7 @@ def test_integer_sizing_floors_target_quantities_and_records_residuals():
         current_positions={"A": 3, "B": 5, "C": 0},
     )
 
-    assert plan.contract == "opg_moo_integer_floor_v1"
+    assert plan.contract == "opg_moo_integer_floor_v2_operational_cap"
     assert plan.model_contract_version == 7
     assert plan.equity == pytest.approx(5000.0)
     assert plan.assets["A"].target_quantity == 11
@@ -106,7 +106,8 @@ def test_plan_serialization_records_model_target_and_execution_deviation():
 
     record = plan.to_dict()
     assert record["model_contract_version"] == 7
-    assert record["execution_sizing_contract"] == "opg_moo_integer_floor_v1"
+    assert record["execution_sizing_contract"] == "opg_moo_integer_floor_v2_operational_cap"
+    assert record["sizing_capital"] == pytest.approx(1000.0)
     assert record["assets"]["A"]["ppo_target_weight"] == pytest.approx(0.25)
     assert record["assets"]["A"]["integer_sized_weight"] == pytest.approx(0.0)
     assert record["assets"]["A"]["weight_deviation"] == pytest.approx(-0.25)
@@ -212,4 +213,45 @@ def test_unmodeled_nonzero_account_position_blocks_instead_of_being_ignored():
             target_weights={"A": 0.2},
             close_prices={"A": 100},
             current_positions={"A": 0, "LEGACY": 2},
+        )
+
+
+def test_operational_sizing_cap_scales_targets_below_strategic_account_equity():
+    plan = build_opg_sizing_plan(
+        equity=100000.0,
+        sizing_capital=1000.0,
+        target_weights={"A": 0.20, "B": 0.15, "C": 0.08},
+        close_prices={"A": 100.0, "B": 50.0, "C": 80.0},
+        current_positions={"A": 0, "B": 0, "C": 0},
+    )
+
+    assert plan.equity == pytest.approx(100000.0)
+    assert plan.sizing_capital == pytest.approx(1000.0)
+    assert plan.assets["A"].target_notional == pytest.approx(200.0)
+    assert plan.assets["A"].target_quantity == 2
+    assert plan.assets["B"].target_notional == pytest.approx(150.0)
+    assert plan.assets["B"].target_quantity == 3
+    assert plan.assets["C"].target_notional == pytest.approx(80.0)
+    assert plan.assets["C"].target_quantity == 1
+    assert plan.total_target_notional == pytest.approx(430.0)
+    assert plan.total_integer_notional == pytest.approx(430.0)
+    assert plan.integer_gross_weight == pytest.approx(0.43)
+
+
+def test_sizing_capital_must_be_positive_and_not_exceed_verified_equity():
+    with pytest.raises(ValueError, match="sizing_capital"):
+        build_opg_sizing_plan(
+            equity=1000,
+            sizing_capital=0,
+            target_weights={"A": 0.2},
+            close_prices={"A": 100},
+            current_positions={"A": 0},
+        )
+    with pytest.raises(ValueError, match="sizing_capital"):
+        build_opg_sizing_plan(
+            equity=1000,
+            sizing_capital=1001,
+            target_weights={"A": 0.2},
+            close_prices={"A": 100},
+            current_positions={"A": 0},
         )

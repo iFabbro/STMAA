@@ -480,6 +480,7 @@ class PaperTradingBot:
 
     def _execute_opg_plan(self, weights: PortfolioWeights, opg_context: Dict) -> Dict:
         """Build and execute one integer-share OPG plan; never fall back to DAY."""
+        from src.execution.notional_cap import MAX_GROSS_NOTIONAL_USD
         from src.execution.opg_sizing import build_opg_sizing_plan
 
         if not isinstance(opg_context, dict):
@@ -526,6 +527,9 @@ class PaperTradingBot:
             target_weights=target_weights,
             close_prices=close_prices,
             current_positions=current_positions,
+            # Strategic account equity remains the model's reference. Actual
+            # OPG target notionals are scaled to the smaller operational budget.
+            sizing_capital=min(float(equity), float(MAX_GROSS_NOTIONAL_USD)),
         )
         batch = self.executor.execute_opg_plan(
             plan,

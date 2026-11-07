@@ -225,7 +225,7 @@ Il ciclo OPG usa la barra giornaliera completata come segnale e risolve la sessi
 
 Durante la finestra:
 1. STMAA genera i pesi PPO e applica i controlli del risk overlay già previsti dal ciclo Paper.
-2. Il piano OPG converte i target in quantità intere, usando l'equity verificata e il Close della barra completata. Le quantità correnti sono lette dal broker; posizioni short, frazionarie o non modellate bloccano il piano.
+2. Il piano OPG converte i target in quantità intere, usando come capitale di sizing il minore tra equity effettiva verificata e limite operativo aggregato di 1.000 USD, insieme al Close della barra completata. L'equity effettiva resta la base per l'inferenza PPO e per i controlli di drawdown; il capitale di sizing limita invece il controvalore degli ordini. Le quantità correnti sono lette dal broker; posizioni short, frazionarie o non modellate bloccano il piano.
 3. Sotto il broker execution lock, il preflight legge nuovamente account, posizioni e ordini Paper e verifica identità dell'account, stato operativo, coerenza delle quantità, idoneità degli asset, budget BUY e limite aggregato di 1.000 USD.
 4. Solo dopo il preflight approvato, STMAA persiste il batch e le intenzioni d'ordine, quindi invia i BUY come limit-on-open (LOO), con limit price pari al Close usato per il sizing, e le SELL come market-on-open (MOO), in sequenza. Il report del preflight viene conservato nel batch come evidenza della verifica.
 

@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
 
-EXECUTION_SIZING_CONTRACT = "opg_moo_integer_floor_v1"
+EXECUTION_SIZING_CONTRACT = "opg_moo_integer_floor_v2_operational_cap"
 MODEL_CONTRACT_VERSION = 7
 
 
@@ -73,6 +73,7 @@ class OpgSizingPlan:
     """Immutable, serializable result of integer target sizing."""
 
     equity: float
+    sizing_capital: float
     assets: dict[str, OpgAssetSizing]
     total_target_notional: float
     total_integer_notional: float
@@ -94,10 +95,11 @@ class OpgSizingPlan:
             "model_contract_version": self.model_contract_version,
             "execution_sizing_contract": self.execution_sizing_contract,
             "sizing_basis": (
-                "equity_at_signal * ppo_target_weight / "
-                "completed_signal_bar_close; floor to whole shares"
+                "min(verified_account_equity, operational_gross_notional_cap) "
+                "* ppo_target_weight / completed_signal_bar_close; floor to whole shares"
             ),
             "equity": self.equity,
+            "sizing_capital": self.sizing_capital,
             "assets": {
                 symbol: asset.to_dict()
                 for symbol, asset in self.assets.items()
@@ -119,6 +121,7 @@ def build_opg_sizing_plan(
     target_weights: Mapping[str, object],
     close_prices: Mapping[str, object],
     current_positions: Mapping[str, object],
+    sizing_capital: object | None = None,
 ) -> OpgSizingPlan:
     """Build an offline integer-share target plan without broker interaction.
 
@@ -128,6 +131,12 @@ def build_opg_sizing_plan(
     equity_value = _decimal(equity, "equity")
     if equity_value <= 0:
         raise ValueError("equity must be strictly positive")
+    sizing_capital_value = _decimal(
+        equity_value if sizing_capital is None else sizing_capital,
+        "sizing_capital",
+    )
+    if sizing_capital_value <= 0 or sizing_capital_value > equity_value:
+        raise ValueError("sizing_capital must be positive and no greater than verified equity")
 
     weights_input = _validate_symbol_mapping(target_weights, "target_weights")
     prices_input = _validate_symbol_mapping(close_prices, "close_prices")
@@ -174,11 +183,11 @@ def build_opg_sizing_plan(
     total_residual = Decimal("0")
 
     for symbol in sorted(symbols):
-        target_notional = equity_value * weights[symbol]
+        target_notional = sizing_capital_value * weights[symbol]
         target_quantity = int(target_notional // prices[symbol])
         integer_notional = Decimal(target_quantity) * prices[symbol]
         residual = target_notional - integer_notional
-        integer_weight = integer_notional / equity_value
+        integer_weight = integer_notional / sizing_capital_value
         deviation_weight = integer_weight - weights[symbol]
         delta_quantity = target_quantity - positions[symbol]
         side = "buy" if delta_quantity > 0 else "sell" if delta_quantity < 0 else None
@@ -206,11 +215,12 @@ def build_opg_sizing_plan(
 
     return OpgSizingPlan(
         equity=float(equity_value),
+        sizing_capital=float(sizing_capital_value),
         assets=assets,
         total_target_notional=float(total_target),
         total_integer_notional=float(total_integer),
         total_rounding_residual=float(total_residual),
         target_gross_weight=float(target_gross),
-        integer_gross_weight=float(total_integer / equity_value),
+        integer_gross_weight=float(total_integer / sizing_capital_value),
         target_cash_weight=float(Decimal("1") - target_gross),
     )

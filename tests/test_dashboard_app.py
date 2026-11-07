@@ -199,3 +199,28 @@ def test_dashboard_refresh_help_and_quit_are_local_ui_actions(monkeypatch):
 
     import asyncio
     asyncio.run(run())
+
+
+def test_snapshot_values_without_timestamp_remain_visible_as_missing(monkeypatch):
+    missing_timestamp = _result(
+        SourceStatus.MISSING,
+        value={"equity": 875.0, "cash": 125.0},
+        observed_at=None,
+        detail="snapshot timestamp is missing",
+    )
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: missing_timestamp)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: missing_timestamp)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)):
+            content = str(app.query_one("#content", Static).render())
+            assert "MISSING" in content
+            assert "875.00" in content
+            assert "age unknown" not in content
+
+    import asyncio
+    asyncio.run(run())

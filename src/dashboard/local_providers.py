@@ -68,6 +68,15 @@ class SourceResult(Generic[T]):
     detail: str | None = None
 
 
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -100,8 +109,6 @@ def _freshness_status(
         return SourceStatus.MISSING
     if max_age_seconds is None:
         return SourceStatus.OK
-    if timestamp is None:
-        return SourceStatus.MISSING
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -113,11 +120,7 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     normalized = {key: value for key, value in payload.items() if key in _ALLOWED_SNAPSHOT_FIELDS}
     for key in _NUMERIC_FIELDS.intersection(normalized):
         value = normalized[key]
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(float(value))
-        ):
+        if not _is_finite_number(value):
             return None, f"invalid numeric field: {key}"
     for key in ("positions", "equity_curve"):
         if key in normalized and not isinstance(normalized[key], list):
@@ -186,9 +189,11 @@ def _sqlite_error(path: Path, error: Exception) -> SourceResult[Any]:
     elif isinstance(error, sqlite3.OperationalError) and "no such table" in str(error).lower():
         status = SourceStatus.INVALID
         detail = "database schema does not contain the expected table"
-    elif isinstance(error, sqlite3.DatabaseError):
+    elif isinstance(error, sqlite3.DatabaseError) and any(
+        marker in str(error).lower() for marker in ("malformed", "not a database")
+    ):
         status = SourceStatus.INVALID
-        detail = "database is invalid or unreadable"
+        detail = "database file is invalid"
     else:
         status = SourceStatus.UNAVAILABLE
         detail = "database cannot be read"
@@ -217,11 +222,7 @@ def read_latest_snapshot(
     value = dict(row)
     for key in _NUMERIC_FIELDS.intersection(value):
         item = value[key]
-        if item is not None and (
-            isinstance(item, bool)
-            or not isinstance(item, (int, float))
-            or not math.isfinite(float(item))
-        ):
+        if item is not None and not _is_finite_number(item):
             return SourceResult(SourceStatus.INVALID, str(path), detail=f"invalid numeric field: {key}")
     status = _freshness_status(value.get("ts"), max_age_seconds, now)
     detail = "snapshot timestamp is missing" if status is SourceStatus.MISSING else None

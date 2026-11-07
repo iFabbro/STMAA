@@ -273,11 +273,20 @@ def test_preflight_blocks_projected_target_gross_above_one_thousand_usd():
 
     plan = build_opg_sizing_plan(
         equity=2000,
-        target_weights={"AAPL": 0.60, "MSFT": 0.40},
+        sizing_capital=1000,
+        target_weights={"AAPL": 0.00, "MSFT": 0.20},
         close_prices={"AAPL": 100, "MSFT": 100},
-        current_positions={"AAPL": 0, "MSFT": 0},
+        current_positions={"AAPL": 9, "MSFT": 0},
     )
-    executor = _executor(plan, buying_power=2000)
+    executor = _executor(
+        plan,
+        buying_power=2000,
+        equity=2000,
+        positions={
+            "AAPL": {"qty": 9.0, "market_value": 900.0},
+            "MSFT": {"qty": 0.0, "market_value": 0.0},
+        },
+    )
 
     with pytest.raises(RuntimeError, match="exceeds hard cap"):
         executor.preflight_opg_plan(plan)
@@ -354,6 +363,7 @@ def test_preflight_does_not_credit_unfilled_sells_to_fund_new_buys():
 
     plan = build_opg_sizing_plan(
         equity=2000,
+        sizing_capital=1000,
         target_weights={"AAPL": 0.0, "MSFT": 0.10},
         close_prices={"AAPL": 100, "MSFT": 100},
         current_positions={"AAPL": 15, "MSFT": 0},
@@ -361,6 +371,7 @@ def test_preflight_does_not_credit_unfilled_sells_to_fund_new_buys():
     executor = _executor(
         plan,
         buying_power=2000,
+        equity=2000,
         positions={
             "AAPL": {"qty": 15.0, "market_value": 1500.0},
             "MSFT": {"qty": 0.0, "market_value": 0.0},

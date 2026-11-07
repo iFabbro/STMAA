@@ -32,7 +32,7 @@ def _asset(symbol="AAPL", *, status="active", tradable=True, asset_class="us_equ
     )
 
 
-def _executor(plan, *, buying_power=1000, positions=None, assets=None, account_overrides=None):
+def _executor(plan, *, buying_power=1000, equity=1000, positions=None, assets=None, account_overrides=None):
     from src.execution.broker_executor import BrokerExecutor
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
@@ -51,7 +51,7 @@ def _executor(plan, *, buying_power=1000, positions=None, assets=None, account_o
         "account_identity_verified": True,
         "status": "active",
         "trading_blocked": False,
-        "equity": 1000.0,
+        "equity": float(equity),
         "buying_power": buying_power,
     }
     account.update(account_overrides or {})
@@ -451,3 +451,58 @@ def test_preflight_does_not_fetch_assets_when_plan_has_no_orders():
     assert report["buy_orders"] == 0
     assert report["sell_orders"] == 0
     executor.trading_client.get_asset.assert_not_called()
+
+
+
+def test_preflight_accepts_operationally_scaled_plan_with_larger_strategic_equity():
+    plan = _plan(
+        target_weights={"AAPL": 0.20, "MSFT": 0.15},
+        close_prices={"AAPL": 100, "MSFT": 50},
+        current_positions={"AAPL": 0, "MSFT": 0},
+    )
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=100000,
+        sizing_capital=1000,
+        target_weights={"AAPL": 0.20, "MSFT": 0.15},
+        close_prices={"AAPL": 100, "MSFT": 50},
+        current_positions={"AAPL": 0, "MSFT": 0},
+    )
+    executor = _executor(plan, buying_power=1000, equity=100000)
+
+    report = executor.preflight_opg_plan(plan)
+
+    assert report["approved"] is True
+    assert report["equity"] == pytest.approx(100000.0)
+    assert report["estimated_buy_notional"] == pytest.approx(350.0)
+    assert report["projected_gross_notional"] == pytest.approx(350.0)
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_rejects_account_equity_drift_after_sizing():
+    plan = _plan()
+    executor = _executor(plan, equity=2000)
+
+    with pytest.raises(RuntimeError, match="equity changed"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()
+
+
+def test_preflight_rejects_sizing_capital_that_does_not_match_operational_budget():
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    plan = build_opg_sizing_plan(
+        equity=1000,
+        sizing_capital=500,
+        target_weights={"AAPL": 0.20},
+        close_prices={"AAPL": 100},
+        current_positions={"AAPL": 0},
+    )
+    executor = _executor(plan, equity=1000)
+
+    with pytest.raises(RuntimeError, match="operational budget"):
+        executor.preflight_opg_plan(plan)
+
+    executor.trading_client.submit_order.assert_not_called()

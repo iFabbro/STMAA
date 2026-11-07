@@ -88,6 +88,8 @@ def _freshness_status(
     max_age_seconds: float | None,
     now: datetime | None = None,
 ) -> SourceStatus:
+    if _parse_timestamp(observed_at) is None:
+        return SourceStatus.MISSING
     if max_age_seconds is None:
         return SourceStatus.OK
     if (

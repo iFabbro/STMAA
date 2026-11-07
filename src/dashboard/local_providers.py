@@ -88,11 +88,7 @@ def _freshness_status(
     max_age_seconds: float | None,
     now: datetime | None = None,
 ) -> SourceStatus:
-    if _parse_timestamp(observed_at) is None:
-        return SourceStatus.MISSING
-    if max_age_seconds is None:
-        return SourceStatus.OK
-    if (
+    if max_age_seconds is not None and (
         isinstance(max_age_seconds, bool)
         or not isinstance(max_age_seconds, (int, float))
         or not math.isfinite(float(max_age_seconds))
@@ -100,6 +96,10 @@ def _freshness_status(
     ):
         raise ValueError("max_age_seconds must be a finite non-negative number")
     timestamp = _parse_timestamp(observed_at)
+    if timestamp is None:
+        return SourceStatus.MISSING
+    if max_age_seconds is None:
+        return SourceStatus.OK
     if timestamp is None:
         return SourceStatus.MISSING
     reference = now or datetime.now(timezone.utc)

@@ -455,11 +455,6 @@ def test_preflight_does_not_fetch_assets_when_plan_has_no_orders():
 
 
 def test_preflight_accepts_operationally_scaled_plan_with_larger_strategic_equity():
-    plan = _plan(
-        target_weights={"AAPL": 0.20, "MSFT": 0.15},
-        close_prices={"AAPL": 100, "MSFT": 50},
-        current_positions={"AAPL": 0, "MSFT": 0},
-    )
     from src.execution.opg_sizing import build_opg_sizing_plan
 
     plan = build_opg_sizing_plan(

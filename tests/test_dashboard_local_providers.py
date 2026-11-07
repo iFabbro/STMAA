@@ -92,6 +92,7 @@ def test_json_provider_reports_stale_and_missing_timestamp(tmp_path):
     assert read_json_snapshot(path, max_age_seconds=60, now=now).status is SourceStatus.STALE
 
     path.write_text(json.dumps({"equity": 100.0}), encoding="utf-8")
+    assert read_json_snapshot(path).status is SourceStatus.MISSING
     missing_time = read_json_snapshot(path, max_age_seconds=60, now=now)
     assert missing_time.status is SourceStatus.MISSING
     assert missing_time.value == {"equity": 100.0}
@@ -211,3 +212,15 @@ def test_provider_module_has_no_broker_or_trading_dependencies():
         "httpx",
     )
     assert all(token not in source for token in forbidden)
+
+
+
+def test_dashboard_audit_writes_are_confined_to_hub_lifecycle():
+    hub_source = Path("hub.py").read_text(encoding="utf-8")
+    provider_source = Path("src/dashboard/local_providers.py").read_text(encoding="utf-8")
+
+    assert "start_run(" in hub_source
+    assert "log_event(" in hub_source
+    assert "end_run(" in hub_source
+    for writer in ("start_run(", "log_event(", "write_snapshot(", "end_run(", "init_db(", "recover_orphaned_runs("):
+        assert writer not in provider_source

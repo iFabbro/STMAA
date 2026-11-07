@@ -83,7 +83,7 @@ def _source_header(label: str, result: providers.SourceResult[Any]) -> str:
 def _snapshot_lines(label: str, result: providers.SourceResult[dict[str, Any]]) -> list[str]:
     lines = [_source_header(label, result)]
     value = result.value if isinstance(result.value, dict) else {}
-    if result.status in {providers.SourceStatus.MISSING, providers.SourceStatus.INVALID, providers.SourceStatus.UNAVAILABLE, providers.SourceStatus.EMPTY}:
+    if result.status in {providers.SourceStatus.INVALID, providers.SourceStatus.UNAVAILABLE, providers.SourceStatus.EMPTY} or not value:
         return lines
     fields = (
         ("Portfolio value", "portfolio_value"),

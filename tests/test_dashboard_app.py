@@ -121,7 +121,7 @@ def test_missing_sources_are_not_rendered_as_zero_or_empty_portfolio(monkeypatch
             content = str(app.query_one("#content", Static).render())
             assert "MISSING" in content
             assert "0.00" not in content
-            await app.action_show_portfolio()
+            app.action_show_portfolio()
             portfolio = str(app.query_one("#content", Static).render())
             assert "POSITIONS NOT CONNECTED" in portfolio
             assert "No broker positions" in portfolio

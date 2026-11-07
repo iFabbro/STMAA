@@ -198,9 +198,11 @@ def _sqlite_error(path: Path, error: Exception) -> SourceResult[Any]:
     if not Path(path).expanduser().exists():
         status = SourceStatus.MISSING
         detail = "database file is missing"
-    elif isinstance(error, sqlite3.OperationalError) and "no such table" in str(error).lower():
+    elif isinstance(error, sqlite3.OperationalError) and any(
+        marker in str(error).lower() for marker in ("no such table", "no such column")
+    ):
         status = SourceStatus.INVALID
-        detail = "database schema does not contain the expected table"
+        detail = "database schema does not match the expected contract"
     elif isinstance(error, sqlite3.DatabaseError) and any(
         marker in str(error).lower() for marker in ("malformed", "not a database")
     ):

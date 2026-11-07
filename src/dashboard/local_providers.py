@@ -121,11 +121,16 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     normalized = {key: value for key, value in payload.items() if key in _ALLOWED_SNAPSHOT_FIELDS}
     for key in _NUMERIC_FIELDS.intersection(normalized):
         value = normalized[key]
-        if not _is_finite_number(value):
+        if value is not None and not _is_finite_number(value):
             return None, f"invalid numeric field: {key}"
-    for key in ("positions", "equity_curve"):
-        if key in normalized and not isinstance(normalized[key], list):
-            return None, f"invalid collection field: {key}"
+    if "positions" in normalized and not isinstance(normalized["positions"], list):
+        return None, "invalid collection field: positions"
+    if "equity_curve" in normalized:
+        curve = normalized["equity_curve"]
+        if not isinstance(curve, list) or any(
+            not _is_finite_number(point) for point in curve
+        ):
+            return None, "invalid numeric collection: equity_curve"
     if "positions_json" in normalized and not isinstance(
         normalized["positions_json"], (str, dict, list, type(None))
     ):
@@ -159,7 +164,9 @@ def read_json_snapshot(
     normalized, error = _validate_snapshot(payload)
     if error:
         return SourceResult(SourceStatus.INVALID, source, detail=error)
-    observed_at = normalized.get("timestamp", normalized.get("ts"))
+    observed_at = normalized.get("timestamp")
+    if observed_at is None:
+        observed_at = normalized.get("ts")
     if observed_at is not None and _parse_timestamp(observed_at) is None:
         return SourceResult(SourceStatus.INVALID, source, value=normalized, detail="invalid snapshot timestamp")
     status = _freshness_status(observed_at, max_age_seconds, now)

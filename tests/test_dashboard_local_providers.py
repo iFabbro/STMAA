@@ -81,6 +81,23 @@ def test_json_provider_distinguishes_missing_invalid_and_valid(tmp_path):
         "equity": 1250.5,
     }
 
+    nullable_path = tmp_path / "nullable.json"
+    nullable_path.write_text(
+        json.dumps({"ts": "2026-11-07T10:00:00+00:00", "cash": None, "equity_curve": []}),
+        encoding="utf-8",
+    )
+    nullable = read_json_snapshot(nullable_path)
+    assert nullable.status is SourceStatus.OK
+    assert nullable.value["cash"] is None
+    assert nullable.value["equity_curve"] == []
+
+    invalid_curve_path = tmp_path / "invalid-curve.json"
+    invalid_curve_path.write_text(
+        json.dumps({"timestamp": "2026-11-07T10:00:00+00:00", "equity_curve": [100.0, True]}),
+        encoding="utf-8",
+    )
+    assert read_json_snapshot(invalid_curve_path).status is SourceStatus.INVALID
+
 
 def test_json_provider_reports_stale_and_missing_timestamp(tmp_path):
     path = tmp_path / "snapshot.json"

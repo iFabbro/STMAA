@@ -79,7 +79,7 @@ def test_opg_batch_is_unique_per_signal_identity():
         "signal_bar_at": "2026-11-03T21:00:00Z",
         "target_session": "2026-11-04",
         "model_contract_version": 7,
-        "execution_sizing_contract": "opg_moo_integer_floor_v1",
+        "execution_sizing_contract": "opg_moo_integer_floor_v2_operational_cap",
     }
 
     batch_id = build_batch_id(**identity)

@@ -157,9 +157,11 @@ def test_sqlite_providers_return_empty_then_read_bounded_rows(tmp_path):
     finally:
         connection.close()
 
+    before_reads = path.read_bytes()
     snapshot = read_latest_snapshot(path)
     run = read_latest_run(path)
     events = read_recent_events(path, limit=2)
+    assert path.read_bytes() == before_reads
     assert snapshot.status is SourceStatus.OK
     assert snapshot.value["equity"] == 1000.0
     assert run.status is SourceStatus.OK

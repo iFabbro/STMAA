@@ -358,7 +358,7 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
     schema = payload.get("state_schema_version")
     revision = payload.get("state_revision", 0)
     if type(schema) is not int or schema not in {1, 2}:
-        return SourceResult(SourceStatus.INVALID, source, detail="unsupported broker state schema")
+        return SourceResult(SourceStatus.INVALID, source, detail="unrecognized broker state schema")
     if type(revision) is not int or revision < 0:
         return SourceResult(SourceStatus.INVALID, source, detail="invalid broker state revision")
 

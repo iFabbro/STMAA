@@ -64,7 +64,10 @@ def _age(observed_at: str | None) -> str:
         return "timestamp invalid"
     if parsed.tzinfo is None:
         return "timestamp has no timezone"
-    seconds = max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))
+    raw_seconds = (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+    if raw_seconds < -60:
+        return "timestamp in future"
+    seconds = max(0, int(raw_seconds))
     if seconds < 60:
         return f"{seconds}s old"
     if seconds < 3600:

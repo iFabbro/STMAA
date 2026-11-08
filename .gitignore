@@ -19,6 +19,9 @@ logs/*.json
 logs/**/*.json
 logs/*.db
 *.db
+logs/**/*.lock
+models/.*.lock
+models/*.metadata.json
 
 # Environment
 .env

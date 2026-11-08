@@ -310,7 +310,7 @@ class STMAADashboard(App):
         )
 
         if isinstance(json_snapshot, providers.SourceResult):
-            self._view_content["portfolio"] = "\\n".join(_portfolio_lines(json_snapshot))
+            self._view_content["portfolio"] = "\n".join(_portfolio_lines(json_snapshot))
 
         if isinstance(json_snapshot, providers.SourceResult) and isinstance(sqlite_snapshot, providers.SourceResult):
             overview = [

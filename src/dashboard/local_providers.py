@@ -126,13 +126,18 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
         value = normalized[key]
         if value is not None and not _is_finite_number(value):
             return None, f"invalid numeric field: {key}"
-    if "positions_status" in normalized and normalized["positions_status"] not in {"OK", "UNAVAILABLE"}:
+    if "positions_status" in normalized and (
+        not isinstance(normalized["positions_status"], str)
+        or normalized["positions_status"] not in {"OK", "UNAVAILABLE"}
+    ):
         return None, "invalid text field: positions_status"
     if "positions_source" in normalized and normalized["positions_source"] is not None and not isinstance(normalized["positions_source"], str):
         return None, "invalid text field: positions_source"
     if "positions_snapshot_at" in normalized and normalized["positions_snapshot_at"] is not None:
         if _parse_timestamp(normalized["positions_snapshot_at"]) is None:
             return None, "invalid positions snapshot timestamp"
+    if normalized.get("positions_status") == "OK" and not normalized.get("positions_snapshot_at"):
+        return None, "missing timestamp for verified positions snapshot"
     if "positions" in normalized:
         positions = normalized["positions"]
         if positions is not None and not isinstance(positions, list):
@@ -146,7 +151,11 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
                 if not isinstance(position, dict) or not required.issubset(position):
                     return None, "invalid position record"
                 symbol = position.get("symbol")
-                if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip().upper():
+                if (
+                    not isinstance(symbol, str)
+                    or not symbol.strip()
+                    or symbol != symbol.strip().upper()
+                ):
                     return None, "invalid position symbol"
                 if symbol in seen_symbols:
                     return None, "duplicate position symbol"

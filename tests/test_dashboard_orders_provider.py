@@ -40,7 +40,7 @@ def _state() -> dict:
         },
         "opg_batches": {
             "batch-1": {
-                "status": "blocked",
+                "status": "unresolved",
                 "target_session": "2026-11-09",
             }
         },
@@ -65,7 +65,7 @@ def test_provider_reads_all_execution_categories_without_mutating_file(tmp_path)
     assert result.status is SourceStatus.OK
     assert result.value["order_submission_unresolved"]["AAPL"]["client_order_id"] == "client-unresolved"
     assert result.value["order_submission_confirmed"]["client-confirmed"]["status"] == "filled"
-    assert result.value["opg_batches"]["batch-1"]["status"] == "blocked"
+    assert result.value["opg_batches"]["batch-1"]["status"] == "unresolved"
     assert result.value["emergency_liquidation_pending"]["NVDA"] == "broker-order-1"
     assert result.value["emergency_liquidation_unresolved"]["TSLA"]["requested_qty"] == 3
     assert path.read_bytes() == original

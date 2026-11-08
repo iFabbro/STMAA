@@ -285,3 +285,22 @@ def test_json_provider_accepts_unavailable_positions_without_fabricating_empty_l
     result = read_json_snapshot(path)
     assert result.status is SourceStatus.OK
     assert result.value["positions"] is None
+
+def test_json_provider_rejects_materially_future_timestamps(tmp_path):
+    path = tmp_path / "future.json"
+    path.write_text(
+        json.dumps({"timestamp": "2026-11-07T10:02:00+00:00", "equity": 100.0}),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc)
+    result = read_json_snapshot(path, max_age_seconds=60, now=now)
+    assert result.status is SourceStatus.INVALID
+
+def test_json_provider_rejects_future_timestamps_without_freshness_threshold(tmp_path):
+    path = tmp_path / "future-no-threshold.json"
+    path.write_text(
+        json.dumps({"timestamp": "2026-11-07T10:02:00+00:00", "equity": 100.0}),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc)
+    assert read_json_snapshot(path, now=now).status is SourceStatus.INVALID

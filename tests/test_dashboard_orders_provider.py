@@ -40,7 +40,7 @@ def _state() -> dict:
         },
         "opg_batches": {
             "batch-1": {
-                "status": "blocked",
+                "status": "unresolved",
                 "target_session": "2026-11-09",
             }
         },
@@ -65,7 +65,7 @@ def test_provider_reads_all_execution_categories_without_mutating_file(tmp_path)
     assert result.status is SourceStatus.OK
     assert result.value["order_submission_unresolved"]["AAPL"]["client_order_id"] == "client-unresolved"
     assert result.value["order_submission_confirmed"]["client-confirmed"]["status"] == "filled"
-    assert result.value["opg_batches"]["batch-1"]["status"] == "blocked"
+    assert result.value["opg_batches"]["batch-1"]["status"] == "unresolved"
     assert result.value["emergency_liquidation_pending"]["NVDA"] == "broker-order-1"
     assert result.value["emergency_liquidation_unresolved"]["TSLA"]["requested_qty"] == 3
     assert path.read_bytes() == original
@@ -193,3 +193,61 @@ def test_dashboard_orders_provider_is_local_and_has_no_execution_imports():
         "requests.",
     )
     assert all(token not in source for token in forbidden)
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda state: state["order_submission_unresolved"]["AAPL"].update(side="hold"),
+        lambda state: state["order_submission_unresolved"]["AAPL"].update(quantity=float("inf")),
+        lambda state: state["order_submission_confirmed"]["client-confirmed"].update(status="mystery"),
+        lambda state: state["order_submission_confirmed"]["client-confirmed"].update(filled_qty=2, qty=1),
+        lambda state: state["order_submission_confirmed"]["client-confirmed"].update(client_order_id="different-id"),
+        lambda state: state["emergency_liquidation_unresolved"]["TSLA"].update(expected_side="hold"),
+        lambda state: state.update(account_id=""),
+    ],
+)
+def test_provider_rejects_semantically_invalid_execution_records(tmp_path, mutate):
+    state = _state()
+    mutate(state)
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    assert read_persisted_broker_state(path).status is SourceStatus.INVALID
+
+
+def test_provider_rejects_duplicate_json_object_keys(tmp_path):
+    path = tmp_path / "duplicate.json"
+    path.write_text(
+        '{"state_schema_version":2,"state_revision":0,"account_mode":"paper",'
+        '"order_submission_unresolved":{},"order_submission_confirmed":{},'
+        '"emergency_liquidation_pending":{},"emergency_liquidation_unresolved":{},'
+        '"opg_batches":{},"opg_batches":{}}',
+        encoding="utf-8",
+    )
+    assert read_persisted_broker_state(path).status is SourceStatus.INVALID
+
+def test_provider_accepts_valid_persisted_opg_order_lifecycle(tmp_path):
+    state = _state()
+    state["opg_batches"]["batch-1"].update({
+        "status": "reconciliation_pending",
+        "account_mode": "paper",
+        "orders": {
+            "AAPL": {
+                "symbol": "AAPL",
+                "side": "buy",
+                "quantity": 2,
+                "requested_quantity": 2,
+                "client_order_id": "client-opg",
+                "order_type": "limit",
+                "limit_price": 190.0,
+                "time_in_force": "opg",
+                "status": "submission_pending",
+                "order_id": None,
+                "filled_qty": 0,
+                "average_fill_price": None,
+            }
+        },
+    })
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    result = read_persisted_broker_state(path)
+    assert result.status is SourceStatus.OK

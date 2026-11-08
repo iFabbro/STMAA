@@ -21,12 +21,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Install locked project and test dependencies
+        run: uv sync --locked --group dev
       - name: Run executor regression tests
-        run: python -m pytest src/tests/test_broker_executor.py -q
+        run: uv run --locked python -m pytest src/tests/test_broker_executor.py -q
 
   paper-e2e:
     needs: automated-tests
@@ -38,10 +42,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Install locked project and test dependencies
+        run: uv sync --locked --group dev
       - name: Run bounded Paper E2E smoke test
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
@@ -49,4 +57,4 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          python scripts/alpaca_paper_e2e_smoke.py
+          uv run --locked python scripts/alpaca_paper_e2e_smoke.py

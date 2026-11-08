@@ -20,14 +20,18 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Install locked project and test dependencies
+        run: uv sync --locked --group dev
       - name: Reconcile existing BTC Paper order and position (read-only)
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
         run: |
           set -euo pipefail
-          python scripts/alpaca_paper_btc_readonly_reconcile.py
+          uv run --locked python scripts/alpaca_paper_btc_readonly_reconcile.py

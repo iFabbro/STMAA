@@ -367,7 +367,9 @@ def _validate_order_record(record_id: str, record: dict[str, Any], *, category: 
             return f"invalid broker order ID in {category}"
     if "status" in record and record["status"] is not None:
         status = record["status"]
-        if not isinstance(status, str) or status.strip().lower() not in _ORDER_STATUSES:
+        if not isinstance(status, str) or not status.strip():
+            return f"invalid order status in {category}"
+        if category != "OPG batch" and status.strip().lower() not in _ORDER_STATUSES:
             return f"unknown order status in {category}"
     for field in _ORDER_NUMERIC_FIELDS.intersection(record):
         value = record[field]

@@ -123,8 +123,9 @@ def test_missing_sources_are_not_rendered_as_zero_or_empty_portfolio(monkeypatch
             assert "0.00" not in content
             app.action_show_portfolio()
             portfolio = str(app.query_one("#content", Static).render())
-            assert "POSITIONS NOT CONNECTED" in portfolio
-            assert "No broker positions" in portfolio
+            assert "POSITIONS: UNKNOWN" in portfolio
+            assert "approved snapshot unavailable" in portfolio
+            assert "NO POSITIONS IN THIS PERSISTED SNAPSHOT" not in portfolio
 
     import asyncio
     asyncio.run(run())

@@ -39,7 +39,7 @@ La CI principale esegue la suite su Linux, macOS Intel e Apple Silicon, oltre a 
 
 ## Priorità operative
 
-1. **Consolidamento tecnico:** allineare i workflow manuali Alpaca a Python 3.12 e `uv.lock`; applicare protezioni effettive al branch `main`; completare la validazione semantica dei record mostrati dalla dashboard; mantenere documentazione e register coerenti.
+1. **Consolidamento tecnico:** workflow manuali Alpaca allineati a Python 3.12 e `uv.lock`; validazione semantica dashboard completata; documentazione e register aggiornati. Resta da applicare e verificare la protezione effettiva di `main`.
 2. **Verifica locale della dashboard:** eseguire installazione pulita e prova su macOS supportato, verificando navigazione, refresh manuale, fonti mancanti/obsolete/invalid e assenza di chiamate broker dalla UI.
 3. **Paper preflight e soak:** controllare configurazione, modello compatibile, identità account Paper e stop conditions; solo dopo avviare un nuovo run continuo di 48 ore secondo il protocollo in `docs/PAPER_SOAK_MONITOR.md`. Un test breve non sostituisce il requisito di 48 ore.
 4. **Onboarding downloader:** rendere ripetibile il percorso clone → installazione → configurazione → training/verifica artefatto → diagnostica → preflight read-only → monitoraggio.

@@ -332,12 +332,16 @@ _ORDER_STATUSES = {
     "expired", "replaced", "pending_cancel", "pending_replace", "stopped",
     "rejected", "suspended", "calculated",
 }
+_OPG_ORDER_STATUSES = {
+    "not_submitted", "skipped_after_restart", "unresolved", "submission_pending",
+}
 _ORDER_NUMERIC_FIELDS = {
-    "quantity", "qty", "filled_qty", "requested_qty", "price",
-    "limit_price", "avg_fill_price", "pre_order_position_qty",
+    "quantity", "qty", "filled_qty", "requested_qty", "requested_quantity", "price",
+    "limit_price", "avg_fill_price", "average_fill_price", "pre_order_position_qty",
 }
 _ORDER_POSITIVE_FIELDS = {
-    "quantity", "qty", "requested_qty", "price", "limit_price", "avg_fill_price",
+    "quantity", "qty", "requested_qty", "requested_quantity", "price", "limit_price",
+    "avg_fill_price", "average_fill_price",
 }
 _ORDER_TIMESTAMP_FIELDS = {
     "created_at", "updated_at", "timestamp", "submitted_at", "filled_at",
@@ -369,7 +373,12 @@ def _validate_order_record(record_id: str, record: dict[str, Any], *, category: 
         status = record["status"]
         if not isinstance(status, str) or not status.strip():
             return f"invalid order status in {category}"
-        if category != "OPG batch" and status.strip().lower() not in _ORDER_STATUSES:
+        allowed_statuses = _ORDER_STATUSES
+        if category == "OPG batch":
+            allowed_statuses = _ORDER_STATUSES | {"planned", "no_orders", "submission_pending", "unresolved", "completed", "reconciliation_pending"}
+        elif category == "OPG batch order":
+            allowed_statuses = _ORDER_STATUSES | _OPG_ORDER_STATUSES
+        if status.strip().lower() not in allowed_statuses:
             return f"unknown order status in {category}"
     for field in _ORDER_NUMERIC_FIELDS.intersection(record):
         value = record[field]

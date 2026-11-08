@@ -41,6 +41,9 @@ _ALLOWED_SNAPSHOT_FIELDS = {
     "exposure",
     "regime",
     "positions",
+    "positions_status",
+    "positions_source",
+    "positions_snapshot_at",
     "positions_json",
     "equity_curve",
     "mode",
@@ -123,8 +126,36 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
         value = normalized[key]
         if value is not None and not _is_finite_number(value):
             return None, f"invalid numeric field: {key}"
-    if "positions" in normalized and not isinstance(normalized["positions"], list):
-        return None, "invalid collection field: positions"
+    if "positions_status" in normalized and normalized["positions_status"] not in {"OK", "UNAVAILABLE"}:
+        return None, "invalid text field: positions_status"
+    if "positions_source" in normalized and normalized["positions_source"] is not None and not isinstance(normalized["positions_source"], str):
+        return None, "invalid text field: positions_source"
+    if "positions_snapshot_at" in normalized and normalized["positions_snapshot_at"] is not None:
+        if _parse_timestamp(normalized["positions_snapshot_at"]) is None:
+            return None, "invalid positions snapshot timestamp"
+    if "positions" in normalized:
+        positions = normalized["positions"]
+        if positions is not None and not isinstance(positions, list):
+            return None, "invalid collection field: positions"
+        if positions is None and normalized.get("positions_status") != "UNAVAILABLE":
+            return None, "missing positions collection without unavailable status"
+        if isinstance(positions, list):
+            seen_symbols = set()
+            required = {"symbol", "qty", "market_value", "avg_entry_price", "unrealized_pl"}
+            for position in positions:
+                if not isinstance(position, dict) or not required.issubset(position):
+                    return None, "invalid position record"
+                symbol = position.get("symbol")
+                if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip().upper():
+                    return None, "invalid position symbol"
+                if symbol in seen_symbols:
+                    return None, "duplicate position symbol"
+                seen_symbols.add(symbol)
+                for field in required - {"symbol"}:
+                    if not _is_finite_number(position[field]):
+                        return None, f"invalid position numeric field: {field}"
+                if position["qty"] == 0 or position["avg_entry_price"] <= 0:
+                    return None, "invalid position quantity or average entry price"
     if "equity_curve" in normalized:
         curve = normalized["equity_curve"]
         if not isinstance(curve, list) or any(

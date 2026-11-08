@@ -262,3 +262,69 @@ def test_default_dashboard_snapshot_path_is_anchored_to_repository():
     assert monitoring_state.HUB_STATE_PATH.is_absolute()
     assert monitoring_state.HUB_STATE_PATH == expected
     assert hub.HUB_STATE == expected
+
+
+def test_trade_update_hub_state_persists_separate_position_snapshot(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", destination)
+
+    class AccountExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 1250.0, "cash": 500.0, "equity": 1240.0,
+                "account_data_fresh": True, "account_data_source": "alpaca_account",
+                "account_snapshot_at": "2026-11-08T09:54:00+00:00",
+            }
+
+        def get_positions(self):
+            return {
+                "AAPL": {
+                    "qty": 2.0, "market_value": 400.0,
+                    "avg_entry_price": 190.0, "unrealized_pl": 20.0,
+                }
+            }
+
+    bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
+    bot.executor = AccountExecutor()
+    bot.equity_curve = []
+    bot.update_hub_state({"timestamp": "2026-11-08T09:55:00+00:00", "orders": []})
+
+    state = json.loads(destination.read_text(encoding="utf-8"))
+    assert state["positions_status"] == "OK"
+    assert state["positions_source"] == "alpaca_positions"
+    assert state["positions"][0] == {
+        "symbol": "AAPL", "qty": 2.0, "market_value": 400.0,
+        "avg_entry_price": 190.0, "unrealized_pl": 20.0,
+    }
+    assert state["positions_snapshot_at"]
+
+
+def test_trade_update_hub_state_does_not_treat_position_read_failure_as_empty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "logs" / "hub_state.json"
+    monkeypatch.setattr(monitoring_state, "HUB_STATE_PATH", destination)
+
+    class AccountExecutor:
+        paper_trading = True
+
+        def get_account_status(self):
+            return {
+                "portfolio_value": 1250.0, "cash": 500.0, "equity": 1240.0,
+                "account_data_fresh": True,
+            }
+
+        def get_positions(self):
+            raise RuntimeError("private broker error detail")
+
+    bot = trade.PaperTradingBot.__new__(trade.PaperTradingBot)
+    bot.executor = AccountExecutor()
+    bot.equity_curve = []
+    bot.update_hub_state({"timestamp": "2026-11-08T09:55:00+00:00", "orders": []})
+
+    state = json.loads(destination.read_text(encoding="utf-8"))
+    assert state["positions_status"] == "UNAVAILABLE"
+    assert state["positions"] is None
+    assert "private broker error detail" not in destination.read_text(encoding="utf-8")

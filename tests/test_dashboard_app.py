@@ -224,3 +224,58 @@ def test_snapshot_values_without_timestamp_remain_visible_as_missing(monkeypatch
 
     import asyncio
     asyncio.run(run())
+
+
+def test_dashboard_portfolio_renders_persisted_positions_with_provenance(monkeypatch):
+    snapshot = _result(value={
+        "portfolio_value": 1250.0,
+        "equity": 1240.0,
+        "cash": 500.0,
+        "positions_status": "OK",
+        "positions_source": "alpaca_positions",
+        "positions_snapshot_at": "2026-11-08T09:55:00+00:00",
+        "positions": [{
+            "symbol": "AAPL", "qty": 2.0, "market_value": 400.0,
+            "avg_entry_price": 190.0, "unrealized_pl": 20.0,
+        }],
+    })
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: snapshot)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(140, 36)) as pilot:
+            await pilot.press("2")
+            content = str(app.query_one("#content", Static).render())
+            assert "PERSISTED POSITION SNAPSHOT" in content
+            assert "not a live broker query" in content
+            assert "alpaca_positions" in content
+            assert "AAPL" in content
+            assert "LONG" in content
+            assert "400.00" in content
+            assert "20.00" in content
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_dashboard_portfolio_distinguishes_empty_from_missing_positions(monkeypatch):
+    missing = _result(value={"equity": 1000.0, "positions_status": "UNAVAILABLE", "positions": None})
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: missing)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.press("2")
+            content = str(app.query_one("#content", Static).render())
+            assert "POSITIONS: UNAVAILABLE" in content
+            assert "NO POSITIONS IN THIS PERSISTED SNAPSHOT" not in content
+
+    import asyncio
+    asyncio.run(run())

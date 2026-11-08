@@ -102,6 +102,75 @@ def _snapshot_lines(label: str, result: providers.SourceResult[dict[str, Any]]) 
     return lines
 
 
+def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str]:
+    """Render only the explicitly persisted position snapshot and its provenance."""
+    lines = [
+        "[b]PORTFOLIO — PERSISTED POSITION SNAPSHOT[/b]",
+        "Local snapshot only. This is not a live broker query or a guarantee of current holdings.",
+        "",
+        _source_header("Monitoring JSON · hub_state.json", result),
+    ]
+    value = result.value if isinstance(result.value, dict) else {}
+    if result.status in {
+        providers.SourceStatus.INVALID,
+        providers.SourceStatus.UNAVAILABLE,
+        providers.SourceStatus.EMPTY,
+    } or not value:
+        lines.append("POSITIONS: UNKNOWN — approved snapshot unavailable")
+        return lines
+
+    for label, key in (
+        ("Portfolio value", "portfolio_value"),
+        ("Equity", "equity"),
+        ("Cash", "cash"),
+    ):
+        lines.append(f"  {label:<17} {_text(value.get(key))}")
+
+    positions_status = value.get("positions_status")
+    positions = value.get("positions")
+    if positions_status != "OK":
+        status = positions_status if positions_status in {"UNAVAILABLE", "MISSING"} else "MISSING"
+        lines.extend([
+            "",
+            f"POSITIONS: {status} — no verified position collection persisted",
+        ])
+        if value.get("positions_source"):
+            lines.append(f"  Source            {_text(value.get('positions_source'))}")
+        if value.get("positions_snapshot_at"):
+            lines.append(f"  Observed          {_text(value.get('positions_snapshot_at'), limit=40)}")
+        return lines
+
+    observed_at = value.get("positions_snapshot_at")
+    source = value.get("positions_source") or "not specified"
+    lines.extend([
+        "",
+        f"POSITIONS: {result.status.value} — persisted broker observation",
+        f"  Source            {_text(source)}",
+        f"  Observed          {_text(observed_at, limit=40)}",
+        f"  Age               {_age(observed_at)}",
+        "",
+    ])
+    if not isinstance(positions, list):
+        lines.append("POSITION COLLECTION: INVALID")
+        return lines
+    if not positions:
+        lines.append("NO POSITIONS IN THIS PERSISTED SNAPSHOT")
+        return lines
+
+    lines.append("SYMBOL   SIDE   QTY          AVG ENTRY     MARKET VALUE   UNREALIZED P/L")
+    for position in positions:
+        symbol = _text(position.get("symbol"), limit=8)
+        qty = position.get("qty")
+        side = "LONG" if isinstance(qty, (int, float)) and qty > 0 else "SHORT"
+        lines.append(
+            f"{symbol:<8} {side:<6} {_text(qty, limit=12):>12} "
+            f"{_text(position.get('avg_entry_price'), limit=12):>12} "
+            f"{_text(position.get('market_value'), limit=14):>14} "
+            f"{_text(position.get('unrealized_pl'), limit=14):>14}"
+        )
+    return lines
+
+
 class STMAADashboard(App):
     """Keyboard-driven local monitoring dashboard; no broker integration."""
 
@@ -239,6 +308,9 @@ class STMAADashboard(App):
             lambda: providers.read_recent_events(limit=EVENT_LIMIT),
             "stmaa.db",
         )
+
+        if isinstance(json_snapshot, providers.SourceResult):
+            self._view_content["portfolio"] = "\\n".join(_portfolio_lines(json_snapshot))
 
         if isinstance(json_snapshot, providers.SourceResult) and isinstance(sqlite_snapshot, providers.SourceResult):
             overview = [

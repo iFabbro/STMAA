@@ -243,3 +243,45 @@ def test_dashboard_audit_writes_are_confined_to_hub_lifecycle():
     assert "end_run(" in hub_source
     for writer in ("start_run(", "log_event(", "write_snapshot(", "end_run(", "init_db(", "recover_orphaned_runs("):
         assert writer not in provider_source
+
+
+def test_json_provider_validates_persisted_position_contract(tmp_path):
+    path = tmp_path / "positions.json"
+    valid = {
+        "timestamp": "2026-11-08T09:55:00+00:00",
+        "positions_status": "OK",
+        "positions_source": "alpaca_positions",
+        "positions_snapshot_at": "2026-11-08T09:55:00+00:00",
+        "positions": [{
+            "symbol": "AAPL", "qty": 2.0, "market_value": 400.0,
+            "avg_entry_price": 190.0, "unrealized_pl": 20.0,
+        }],
+    }
+    path.write_text(json.dumps(valid), encoding="utf-8")
+    result = read_json_snapshot(path)
+    assert result.status is SourceStatus.OK
+    assert result.value["positions"][0]["symbol"] == "AAPL"
+
+    invalid = dict(valid)
+    invalid["positions"] = [{"symbol": "AAPL", "qty": True, "market_value": 400.0, "avg_entry_price": 190.0, "unrealized_pl": 20.0}]
+    path.write_text(json.dumps(invalid), encoding="utf-8")
+    assert read_json_snapshot(path).status is SourceStatus.INVALID
+
+    duplicate = dict(valid)
+    duplicate["positions"] = valid["positions"] * 2
+    path.write_text(json.dumps(duplicate), encoding="utf-8")
+    assert read_json_snapshot(path).status is SourceStatus.INVALID
+
+
+def test_json_provider_accepts_unavailable_positions_without_fabricating_empty_list(tmp_path):
+    path = tmp_path / "positions-unavailable.json"
+    path.write_text(json.dumps({
+        "timestamp": "2026-11-08T09:55:00+00:00",
+        "positions": None,
+        "positions_status": "UNAVAILABLE",
+        "positions_source": "alpaca_positions",
+        "positions_snapshot_at": None,
+    }), encoding="utf-8")
+    result = read_json_snapshot(path)
+    assert result.status is SourceStatus.OK
+    assert result.value["positions"] is None

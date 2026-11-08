@@ -171,6 +171,75 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
     return lines
 
 
+def _record_section(title: str, records: Any, fields: tuple[str, ...], *, limit: int = 12) -> list[str]:
+    lines = [f"[b]{escape(title)}[/b]"]
+    if not isinstance(records, dict):
+        lines.append("  NOT AVAILABLE — persisted schema does not contain this collection")
+        return lines
+    if not records:
+        lines.append("  No records in this persisted snapshot")
+        return lines
+    entries = sorted(records.items(), key=lambda item: str(item[0]))
+    for record_id, record in entries[:limit]:
+        lines.append(f"  ID: {_text(record_id, limit=64)}")
+        if isinstance(record, dict):
+            for field in fields:
+                if field in record:
+                    lines.append(f"    {field}: {_text(record[field], limit=100)}")
+        else:
+            lines.append(f"    Value: {_text(record, limit=100)}")
+    if len(entries) > limit:
+        lines.append(f"  … {len(entries) - limit} additional records not rendered")
+    return lines
+
+
+def _orders_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str]:
+    lines = [
+        "[b]ORDERS & EXECUTIONS — LOCAL PERSISTED EVIDENCE[/b]",
+        "No broker query is performed. Persisted state may be stale and is not a live order/fill ledger.",
+        "",
+        _source_header("Broker state JSON", result),
+    ]
+    value = result.value if isinstance(result.value, dict) else {}
+    if result.status is not providers.SourceStatus.OK or not value:
+        lines.append("EXECUTION STATE: UNKNOWN — persisted broker state unavailable or invalid")
+        return lines
+
+    lines.extend([
+        f"Account mode: {_text(value.get('account_mode'))}  |  "
+        f"Schema: {_text(value.get('state_schema_version'))}  |  "
+        f"Revision: {_text(value.get('state_revision'))}",
+        "Collections below are independent; no category is merged or inferred from another.",
+        "",
+    ])
+    lines.extend(_record_section(
+        "UNRESOLVED SUBMISSION INTENTS",
+        value.get("order_submission_unresolved"),
+        ("ticker", "client_order_id", "side", "quantity", "price", "order_type", "created_at", "reason"),
+    ))
+    lines.extend(["", *_record_section(
+        "BROKER-CONFIRMED ORDER RECORDS (PERSISTED)",
+        value.get("order_submission_confirmed"),
+        ("ticker", "status", "side", "qty", "quantity", "filled_qty", "client_order_id", "order_id", "position_reconciled", "updated_at"),
+    )])
+    lines.extend(["", *_record_section(
+        "OPG BATCHES",
+        value.get("opg_batches"),
+        ("status", "signal_bar_at", "target_session", "created_at", "updated_at", "account_mode"),
+    )])
+    lines.extend(["", *_record_section(
+        "EMERGENCY LIQUIDATION — PENDING",
+        value.get("emergency_liquidation_pending"),
+        (),
+    )])
+    lines.extend(["", *_record_section(
+        "EMERGENCY LIQUIDATION — UNRESOLVED INTENTS",
+        value.get("emergency_liquidation_unresolved"),
+        ("requested_qty", "expected_side", "created_at", "reason"),
+    )])
+    return lines
+
+
 class STMAADashboard(App):
     """Keyboard-driven local monitoring dashboard; no broker integration."""
 
@@ -247,12 +316,7 @@ class STMAADashboard(App):
                 "The approved local-data phase does not yet expose a verified position view. "
                 "No broker positions are queried or inferred."
             ),
-            "orders": (
-                "[b]ORDERS & EXECUTIONS[/b]\n\n"
-                "[#e0a84b]BROKER ORDERS NOT CONNECTED[/]\n"
-                "This local-only dashboard does not query broker open orders or fills. "
-                "Local submission intent and broker-confirmed execution evidence are not interchangeable."
-            ),
+            "orders": "[b]Loading persisted execution evidence…[/b]",
             "system": "Loading local system history…",
         }
 
@@ -311,6 +375,10 @@ class STMAADashboard(App):
 
         if isinstance(json_snapshot, providers.SourceResult):
             self._view_content["portfolio"] = "\n".join(_portfolio_lines(json_snapshot))
+
+        broker_state = _safe_read(providers.read_persisted_broker_state, "broker_state.json")
+        if isinstance(broker_state, providers.SourceResult):
+            self._view_content["orders"] = "\n".join(_orders_lines(broker_state))
 
         if isinstance(json_snapshot, providers.SourceResult) and isinstance(sqlite_snapshot, providers.SourceResult):
             overview = [

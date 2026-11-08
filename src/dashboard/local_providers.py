@@ -111,8 +111,6 @@ def _freshness_status(
     timestamp = _parse_timestamp(observed_at)
     if timestamp is None:
         return SourceStatus.MISSING
-    if max_age_seconds is None:
-        return SourceStatus.OK
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -120,6 +118,8 @@ def _freshness_status(
     # A timestamp materially ahead of the local clock is not evidence of freshness.
     if age < -60:
         return SourceStatus.INVALID
+    if max_age_seconds is None:
+        return SourceStatus.OK
     return SourceStatus.STALE if age > max_age_seconds else SourceStatus.OK
 
 

@@ -224,3 +224,30 @@ def test_provider_rejects_duplicate_json_object_keys(tmp_path):
         encoding="utf-8",
     )
     assert read_persisted_broker_state(path).status is SourceStatus.INVALID
+
+def test_provider_accepts_valid_persisted_opg_order_lifecycle(tmp_path):
+    state = _state()
+    state["opg_batches"]["batch-1"].update({
+        "status": "reconciliation_pending",
+        "account_mode": "paper",
+        "orders": {
+            "AAPL": {
+                "symbol": "AAPL",
+                "side": "buy",
+                "quantity": 2,
+                "requested_quantity": 2,
+                "client_order_id": "client-opg",
+                "order_type": "limit",
+                "limit_price": 190.0,
+                "time_in_force": "opg",
+                "status": "submission_pending",
+                "order_id": None,
+                "filled_qty": 0,
+                "average_fill_price": None,
+            }
+        },
+    })
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    result = read_persisted_broker_state(path)
+    assert result.status is SourceStatus.OK

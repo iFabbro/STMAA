@@ -1,311 +1,58 @@
-# 🚀 ROADMAP OPERATIVA: Sistema Multi-Agente con Apprendimento Continuo
+# STMAA — Stato del progetto e lavoro residuo
 
-**STMAA - Structural Trading Multi-Agent Architecture**  
-Progetto completato: Giugno 2026  
-Basato su: FinRL-X Architecture + Continual Learning
+**Ultimo riesame documentale:** 8 novembre 2026  
+**Repository:** `iFabbro/STMAA`  
+**Documento operativo principale:** [README.md](README.md)
 
----
+## Scopo e stato
 
-## ✅ STATO PROGETTO: COMPLETATO
+STMAA è un framework sperimentale per ricerca, training PPO, backtesting, controlli di rischio e integrazione Alpaca Paper. Il repository non rappresenta un prodotto certificato, non dimostra redditività e non deve essere usato con capitale reale.
 
-Tutte le 7 fasi sono state completate con successo:
+Questa roadmap sostituisce le note storiche di giugno 2026. Descrive lo stato verificato nel repository al momento dell'ultimo riesame; il README resta la fonte primaria per installazione, configurazione e uso. Per i dettagli delle attività residue e delle relative evidenze consultare [STMAA_RESIDUAL_WORK_REGISTER.md](docs/STMAA_RESIDUAL_WORK_REGISTER.md).
 
-| Fase | Componente | Status | File |
-|------|------------|--------|------|
-| **0** | Ambiente + Struttura | ✅ | `venv/`, `src/`, `config.py` |
-| **1** | Data Layer | ✅ | `src/data/data_processor.py` |
-| **2** | Strategy (Weight-Centric) | ✅ | `src/strategy/weight_interface.py` |
-| **3** | Agents (Trading Env) | ✅ | `src/agents/trading_env.py` |
-| **4** | Backtest | ✅ | `src/backtest/backtest_engine.py` |
-| **5** | Execution (Broker) | ✅ | `src/execution/broker_executor.py` |
-| **6** | Risk Management | ✅ | `src/strategy/risk_overlay.py` |
-| **7** | Training Pipeline | ✅ | `train.py` |
+## Componenti presenti
 
----
+| Area | Implementazione presente | Limite da tenere esplicito |
+|---|---|---|
+| Market data | Adapter Alpaca, processing, feature engineering e contratti versionati dei dati | La correttezza del feed e la continuità operativa richiedono verifica nell'ambiente configurato |
+| PPO | Training, manifest e metadati degli artefatti, hash e controlli di compatibilità | Un artefatto caricabile non dimostra validità statistica o redditività |
+| Backtesting | Ambiente e motore di backtest con costi e vincoli di esecuzione modellati | I risultati dipendono da dati, ipotesi e protocollo; non sono previsioni |
+| Risk management | Overlay, limiti nozionali, circuit breaker e blocchi fail-closed | I limiti implementati non sostituiscono il monitoraggio e la verifica Paper |
+| Broker execution | Executor Alpaca con stato persistito, identificativi idempotenti, gestione ambiguità, ordini pendenti/parziali e riconciliazione | Ambito corrente: singolo host e Paper; nessun coordinamento distribuito |
+| DAY / OPG | Percorsi separati, preflight e recupero persistito | Non equivalgono a validazione operativa prolungata |
+| Persistence | Stato esecuzione su file e monitoraggio SQLite | Backup, restore e runbook operativi restano da completare |
+| Terminal dashboard | Overview, Portfolio, Orders & Executions e System, basati su fonti locali | È una vista locale di evidenze persistite, non un terminale broker live |
+| Paper soak | Monitor, shadow runner, provider read-only, stop controller e report | Il soak continuo di 48 ore non risulta ancora eseguito e accettato |
 
-## 📁 STRUTTURA PROGETTO
-STMAA/
-├── src/
-│ ├── _init_.py
-│ ├── config.py # Configurazione sistema
-│ ├── data/
-│ │ ├── _init_.py
-│ │ └── data_processor.py # Data ingestion + indicators
-│ ├── strategy/
-│ │ ├── _init_.py
-│ │ ├── weight_interface.py # Weight-Centric Interface (FinRL-X)
-│ │ └── risk_overlay.py # Risk management
-│ ├── agents/
-│ │ ├── _init_.py
-│ │ └── trading_env.py # Trading MDP environment
-│ ├── backtest/
-│ │ ├── _init_.py
-│ │ └── backtest_engine.py # Execution-consistent backtest
-│ ├── execution/
-│ │ ├── _init_.py
-│ │ └── broker_executor.py # Alpaca broker integration
-│ └── tests/
-│ ├── _init_.py
-│ ├── test_data_processor.py
-│ ├── test_weight_interface.py
-│ ├── test_trading_env.py
-│ ├── test_backtest_engine.py
-│ ├── test_broker_executor.py
-│ └── test_risk_overlay.py
-├── data/
-│ ├── raw/ # Raw market data
-│ ├── processed/ # Processed data
-│ └── features/ # Feature engineering
-├── models/
-│ ├── drl/ # DRL models
-│ ├── ensemble/ # Ensemble models
-│ └── continual/ # Continual learning models
-├── logs/
-│ ├── training/ # Training logs
-│ ├── execution/ # Execution logs
-│ └── risk/ # Risk logs
-├── configs/ # Configuration files
-├── train.py # Training script
-├── trade.py # Trading script (paper/live)
-├── .env.example # Environment template
-├── .env # Environment (gitignored)
-├── .gitignore # Git ignore
-└── ROADMAP.md # Questa documentazione
+## Installazione e verifiche
 
-text
+Il progetto dichiara Python `>=3.12,<3.13` e usa `uv.lock` per la risoluzione riproducibile delle dipendenze. I comandi canonici sono:
 
----
-
-## 🔑 PUNTI CHIAE IMPLEMENTATI
-
-### 1. **Weight-Centric Interface (FinRL-X Core)**
-Ogni strategia produce un vettore di pesi `w_t ∈ R^n`:
-- **Stessa interface** per backtest e live trading → execution consistency
-- **Disaccoppiamento** tra strategia ed esecuzione
-- **Pipeline modulare**: Selection → Allocation → Timing → Risk
-
-```python
-from src.strategy.weight_interface import PortfolioWeights
-
-weights = PortfolioWeights(
-    weights=np.array([0.4, 0.3, 0.3]),
-    tickers=['AAPL', 'GOOGL', 'MSFT']
-)
-```
-
-### 2. **4 Layer Disaccoppiati (FinRL-X Architecture)**
-1. **Data**: ingestione, cleaning, feature engineering
-2. **Strategy**: selection → allocation → timing → risk
-3. **Backtest**: execution-consistent con costi/slippage
-4. **Execution**: broker integration deployment-aware
-
-### 3. **Risk Management**
-- **VIX-based volatility scaling**: exposure ridotta ad alta volatilità
-- **Circuit breakers**: stop trading se drawdown > 15%
-- **Position sizing**: max 20% per asset
-- **Adaptive sizing**: ATR-based risk parity
-
-### 4. **Continual Learning (Ready)**
-Struttura pronta per:
-- **Experience Replay Buffer**: evitare catastrophic forgetting
-- **EWC Regularization**: penalizzare cambiamenti pesi importanti
-- **LARS**: loss-aware reservoir sampling
-
-*(Nota: torch/stable-baselines3 full install richiede spazio disco)*
-
----
-
-## 🚀 COMANDI OPERATIVI
-
-### Setup Iniziale
 ```bash
-cd /Users/jumpman/Desktop/STMAA
-source venv/bin/activate
+uv sync --locked
+uv sync --locked --group dev
+uv run --locked pytest src/tests tests -q
+uv run --locked ruff check .
 ```
 
-### Run Training/Backtest
-```bash
-python train.py
-```
+La CI principale esegue la suite su Linux, macOS Intel e Apple Silicon, oltre a Ruff e al controllo del lock file. Per i passaggi completi di installazione, configurazione e preflight consultare il README; non duplicare qui istruzioni che possono divergere.
 
-### Eseguire Tutti i Test
-```bash
-python src/tests/test_data_processor.py
-python src/tests/test_weight_interface.py
-python src/tests/test_trading_env.py
-python src/tests/test_backtest_engine.py
-python src/tests/test_broker_executor.py
-python src/tests/test_risk_overlay.py
-```
+## Priorità operative
 
-Oppure:
-```bash
-python -m pytest src/tests/ -v
-```
+1. **Consolidamento tecnico:** allineare i workflow manuali Alpaca a Python 3.12 e `uv.lock`; applicare protezioni effettive al branch `main`; completare la validazione semantica dei record mostrati dalla dashboard; mantenere documentazione e register coerenti.
+2. **Verifica locale della dashboard:** eseguire installazione pulita e prova su macOS supportato, verificando navigazione, refresh manuale, fonti mancanti/obsolete/invalid e assenza di chiamate broker dalla UI.
+3. **Paper preflight e soak:** controllare configurazione, modello compatibile, identità account Paper e stop conditions; solo dopo avviare un nuovo run continuo di 48 ore secondo il protocollo in `docs/PAPER_SOAK_MONITOR.md`. Un test breve non sostituisce il requisito di 48 ore.
+4. **Onboarding downloader:** rendere ripetibile il percorso clone → installazione → configurazione → training/verifica artefatto → diagnostica → preflight read-only → monitoraggio.
+5. **Qualità quantitativa PPO:** definire un protocollo di valutazione out-of-sample con benchmark, costi/turnover, drawdown, stabilità per periodi e seed e criteri espliciti di rifiuto/promozione.
 
-### Configura API Keys per Paper Trading
-```bash
-cp .env.example .env
-nano .env  # Inserisci le tue Alpaca API keys
-```
+## Limiti e lavoro differito
 
-### Paper Trading (dopo aver creato trade.py)
-```bash
-python trade.py
-```
+- Nessuna autorizzazione implicita a usare capitale reale o a dichiarare il sistema pronto per il live trading.
+- Il broker execution lock è host-local; l'esecuzione multi-host richiede un servizio coordinatore separato ed è differita.
+- Il Paper soak di 48 ore è una verifica operativa ancora aperta.
+- Mancano ancora definizioni e prove complete per alert esterni, backup/restore, rotazione credenziali, ownership/escalation e gestione incidenti.
+- La dashboard non interroga il broker e non deve essere descritta come fonte di stato live.
 
-### Monitor Logs
-```bash
-tail -f logs/execution/broker_executor.log
-```
+## Regole di modifica
 
----
-
-## 📊 RISULTATI BACKTEST (Demo)
-======================================================================
-📈 RISULTATI BACKTEST
-======================================================================
-Cumulative Return: 47.08%
-Annualized Return: 62.60%
-Sharpe Ratio: 0.08
-Max Drawdown: -184.69%
-Final Value: $154057.53
-======================================================================
-
-text
-
-*(Nota: dati mock per demo - backtest reale con dati storici darà risultati diversi)*
-
----
-
-## 📚 DOCUMENTAZIONE RIFERIMENTO
-
-### Paper & Architetture
-- **FinRL-X**: [arxiv.org/pdf/2603.21330.pdf](https://arxiv.org/pdf/2603.21330.pdf)
-- **Continual Learning Survey**: [arxiv.org/pdf/2506.21872v2](https://arxiv.org/pdf/2506.21872v2)
-- **FinRL Library**: [finrl.readthedocs.io](https://finrl.readthedocs.io/)
-
-### Librerie
-- **Alpaca**: [alpaca.markets](https://alpaca.markets)
-- **Stable Baselines3**: [stable-baselines3.readthedocs.io](https://stable-baselines3.readthedocs.io)
-- **Gymnasium**: [gymnasium.farama.org](https://gymnasium.farama.org)
-
----
-
-## 🎯 PROSSIMI STEP
-
-### 1. **Configura API Keys**
-```bash
-# Ottieni API keys da https://alpaca.markets
-cp .env.example .env
-nano .env
-```
-
-Inserisci:
-ALPACA_API_KEY=your_api_key_here
-ALPACA_API_SECRET=your_api_secret_here
-
-text
-
-### 2. **Crea trade.py per Paper Trading**
-*(Vedi sezione "trade.py Template" sotto)*
-
-### 3. **Aggiungi Dati Reali**
-```bash
-# Modifica train.py per usare yfinance invece di dati mock
-# Oppure usa data_processor.py per scaricare dati storici
-```
-
-### 4. **Implementa DRL Completo**
-*(Richiede spazio disco: 5-10 GB per torch)*
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install stable-baselines3[extra]
-```
-
-### 5. **Aggiungi Apprendimento Continuo**
-```python
-from src.agents.drl_agent import ContinuousLearningPPO, ExperienceReplayBuffer
-
-# Implementa replay buffer + EWC regularization
-```
-
----
-
-## 📝 TEMPLATES
-
-### .env.example
-```bash
-# Alpaca API Keys
-ALPACA_API_KEY=your_api_key_here
-ALPACA_API_SECRET=your_api_secret_here
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-
-# FinRL-X Configuration
-FINRL_X_ENV=development
-```
-
-### trade.py Template *(da creare)*
-```python
-#!/usr/bin/env python3
-"""Paper trading script"""
-import os
-from dotenv import load_dotenv
-load_dotenv()
-
-from src.execution.broker_executor import BrokerExecutor
-from src.strategy.weight_interface import WeightCentricPipeline
-
-# Init
-executor = BrokerExecutor(
-    api_key=os.getenv('ALPACA_API_KEY'),
-    api_secret=os.getenv('ALPACA_API_SECRET'),
-    base_url=os.getenv('ALPACA_BASE_URL'),
-    paper_trading=True
-)
-
-print("✅ Paper trading executor pronto!")
-print(f"Account: {executor.get_account_status()}")
-```
-
----
-
-## ⚠️ NOTE IMPORTANTI
-
-### Spazio Disco
-- **torch completo**: richiede ~5-10 GB
-- **Soluzione attuale**: usiamo stable-baselines3 base (senza torch pesante)
-- **Per DRL completo**: libera spazio o usa `pip install torch --index-url https://download.pytorch.org/whl/cpu`
-
-### Python Version
-- **Python 3.12**: ✅ Supportato (attualmente in uso)
-- **Python 3.13**: ❌ torch non supportato ancora
-
-### Test
-Tutti i test passano:
-- ✅ Data processor + indicatori tecnici
-- ✅ Weight interface + normalizzazione
-- ✅ Trading env + MDP
-- ✅ Backtest engine + metrics
-- ✅ Broker executor + state persistence
-- ✅ Risk overlay + VIX scaling
-
----
-
-## 🎉 CONCLUSIONE
-
-Hai ora un sistema di trading multi-agente **completo e funzionante** con:
-
-✅ **Architettura FinRL-X** (4 layer disaccoppiati)  
-✅ **Weight-Centric Interface** (execution consistency)  
-✅ **Risk Management** (VIX scaling, circuit breakers)  
-✅ **Backtest execution-consistent** (costi, slippage)  
-✅ **Broker integration** (Alpaca, deployment-aware)  
-✅ **Struttura pronta per continual learning**  
-
-**Prossimo step**: Configura API keys e crea trade.py per paper trading!
-
----
-
-*Documentazione creata: Giugno 2026*  
-*Progetto: STMAA - Structural Trading Multi-Agent Architecture*
+Ogni intervento deve essere isolato in un branch e una pull request dedicati. Nessuna modifica diretta a `main`. Prima del merge devono risultare verdi i controlli CI, test, lint e secrets scan applicabili. Le verifiche che coinvolgono Alpaca devono rispettare il perimetro Paper autorizzato; le prove read-only non devono inviare, cancellare, sostituire o chiudere ordini.

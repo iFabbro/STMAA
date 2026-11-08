@@ -1,8 +1,8 @@
 # STMAA Residual Work Register
 
-**Register snapshot:** 2026-11-03  
+**Register snapshot:** 2026-11-08  
 **Repository:** `iFabbro/STMAA`  
-**Main commit at snapshot:** `609b8654a822e09b1379623d053dda4fb6e04e10`  
+**Main commit at snapshot:** `1b7651eb5b1a7101a74ea138d21586355a4dd654`  
 **Purpose:** track follow-up work beyond the bounded end-to-end code audit. This register does not reopen that audit or imply production/live-trading readiness.
 
 ## Status conventions
@@ -22,7 +22,15 @@
 | RW-04 | Medium | Model validation and acceptance criteria | **OPEN** | Training records holdout metrics and metadata, but no agreed quantitative acceptance protocol has been established for out-of-sample performance, benchmark comparison, turnover/cost sensitivity, drawdown, stability across periods/seeds, or model promotion/rejection. Define this as a research-quality gate; do not imply profitability. |
 | RW-05 | Medium | Clean-install and first-run workflow | **PARTIAL** | README and locked `uv sync` workflow are documented and the user has verified installation/tests on macOS 12.7. Still required: a reproducible clean-environment walkthrough from clone to read-only Paper preflight, with explicit expected outputs and failure handling for a new repository downloader. |
 | RW-06 | Medium | Operational monitoring and incident response | **OPEN** | SQLite/TUI monitoring and soak stop evidence exist. External alert delivery, named operator ownership, escalation, credential rotation/least privilege, backup/restore, kill-switch procedure, and incident runbook still require operational definition and verification. |
-| RW-07 | Low | Documentation/ROADMAP consistency | **OPEN** | README is the user-facing source of truth. Review `ROADMAP.md` against the current implementation and either update it or clearly mark obsolete/deferred items; avoid duplicating operational truth across documents. |
+| RW-07 | Low | Documentation/ROADMAP consistency | **PARTIAL** | `ROADMAP.md` is being replaced with a status-oriented summary aligned to the README and current repository. Close after the documentation PR merges and its links/status are rechecked. |
+| RW-08 | Medium | Dashboard persisted-order semantic validation | **PARTIAL** | PR #315 adds validation for IDs, sides, statuses, numeric fields, fill consistency, timestamps, duplicate JSON keys, account identity and OPG batch structures. Close only after CI passes and the change is merged. |
+| RW-09 | Medium | Manual Alpaca workflow dependency/runtime alignment | **PARTIAL** | PR #314 replaces Python 3.13 and the absent `requirements.txt` with Python 3.12 and locked `uv` installation. Close only after CI passes and the workflow definitions are rechecked. |
+
+## Dashboard and workflow consolidation (2026-11-08)
+
+- PR #314: align the four manual Alpaca workflows with the supported Python 3.12 runtime and locked `uv` dependency installation. The workflow triggers, concurrency groups, Paper credentials boundary and read-only versus mutation scripts are unchanged.
+- PR #315: strengthen local dashboard validation for persisted execution records and future-dated snapshots. The dashboard remains a local evidence view and does not query Alpaca.
+- PR #316: update this roadmap and register to remove obsolete June 2026 completion claims and make the current experimental status and residual gates explicit. These PRs remain pending until their CI checks pass and they are merged.
 
 ## Completed platform follow-up
 

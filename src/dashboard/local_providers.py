@@ -117,6 +117,9 @@ def _freshness_status(
     if reference.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     age = (reference.astimezone(timezone.utc) - timestamp).total_seconds()
+    # A timestamp materially ahead of the local clock is not evidence of freshness.
+    if age < -60:
+        return SourceStatus.INVALID
     return SourceStatus.STALE if age > max_age_seconds else SourceStatus.OK
 
 
@@ -323,6 +326,75 @@ def read_recent_events(
     return SourceResult(SourceStatus.OK, str(path), [dict(row) for row in rows], rows[0]["ts"])
 
 
+_ORDER_STATUSES = {
+    "new", "accepted", "pending_new", "accepted_for_bidding",
+    "partially_filled", "filled", "done_for_day", "canceled", "cancelled",
+    "expired", "replaced", "pending_cancel", "pending_replace", "stopped",
+    "rejected", "suspended", "calculated",
+}
+_ORDER_NUMERIC_FIELDS = {
+    "quantity", "qty", "filled_qty", "requested_qty", "price",
+    "limit_price", "avg_fill_price", "pre_order_position_qty",
+}
+_ORDER_POSITIVE_FIELDS = {
+    "quantity", "qty", "requested_qty", "price", "limit_price", "avg_fill_price",
+}
+_ORDER_TIMESTAMP_FIELDS = {
+    "created_at", "updated_at", "timestamp", "submitted_at", "filled_at",
+}
+
+
+def _validate_order_record(record_id: str, record: dict[str, Any], *, category: str) -> str | None:
+    if not record_id.strip():
+        return f"empty identifier in {category}"
+    for field in ("ticker", "symbol"):
+        if field in record and record[field] is not None:
+            value = record[field]
+            if not isinstance(value, str) or not value.strip() or value != value.strip().upper():
+                return f"invalid {field} in {category}"
+    for field in ("side", "expected_side"):
+        if field in record and record[field] is not None:
+            if not isinstance(record[field], str) or record[field].strip().lower() not in {"buy", "sell"}:
+                return f"invalid {field} in {category}"
+    if "client_order_id" in record and record["client_order_id"] is not None:
+        client_id = record["client_order_id"]
+        if not isinstance(client_id, str) or not client_id.strip():
+            return f"invalid client order ID in {category}"
+        if category == "confirmed" and client_id != record_id:
+            return "confirmed order key does not match client_order_id"
+    if "order_id" in record and record["order_id"] is not None:
+        if not isinstance(record["order_id"], (str, int)) or not str(record["order_id"]).strip():
+            return f"invalid broker order ID in {category}"
+    if "status" in record and record["status"] is not None:
+        status = record["status"]
+        if not isinstance(status, str) or status.strip().lower() not in _ORDER_STATUSES:
+            return f"unknown order status in {category}"
+    for field in _ORDER_NUMERIC_FIELDS.intersection(record):
+        value = record[field]
+        if value is not None and not _is_finite_number(value):
+            return f"invalid numeric field {field} in {category}"
+        if value is not None and field in _ORDER_POSITIVE_FIELDS and value <= 0:
+            return f"non-positive numeric field {field} in {category}"
+    quantity = record.get("qty", record.get("quantity"))
+    filled_qty = record.get("filled_qty")
+    if quantity is not None and filled_qty is not None and filled_qty > quantity:
+        return f"filled quantity exceeds order quantity in {category}"
+    for field in _ORDER_TIMESTAMP_FIELDS.intersection(record):
+        if record[field] is not None and _parse_timestamp(record[field]) is None:
+            return f"invalid timestamp {field} in {category}"
+    return None
+
+
+def _validate_record_map(records: dict[str, Any], *, category: str) -> str | None:
+    for record_id, record in records.items():
+        if not isinstance(record_id, str) or not record_id.strip() or not isinstance(record, dict):
+            return f"invalid record in {category}"
+        error = _validate_order_record(record_id, record, category=category)
+        if error:
+            return error
+    return None
+
+
 def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[str, Any]]:
     """Read broker execution evidence from disk without importing or starting the executor.
 
@@ -344,13 +416,23 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
             path = repository_root / path
     source = str(path)
     try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        def reject_duplicate_keys(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate JSON object key")
+                result[key] = value
+            return result
+        payload = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
     except FileNotFoundError:
         return SourceResult(SourceStatus.MISSING, source, detail="broker state file is missing")
     except (PermissionError, OSError):
         return SourceResult(SourceStatus.UNAVAILABLE, source, detail="broker state file cannot be read")
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return SourceResult(SourceStatus.INVALID, source, detail="broker state is not valid UTF-8 JSON")
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return SourceResult(SourceStatus.INVALID, source, detail="broker state is not valid UTF-8 JSON or contains duplicate keys")
 
     if not isinstance(payload, dict):
         return SourceResult(SourceStatus.INVALID, source, detail="broker state root must be an object")
@@ -378,6 +460,15 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
         if any(not isinstance(item, dict) for item in payload[key].values()):
             return SourceResult(SourceStatus.INVALID, source, detail=f"invalid record in {key}")
 
+    for key, category in (
+        ("order_submission_unresolved", "unresolved"),
+        ("order_submission_confirmed", "confirmed"),
+        ("emergency_liquidation_unresolved", "emergency liquidation"),
+    ):
+        error = _validate_record_map(payload[key], category=category)
+        if error:
+            return SourceResult(SourceStatus.INVALID, source, detail=error)
+
     if any(not isinstance(order_id, str) or not order_id.strip()
            for order_id in payload["emergency_liquidation_pending"].values()):
         return SourceResult(SourceStatus.INVALID, source, detail="invalid order ID in emergency liquidation pending map")
@@ -388,6 +479,23 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
             not isinstance(batch, dict) for batch in opg_batches.values()
         ):
             return SourceResult(SourceStatus.INVALID, source, detail="invalid OPG batch map")
+        for batch_id, batch in opg_batches.items():
+            if not isinstance(batch_id, str) or not batch_id.strip():
+                return SourceResult(SourceStatus.INVALID, source, detail="invalid OPG batch identifier")
+            error = _validate_order_record(batch_id, batch, category="OPG batch")
+            if error:
+                return SourceResult(SourceStatus.INVALID, source, detail=error)
+            batch_orders = batch.get("orders")
+            if batch_orders is not None:
+                if not isinstance(batch_orders, (dict, list)):
+                    return SourceResult(SourceStatus.INVALID, source, detail="invalid OPG batch orders")
+                entries = batch_orders.items() if isinstance(batch_orders, dict) else enumerate(batch_orders)
+                for order_id, order in entries:
+                    if not isinstance(order, dict):
+                        return SourceResult(SourceStatus.INVALID, source, detail="invalid OPG batch order record")
+                    error = _validate_order_record(str(order_id), order, category="OPG batch order")
+                    if error:
+                        return SourceResult(SourceStatus.INVALID, source, detail=error)
     else:
         # Schema v1 predates persisted OPG batches; do not infer an empty v2 map.
         opg_batches = None
@@ -395,6 +503,11 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
     account_mode = payload.get("account_mode")
     if account_mode is not None and account_mode not in {"paper", "live"}:
         return SourceResult(SourceStatus.INVALID, source, detail="invalid account mode")
+    account_id = payload.get("account_id")
+    if account_id is not None and (
+        not isinstance(account_id, (str, int)) or not str(account_id).strip()
+    ):
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid account identity")
 
     value = {
         "state_schema_version": schema,

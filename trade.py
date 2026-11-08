@@ -580,6 +580,41 @@ class PaperTradingBot:
         if not all(np.isfinite(value) for value in (portfolio_value, equity, cash)):
             raise RuntimeError("Cannot persist hub state with invalid broker account values")
 
+        # Persist a separately timestamped, read-only broker position observation.
+        # A position read failure must not erase the account snapshot or masquerade
+        # as an empty portfolio.
+        positions = None
+        positions_status = "UNAVAILABLE"
+        positions_snapshot_at = None
+        positions_source = "alpaca_positions"
+        positions_reader = getattr(self.executor, "get_positions", None)
+        if callable(positions_reader):
+            try:
+                raw_positions = positions_reader()
+                if not isinstance(raw_positions, dict):
+                    raise ValueError("invalid broker positions response")
+                normalized_positions = []
+                for raw_symbol, raw_values in sorted(raw_positions.items()):
+                    symbol = str(raw_symbol).strip().upper()
+                    if not symbol or not isinstance(raw_values, dict):
+                        raise ValueError("invalid broker position record")
+                    row = {"symbol": symbol}
+                    for field in ("qty", "market_value", "avg_entry_price", "unrealized_pl"):
+                        value = raw_values.get(field)
+                        if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+                            raise ValueError("invalid broker position numeric value")
+                        row[field] = float(value)
+                    if row["qty"] == 0 or row["avg_entry_price"] <= 0:
+                        raise ValueError("invalid broker position quantity or average entry price")
+                    normalized_positions.append(row)
+                positions = normalized_positions
+                positions_status = "OK"
+                positions_snapshot_at = datetime.now(timezone.utc).isoformat()
+            except Exception:
+                # Do not reuse a previous positions snapshot after a failed read.
+                positions = None
+                positions_status = "UNAVAILABLE"
+
         # The monitoring curve tracks broker equity only; configured initial capital
         # is not a substitute for the account's actual starting equity.
         equity_curve = (self.equity_curve + [equity])[-120:]
@@ -600,6 +635,10 @@ class PaperTradingBot:
             "account_snapshot_at": status.get("account_snapshot_at"),
             "equity_curve_source": "verified_broker_equity",
             "equity_curve": equity_curve,
+            "positions": positions,
+            "positions_status": positions_status,
+            "positions_source": positions_source,
+            "positions_snapshot_at": positions_snapshot_at,
             "orders": result.get("orders", []),
             "pre_execution_portfolio_value": result.get("pre_execution_portfolio_value"),
             "pre_execution_equity": result.get("pre_execution_equity"),

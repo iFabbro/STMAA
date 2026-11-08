@@ -321,3 +321,90 @@ def read_recent_events(
     if not rows:
         return SourceResult(SourceStatus.EMPTY, str(path), value=[], detail="events table contains no rows")
     return SourceResult(SourceStatus.OK, str(path), [dict(row) for row in rows], rows[0]["ts"])
+
+
+def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[str, Any]]:
+    """Read broker execution evidence from disk without importing or starting the executor.
+
+    This is historical local state, not a broker query. The provider never creates
+    the parent directory, initializes a missing state file, migrates schemas, or
+    writes reconciliation results.
+    """
+    import os
+
+    if path is None:
+        configured = os.getenv("STMAA_BROKER_STATE_FILE")
+        repository_root = Path(__file__).resolve().parents[2]
+        path = (
+            Path(configured).expanduser()
+            if configured
+            else repository_root / "logs" / "execution" / "broker_state.json"
+        )
+        if not path.is_absolute():
+            path = repository_root / path
+    source = str(path)
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return SourceResult(SourceStatus.MISSING, source, detail="broker state file is missing")
+    except (PermissionError, OSError):
+        return SourceResult(SourceStatus.UNAVAILABLE, source, detail="broker state file cannot be read")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return SourceResult(SourceStatus.INVALID, source, detail="broker state is not valid UTF-8 JSON")
+
+    if not isinstance(payload, dict):
+        return SourceResult(SourceStatus.INVALID, source, detail="broker state root must be an object")
+
+    schema = payload.get("state_schema_version")
+    revision = payload.get("state_revision", 0)
+    if type(schema) is not int or schema not in {1, 2}:
+        return SourceResult(SourceStatus.INVALID, source, detail="unsupported broker state schema")
+    if type(revision) is not int or revision < 0:
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid broker state revision")
+
+    required_maps = (
+        "order_submission_unresolved",
+        "order_submission_confirmed",
+        "emergency_liquidation_pending",
+        "emergency_liquidation_unresolved",
+    )
+    for key in required_maps:
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return SourceResult(SourceStatus.INVALID, source, detail=f"invalid broker state map: {key}")
+
+    for key in ("order_submission_unresolved", "order_submission_confirmed",
+                "emergency_liquidation_unresolved"):
+        if any(not isinstance(item, dict) for item in payload[key].values()):
+            return SourceResult(SourceStatus.INVALID, source, detail=f"invalid record in {key}")
+
+    if any(not isinstance(order_id, str) or not order_id.strip()
+           for order_id in payload["emergency_liquidation_pending"].values()):
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid order ID in emergency liquidation pending map")
+
+    opg_batches = payload.get("opg_batches")
+    if schema == 2:
+        if not isinstance(opg_batches, dict) or any(
+            not isinstance(batch, dict) for batch in opg_batches.values()
+        ):
+            return SourceResult(SourceStatus.INVALID, source, detail="invalid OPG batch map")
+    else:
+        # Schema v1 predates persisted OPG batches; do not infer an empty v2 map.
+        opg_batches = None
+
+    account_mode = payload.get("account_mode")
+    if account_mode is not None and account_mode not in {"paper", "live"}:
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid account mode")
+
+    value = {
+        "state_schema_version": schema,
+        "state_revision": revision,
+        "account_mode": account_mode,
+        "account_id": payload.get("account_id"),
+        "order_submission_unresolved": payload["order_submission_unresolved"],
+        "order_submission_confirmed": payload["order_submission_confirmed"],
+        "emergency_liquidation_pending": payload["emergency_liquidation_pending"],
+        "emergency_liquidation_unresolved": payload["emergency_liquidation_unresolved"],
+        "opg_batches": opg_batches,
+    }
+    return SourceResult(SourceStatus.OK, source, value=value)

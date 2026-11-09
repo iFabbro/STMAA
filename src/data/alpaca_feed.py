@@ -478,8 +478,8 @@ class AlpacaFeed:
                 ask = float(q.ask_price)
                 quote_time = getattr(q, "timestamp", None)
                 if (
-                    not pd.notna(bid)
-                    or not pd.notna(ask)
+                    not np.isfinite(bid)
+                    or not np.isfinite(ask)
                     or bid <= 0
                     or ask <= 0
                     or ask < bid
@@ -508,7 +508,13 @@ class AlpacaFeed:
                 if spread_pct > QUOTE_WIDE_SPREAD_PCT:
                     flags.append("wide_spread")
                 status = next(
-                    (candidate for candidate in ("future_timestamp", "stale", "wide_spread", "clock_skew") if candidate in flags),
+                    (
+                        candidate
+                        for candidate in (
+                            "future_timestamp", "stale", "wide_spread", "clock_skew"
+                        )
+                        if candidate in flags
+                    ),
                     "ok",
                 )
                 timestamp = parsed_timestamp.isoformat()

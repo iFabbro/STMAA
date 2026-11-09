@@ -207,9 +207,10 @@ def _orders_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str]:
     if result.status in {providers.SourceStatus.INVALID, providers.SourceStatus.UNAVAILABLE} or not value:
         lines.append("EXECUTION STATE: UNKNOWN — persisted broker state unavailable or invalid")
         return lines
-    if result.status is providers.SourceStatus.STALE:
+    freshness_status = value.get("account_snapshot_status", result.status.value)
+    if freshness_status == providers.SourceStatus.STALE.value:
         lines.append("FRESHNESS: STALE — records below are historical evidence, not current broker state")
-    elif result.status is providers.SourceStatus.MISSING:
+    elif freshness_status == providers.SourceStatus.MISSING.value:
         lines.append("FRESHNESS: UNKNOWN — account snapshot timestamp is missing")
 
     lines.extend([

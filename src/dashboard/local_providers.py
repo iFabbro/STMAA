@@ -21,6 +21,7 @@ from src.utils.sqlite_logger import DB_PATH
 
 T = TypeVar("T")
 MAX_EVENT_ROWS = 100
+BROKER_STATE_MAX_AGE_SECONDS = 900
 DEFAULT_QUERY_TIMEOUT_SECONDS = 1.0
 _NUMERIC_FIELDS = {
     "portfolio_value",
@@ -406,7 +407,12 @@ def _validate_record_map(records: dict[str, Any], *, category: str) -> str | Non
     return None
 
 
-def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[str, Any]]:
+def read_persisted_broker_state(
+    path: Path | None = None,
+    *,
+    max_age_seconds: float | None = BROKER_STATE_MAX_AGE_SECONDS,
+    now: datetime | None = None,
+) -> SourceResult[dict[str, Any]]:
     """Read broker execution evidence from disk without importing or starting the executor.
 
     This is historical local state, not a broker query. The provider never creates
@@ -511,6 +517,29 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
         # Schema v1 predates persisted OPG batches; do not infer an empty v2 map.
         opg_batches = None
 
+    account_snapshot_at = payload.get("account_snapshot_at")
+    if account_snapshot_at is not None and _parse_timestamp(account_snapshot_at) is None:
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid account snapshot timestamp")
+    account_data_fresh = payload.get("account_data_fresh")
+    if account_data_fresh is not None and type(account_data_fresh) is not bool:
+        return SourceResult(SourceStatus.INVALID, source, detail="invalid account freshness flag")
+
+    if account_snapshot_at is None:
+        freshness_status = SourceStatus.MISSING
+        freshness_detail = "account snapshot timestamp is missing"
+    else:
+        freshness_status = _freshness_status(account_snapshot_at, max_age_seconds, now)
+        freshness_detail = None
+    # The persisted flag may survive a restart while in-memory freshness resets.
+    # Timestamp age is independently authoritative.
+    if freshness_status is SourceStatus.INVALID:
+        return SourceResult(SourceStatus.INVALID, source, detail="account snapshot timestamp is in the future")
+    if account_data_fresh is False and freshness_status is not SourceStatus.MISSING:
+        freshness_status = SourceStatus.STALE
+        freshness_detail = "broker account snapshot is explicitly marked not fresh"
+    elif freshness_status is SourceStatus.STALE:
+        freshness_detail = "broker account snapshot exceeds the configured freshness window"
+
     account_mode = payload.get("account_mode")
     if account_mode is not None and account_mode not in {"paper", "live"}:
         return SourceResult(SourceStatus.INVALID, source, detail="invalid account mode")
@@ -525,10 +554,18 @@ def read_persisted_broker_state(path: Path | None = None) -> SourceResult[dict[s
         "state_revision": revision,
         "account_mode": account_mode,
         "account_id": payload.get("account_id"),
+        "account_snapshot_at": account_snapshot_at,
+        "account_data_fresh": account_data_fresh,
+        "account_snapshot_status": freshness_status.value,
+        "account_snapshot_detail": freshness_detail,
         "order_submission_unresolved": payload["order_submission_unresolved"],
         "order_submission_confirmed": payload["order_submission_confirmed"],
         "emergency_liquidation_pending": payload["emergency_liquidation_pending"],
         "emergency_liquidation_unresolved": payload["emergency_liquidation_unresolved"],
         "opg_batches": opg_batches,
     }
-    return SourceResult(SourceStatus.OK, source, value=value)
+    # A missing account snapshot does not invalidate otherwise valid execution
+    # lifecycle evidence. Preserve the provider-level OK contract and expose
+    # snapshot freshness independently in the returned value.
+    provider_status = SourceStatus.OK if freshness_status is SourceStatus.MISSING else freshness_status
+    return SourceResult(provider_status, source, value=value, observed_at=account_snapshot_at, detail=freshness_detail)

@@ -204,14 +204,21 @@ def _orders_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str]:
         _source_header("Broker state JSON", result),
     ]
     value = result.value if isinstance(result.value, dict) else {}
-    if result.status is not providers.SourceStatus.OK or not value:
+    if result.status in {providers.SourceStatus.INVALID, providers.SourceStatus.UNAVAILABLE} or not value:
         lines.append("EXECUTION STATE: UNKNOWN — persisted broker state unavailable or invalid")
         return lines
+    freshness_status = value.get("account_snapshot_status", result.status.value)
+    if freshness_status == providers.SourceStatus.STALE.value:
+        lines.append("FRESHNESS: STALE — records below are historical evidence, not current broker state")
+    elif freshness_status == providers.SourceStatus.MISSING.value:
+        lines.append("FRESHNESS: UNKNOWN — account snapshot timestamp is missing")
 
     lines.extend([
         f"Account mode: {_text(value.get('account_mode'))}  |  "
         f"Schema: {_text(value.get('state_schema_version'))}  |  "
         f"Revision: {_text(value.get('state_revision'))}",
+        f"Account snapshot: {_text(value.get('account_snapshot_at'), limit=40)} | {_age(value.get('account_snapshot_at'))}",
+        f"Persisted freshness flag: {_text(value.get('account_data_fresh'))}",
         "Collections below are independent; no category is merged or inferred from another.",
         "",
     ])
@@ -379,7 +386,12 @@ class STMAADashboard(App):
         if isinstance(json_snapshot, providers.SourceResult):
             self._view_content["portfolio"] = "\n".join(_portfolio_lines(json_snapshot))
 
-        broker_state = _safe_read(providers.read_persisted_broker_state, "broker_state.json")
+        broker_state = _safe_read(
+            lambda: providers.read_persisted_broker_state(
+                max_age_seconds=providers.BROKER_STATE_MAX_AGE_SECONDS
+            ),
+            "broker_state.json",
+        )
         if isinstance(broker_state, providers.SourceResult):
             self._view_content["orders"] = "\n".join(_orders_lines(broker_state))
 

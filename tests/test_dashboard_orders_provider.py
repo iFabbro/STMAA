@@ -124,7 +124,7 @@ def test_orders_view_renders_four_separate_execution_categories(monkeypatch, tmp
     monkeypatch.setattr(
         dashboard_app.providers,
         "read_persisted_broker_state",
-        lambda: read_persisted_broker_state(state_path),
+        lambda **kwargs: read_persisted_broker_state(state_path, **kwargs),
     )
     monkeypatch.setattr(
         dashboard_app.providers,

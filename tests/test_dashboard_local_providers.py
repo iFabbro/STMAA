@@ -380,7 +380,7 @@ def test_broker_state_corrupt_json_is_invalid(tmp_path):
 def test_json_provider_accepts_explicit_missing_positions_without_fabricating_empty_list(tmp_path):
     path = tmp_path / "positions-missing.json"
     path.write_text(json.dumps({
-        "timestamp": "2026-11-09T08:00:00+00:00",
+        "timestamp": "2026-11-08T08:00:00+00:00",
         "positions": None,
         "positions_status": "MISSING",
         "positions_source": None,
@@ -397,7 +397,7 @@ def test_json_provider_accepts_explicit_missing_positions_without_fabricating_em
 def test_json_provider_rejects_missing_positions_status_with_collection(tmp_path):
     path = tmp_path / "positions-missing-with-data.json"
     path.write_text(json.dumps({
-        "timestamp": "2026-11-09T08:00:00+00:00",
+        "timestamp": "2026-11-08T08:00:00+00:00",
         "positions": [],
         "positions_status": "MISSING",
     }), encoding="utf-8")
@@ -408,9 +408,9 @@ def test_json_provider_rejects_missing_positions_status_with_collection(tmp_path
 def test_json_provider_distinguishes_empty_verified_positions_from_missing_and_unavailable(tmp_path):
     path = tmp_path / "positions-contract.json"
     base_snapshot = {
-        "timestamp": "2026-11-09T08:00:00+00:00",
+        "timestamp": "2026-11-08T08:00:00+00:00",
         "positions_source": "alpaca_positions",
-        "positions_snapshot_at": "2026-11-09T08:00:00+00:00",
+        "positions_snapshot_at": "2026-11-08T08:00:00+00:00",
     }
 
     path.write_text(json.dumps({

@@ -60,3 +60,38 @@ This workflow downloads historical Alpaca market data through the existing
 data processor. It does not use the broker trading client, access account
 state, or submit, replace, cancel, or close orders. It is separate from
 `trade.py` and Paper execution.
+
+
+## Multi-seed evaluation
+
+To repeat the exact same fold layout with multiple independent PPO random
+seeds, pass `--seeds`. For example:
+
+```bash
+uv run --locked python walk_forward.py \
+  --start-date 2018-01-01 \
+  --end-date 2026-01-01 \
+  --min-train-observations 756 \
+  --test-observations 126 \
+  --total-timesteps 50000 \
+  --seeds 11 22 33 44 55 \
+  --report-path reports/ppo_walk_forward_multiseed.json
+```
+
+Each seed trains a fresh model on every fold. The downloaded and processed
+history, fold boundaries, capital, costs, allocation limits, and PPO
+hyperparameters are shared across seeds; only the random seed changes. The
+single-seed `--seed` interface remains available and unchanged.
+
+The JSON report retains each seed's fold-level results and adds descriptive
+mean, median, sample standard deviation, minimum, maximum, and valid sample
+count for numeric metrics. It reports dispersion both across all independent
+seed/fold runs and across seeds within each fold. Undefined or non-finite
+metrics are excluded from that metric's statistics and are never replaced by
+zero. Standard deviation is zero when only one valid observation exists.
+
+These are descriptive statistics over independent evaluations. Fold returns
+are not concatenated, compounded, or presented as one continuous equity curve.
+The report therefore measures sensitivity to PPO initialization across the
+fixed evaluation design; it does not create additional independent market
+periods, remove selection bias, or establish profitability.

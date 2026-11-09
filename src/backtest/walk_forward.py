@@ -293,11 +293,8 @@ def run_multi_seed_walk_forward_validation(
     for seed in seeds:
         seed_factory = None
         if agent_factory is not None:
-            seed_factory = (
-                lambda fold_number, model_path, current_seed=seed: agent_factory(
-                    fold_number, model_path, current_seed
-                )
-            )
+            def seed_factory(fold_number, model_path, current_seed=seed):
+                return agent_factory(fold_number, model_path, current_seed)
         report = run_walk_forward_validation(
             data,
             tickers,

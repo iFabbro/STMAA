@@ -105,7 +105,10 @@ def test_ppo_evaluation_returns_full_execution_aware_metrics():
     assert metrics["final_value"] == pytest.approx(133100.0)
     assert metrics["cumulative_return"] == pytest.approx(0.331)
     assert metrics["total_return"] == pytest.approx(0.331)
-    assert metrics["cagr"] == pytest.approx(0.331 ** (252.0 / 3.0) - 1.0)
+    # CAGR compounds the ending equity multiple (1 + total return), not
+    # the return itself. This annualizes only three daily observations, so
+    # the magnitude is mathematically correct but not statistically stable.
+    assert metrics["cagr"] == pytest.approx(1.331 ** (252.0 / 3.0) - 1.0)
     assert metrics["total_turnover"] == pytest.approx(1.0)
     assert metrics["average_turnover"] == pytest.approx(1.0 / 3.0)
     assert metrics["total_transaction_costs"] == pytest.approx(0.0)

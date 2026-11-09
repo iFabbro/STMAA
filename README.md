@@ -189,6 +189,24 @@ uv run --locked python hub.py
 
 L'avvio corretto non dimostra che la strategia sia redditizia né che tutti gli scenari di esecuzione siano stati validati. STMAA resta alpha/sperimentale e non va configurato per operare con capitale reale.
 
+### Validazione PPO walk-forward
+
+Per valutare la robustezza temporale oltre il singolo holdout cronologico, è disponibile una validazione expanding-window:
+
+```bash
+uv run --locked python walk_forward.py \
+  --start-date 2018-01-01 \
+  --end-date 2026-01-01 \
+  --min-train-observations 756 \
+  --test-observations 126 \
+  --total-timesteps 50000 \
+  --seed 42
+```
+
+Ogni fold addestra un nuovo agente PPO soltanto sul periodo precedente e valuta il modello sul successivo intervallo non sovrapposto. I parametri restano fissi durante l'esecuzione; i risultati OOS non devono essere usati per ottimizzarli. Il report JSON viene scritto in `reports/` oppure nel percorso indicato da `--report-path`.
+
+I fold partono ciascuno da capitale indipendente in liquidità: i risultati sono quindi diagnostici per fold e non vengono concatenati in una curva patrimoniale continua. La metodologia, i limiti e i dettagli sono descritti in [docs/PPO_WALK_FORWARD.md](docs/PPO_WALK_FORWARD.md). Questa valutazione non invia ordini e non usa il client di trading Alpaca.
+
 ### Feed dati Alpaca e ritardo
 
 Il contratto versionato del modello usa barre giornaliere consolidate **SIP** con

@@ -26,7 +26,7 @@ def test_performance_metrics_calculate_returns_and_risk_ratios():
 
 def test_performance_metrics_apply_annual_risk_free_rate_to_each_period():
     metrics = calculate_performance_metrics(
-        [100.0, 101.0, 102.01],
+        [100.0, 100.0, 110.0],
         periods_per_year=2,
         risk_free_rate=0.1025,
     )

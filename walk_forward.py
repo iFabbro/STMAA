@@ -10,7 +10,10 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from config import BASE_DIR, DATA_DIR
 from data.data_processor import DataProcessor
 from train import load_training_config, prepare_historical_data
-from backtest.walk_forward import (\n    run_multi_seed_walk_forward_validation,\n    run_walk_forward_validation,\n)
+from backtest.walk_forward import (
+    run_multi_seed_walk_forward_validation,
+    run_walk_forward_validation,
+)
 
 
 def main(argv=None):
@@ -27,7 +30,8 @@ def main(argv=None):
     parser.add_argument("--test-observations", type=int, default=126)
     parser.add_argument("--step-observations", type=int, default=None)
     parser.add_argument("--total-timesteps", type=int, default=50000)
-    parser.add_argument("--seed", type=int, default=42, help="Single-seed mode (default: 42)")\n    parser.add_argument("--seeds", nargs="+", type=int, default=None, help="Run identical folds independently for each seed; overrides --seed")
+    parser.add_argument("--seed", type=int, default=42, help="Single-seed mode (default: 42)")
+    parser.add_argument("--seeds", nargs="+", type=int, default=None, help="Run identical folds independently for each seed; overrides --seed")
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--n-steps", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=64)

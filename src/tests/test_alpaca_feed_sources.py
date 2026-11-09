@@ -80,3 +80,79 @@ def test_latest_quote_request_uses_delayed_sip():
     feed._get_prev_close = lambda tickers, quote_timestamps=None: {}
     feed.get_latest_quotes(["AAPL"])
     assert captured["feed"] == "delayed_sip"
+
+
+def _quote_feed(quotes, now):
+    feed = object.__new__(AlpacaFeed)
+
+    class Client:
+        def get_stock_latest_quote(self, request):
+            return quotes
+
+    feed.client = Client()
+    feed._get_prev_close = lambda tickers, quote_timestamps=None: {}
+    return feed.get_latest_quotes(list(quotes), now=pd.Timestamp(now))
+
+
+def test_quote_quality_accepts_delayed_sip_age_within_twenty_minutes():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=99.9, ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T14:45:00Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "ok"
+    assert result["quote_age_seconds"] == 900
+    assert result["price"] == 100.0
+
+
+def test_quote_quality_flags_stale_without_changing_mid_price():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=99.9, ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T14:39:59Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "stale"
+    assert result["price"] == 100.0
+
+
+def test_quote_quality_flags_small_clock_skew_but_keeps_quote():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=99.9, ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T15:00:02Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "clock_skew"
+    assert result["price"] == 100.0
+
+
+def test_quote_quality_flags_materially_future_timestamp():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=99.9, ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T15:00:06Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "future_timestamp"
+
+
+def test_quote_quality_reports_wide_spread_without_rejecting_price():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=98.0, ask_price=102.0,
+        timestamp=pd.Timestamp("2026-11-09T14:59:00Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "wide_spread"
+    assert result["spread_pct"] == 4.0
+    assert result["price"] == 100.0
+
+
+def test_quote_quality_rejects_naive_timestamp_as_invalid():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=99.9, ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T15:00:00"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "invalid"
+    assert result["price"] == 0.0
+
+
+def test_quote_quality_rejects_non_finite_bid_or_ask():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=float("inf"), ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T15:00:00Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "invalid"
+    assert result["price"] == 0.0

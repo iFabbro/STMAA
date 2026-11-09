@@ -530,8 +530,8 @@ def read_persisted_broker_state(
     else:
         freshness_status = _freshness_status(account_snapshot_at, max_age_seconds, now)
         freshness_detail = None
-    # The persisted flag can survive a restart even though BrokerExecutor resets
-    # freshness in memory. Timestamp age is independently authoritative.
+    # The persisted flag may survive a restart while in-memory freshness resets.
+    # Timestamp age is independently authoritative.
     if freshness_status is SourceStatus.INVALID:
         return SourceResult(SourceStatus.INVALID, source, detail="account snapshot timestamp is in the future")
     if account_data_fresh is False and freshness_status is not SourceStatus.MISSING:

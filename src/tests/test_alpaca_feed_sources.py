@@ -147,3 +147,12 @@ def test_quote_quality_rejects_naive_timestamp_as_invalid():
         "2026-11-09T15:00:00Z")["AAPL"]
     assert result["quality_status"] == "invalid"
     assert result["price"] == 0.0
+
+
+def test_quote_quality_rejects_non_finite_bid_or_ask():
+    result = _quote_feed({"AAPL": SimpleNamespace(
+        bid_price=float("inf"), ask_price=100.1,
+        timestamp=pd.Timestamp("2026-11-09T15:00:00Z"))},
+        "2026-11-09T15:00:00Z")["AAPL"]
+    assert result["quality_status"] == "invalid"
+    assert result["price"] == 0.0

@@ -21,6 +21,11 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 try:
+    from src.backtest.performance_metrics import calculate_performance_metrics
+except ModuleNotFoundError:
+    from backtest.performance_metrics import calculate_performance_metrics
+
+try:
     from src.data.market_data_contract import (
         market_data_contract,
         validate_market_data_contract,
@@ -597,8 +602,15 @@ class PPOAgent:
         self,
         df: pd.DataFrame,
         previous_close: Optional[np.ndarray] = None,
+        periods_per_year: float = 252.0,
+        risk_free_rate: float = 0.0,
     ) -> dict:
-        """Evaluate a chronological holdout, optionally carrying its prior close."""
+        """Evaluate a chronological holdout with execution-aware risk/return metrics.
+
+        The equity curve includes initial capital and every next-open execution
+        close. Annualization defaults to daily-market periods (252); callers can
+        provide an explicit annual risk-free rate and period frequency.
+        """
         if self.model is None:
             raise RuntimeError("Cannot evaluate PPO policy before training or loading")
         env = StockTradingEnv(
@@ -614,6 +626,8 @@ class PPOAgent:
         )
         observation, _ = env.reset()
         equity = [self.initial_capital]
+        turnover = []
+        transaction_costs = []
         terminated = False
         while not terminated:
             action, _ = self.model.predict(observation, deterministic=True)
@@ -621,17 +635,26 @@ class PPOAgent:
             if truncated:
                 raise RuntimeError("Unexpected truncation during PPO validation")
             equity.append(float(info["total_asset"]))
+            turnover.append(float(info["turnover"]))
+            transaction_costs.append(float(info["transaction_cost"]))
         values = np.asarray(equity, dtype=float)
         if not np.isfinite(values).all() or (values <= 0).any():
             raise RuntimeError("PPO validation produced invalid portfolio equity")
-        peaks = np.maximum.accumulate(values)
+        metrics = calculate_performance_metrics(
+            values,
+            periods_per_year=periods_per_year,
+            risk_free_rate=risk_free_rate,
+            turnover=turnover,
+            transaction_costs=transaction_costs,
+        )
         return {
             "observations": int(len(df)),
             "steps": int(len(values) - 1),
             "initial_value": float(values[0]),
             "final_value": float(values[-1]),
-            "cumulative_return": float(values[-1] / values[0] - 1.0),
-            "max_drawdown": float(np.min(values / peaks - 1.0)),
+            # Keep the original key for manifest and downstream compatibility.
+            "cumulative_return": metrics["total_return"],
+            **metrics,
         }
 
     def predict_weights(

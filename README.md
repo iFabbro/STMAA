@@ -207,6 +207,20 @@ Ogni fold addestra un nuovo agente PPO soltanto sul periodo precedente e valuta 
 
 I fold partono ciascuno da capitale indipendente in liquidità: i risultati sono quindi diagnostici per fold e non vengono concatenati in una curva patrimoniale continua. La metodologia, i limiti e i dettagli sono descritti in [docs/PPO_WALK_FORWARD.md](docs/PPO_WALK_FORWARD.md). Questa valutazione non invia ordini e non usa il client di trading Alpaca.
 
+### Qualità delle quotazioni (monitoraggio)
+
+Gli snapshot espongono età, spread assoluto/percentuale e stato qualitativo
+(ok, stale, future_timestamp, wide_spread, clock_skew, missing, invalid o
+unavailable). Le soglie predefinite sono 1.200 secondi per la freschezza
+(compatibili con delayed SIP), 5 secondi di tolleranza per timestamp futuri e
+2% per segnalare spread ampi. Sono configurabili tramite
+STMAA_QUOTE_MAX_AGE_SECONDS, STMAA_QUOTE_FUTURE_TOLERANCE_SECONDS e
+STMAA_QUOTE_WIDE_SPREAD_PCT.
+
+I campi sono esclusivamente diagnostici: non modificano il prezzo medio,
+il contratto dati PPO, i manifest, i segnali, i pesi, il risk overlay o il
+percorso di esecuzione. Non costituiscono un filtro ordini.
+
 ### Feed dati Alpaca e ritardo
 
 Il contratto versionato del modello usa barre giornaliere consolidate **SIP** con

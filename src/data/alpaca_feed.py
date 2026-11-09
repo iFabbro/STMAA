@@ -33,6 +33,14 @@ _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
 logger = logging.getLogger(__name__)
 
+# Monitoring-only thresholds; they never gate order flow.
+QUOTE_MAX_AGE_SECONDS = float(os.getenv("STMAA_QUOTE_MAX_AGE_SECONDS", "1200"))
+QUOTE_FUTURE_TOLERANCE_SECONDS = float(os.getenv("STMAA_QUOTE_FUTURE_TOLERANCE_SECONDS", "5"))
+QUOTE_WIDE_SPREAD_PCT = float(os.getenv("STMAA_QUOTE_WIDE_SPREAD_PCT", "2.0"))
+
+if QUOTE_MAX_AGE_SECONDS <= 0 or QUOTE_FUTURE_TOLERANCE_SECONDS < 0 or QUOTE_WIDE_SPREAD_PCT <= 0:
+    raise ValueError("STMAA quote-quality thresholds must be positive (future tolerance may be zero)")
+
 
 class AlpacaFeed:
     """Client dati di mercato reali via alpaca-py.
@@ -438,23 +446,32 @@ class AlpacaFeed:
     # Snapshot live (prezzi correnti per hub.py)
     # ------------------------------------------------------------------
 
-    def get_latest_quotes(self, tickers: List[str]) -> dict:
-        """Ritorna dict {ticker: {'price': float, 'change_pct': float}}.
+    def get_latest_quotes(self, tickers: List[str], now=None) -> dict:
+        """Return snapshots with monitoring-only quote-quality telemetry.
 
-        Usa delayed SIP per le quotazioni recenti sul piano gratuito.
+        Age uses a 20-minute default to accommodate delayed SIP. Spread and
+        timestamp anomalies are reported, not used to alter prices or gate trades.
+        The optional now argument exists for deterministic tests.
         """
         request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed=DATA_QUOTE_FEED)
         try:
             quotes = self.client.get_stock_latest_quote(request)
         except Exception as e:
             logger.error(f"Errore get_latest_quotes: {e}")
-            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None} for t in tickers}
+            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None,
+                        "quote_age_seconds": None, "spread": None, "spread_pct": None,
+                        "quality_status": "unavailable", "quality_flags": ["unavailable"]}
+                    for t in tickers}
 
         result = {}
         for ticker in tickers:
             q = quotes.get(ticker)
             if q is None:
-                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
+                result[ticker] = {
+                    "price": 0.0, "change_pct": 0.0, "timestamp": None,
+                    "quote_age_seconds": None, "spread": None, "spread_pct": None,
+                    "quality_status": "missing", "quality_flags": ["missing"],
+                }
                 continue
             try:
                 bid = float(q.bid_price)
@@ -469,20 +486,49 @@ class AlpacaFeed:
                     or quote_time is None
                 ):
                     raise ValueError("quote has invalid bid/ask or missing timestamp")
-                timestamp = (
-                    quote_time.isoformat()
-                    if hasattr(quote_time, "isoformat")
-                    else str(quote_time)
-                )
+                parsed_timestamp = pd.Timestamp(quote_time)
+                if parsed_timestamp.tzinfo is None:
+                    raise ValueError("quote timestamp must be timezone-aware")
+                parsed_timestamp = parsed_timestamp.tz_convert("UTC")
+                current_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+                if current_time.tzinfo is None:
+                    raise ValueError("validation time must be timezone-aware")
+                current_time = current_time.tz_convert("UTC")
+                age_seconds = (current_time - parsed_timestamp).total_seconds()
                 mid = (ask + bid) / 2
+                spread = ask - bid
+                spread_pct = (spread / mid) * 100
+                flags = []
+                if age_seconds > QUOTE_MAX_AGE_SECONDS:
+                    flags.append("stale")
+                if age_seconds < -QUOTE_FUTURE_TOLERANCE_SECONDS:
+                    flags.append("future_timestamp")
+                elif age_seconds < 0:
+                    flags.append("clock_skew")
+                if spread_pct > QUOTE_WIDE_SPREAD_PCT:
+                    flags.append("wide_spread")
+                status = next(
+                    (candidate for candidate in ("future_timestamp", "stale", "wide_spread", "clock_skew") if candidate in flags),
+                    "ok",
+                )
+                timestamp = parsed_timestamp.isoformat()
                 result[ticker] = {
                     "price": round(mid, 6),
                     "change_pct": 0.0,
                     "timestamp": timestamp,
+                    "quote_age_seconds": round(age_seconds, 3),
+                    "spread": round(spread, 6),
+                    "spread_pct": round(spread_pct, 4),
+                    "quality_status": status,
+                    "quality_flags": flags,
                 }
             except (TypeError, ValueError, OverflowError) as exc:
                 logger.warning("Invalid latest quote for %s: %s", ticker, exc)
-                result[ticker] = {"price": 0.0, "change_pct": 0.0, "timestamp": None}
+                result[ticker] = {
+                    "price": 0.0, "change_pct": 0.0, "timestamp": None,
+                    "quote_age_seconds": None, "spread": None, "spread_pct": None,
+                    "quality_status": "invalid", "quality_flags": ["invalid"],
+                }
 
         # Tenta di arricchire con variazione % usando barre intraday
         try:

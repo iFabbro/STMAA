@@ -31,7 +31,9 @@ def test_performance_metrics_apply_annual_risk_free_rate_to_each_period():
         risk_free_rate=0.1025,
     )
     assert metrics["sharpe_ratio"] == pytest.approx(0.0, abs=1e-10)
-    assert metrics["sortino_ratio"] is None
+    # The first excess return is negative, so downside deviation is defined;
+    # the zero mean excess return therefore produces a zero Sortino ratio.
+    assert metrics["sortino_ratio"] == pytest.approx(0.0, abs=1e-10)
 
 
 def test_performance_metrics_mark_undefined_ratios_as_none():

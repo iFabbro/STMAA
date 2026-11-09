@@ -207,6 +207,26 @@ Ogni fold addestra un nuovo agente PPO soltanto sul periodo precedente e valuta 
 
 I fold partono ciascuno da capitale indipendente in liquidità: i risultati sono quindi diagnostici per fold e non vengono concatenati in una curva patrimoniale continua. La metodologia, i limiti e i dettagli sono descritti in [docs/PPO_WALK_FORWARD.md](docs/PPO_WALK_FORWARD.md). Questa valutazione non invia ordini e non usa il client di trading Alpaca.
 
+### Benchmark PPO versus equal-weight buy-and-hold
+
+Per confrontare il PPO walk-forward con una baseline passiva senza riaddestrare
+gli agenti, usare il report JSON già prodotto da `walk_forward.py`:
+
+```bash
+uv run --locked python benchmark_walk_forward.py \
+  --ppo-report reports/ppo_walk_forward_20261109.json \
+  --start-date 2018-01-01 \
+  --end-date 2026-01-01 \
+  --report-path reports/ppo_benchmark_comparison_20261109.json
+```
+
+Il benchmark usa gli stessi fold OOS, capitale, costi, slippage e limiti di
+esposizione del report PPO. Parte in liquidità, entra all'Open della seconda
+barra del fold (come il valutatore PPO), acquista a peso uguale e mantiene le
+quote senza ribilanciamento. Il report confronta le metriche per fold; le
+simulazioni restano indipendenti e non costituiscono una curva patrimoniale
+continua. La metodologia è descritta in [docs/PPO_BENCHMARK.md](docs/PPO_BENCHMARK.md).
+
 ### Qualità delle quotazioni (monitoraggio)
 
 Gli snapshot espongono età, spread assoluto/percentuale e stato qualitativo

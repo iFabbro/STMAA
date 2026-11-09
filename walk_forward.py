@@ -117,9 +117,12 @@ def main(argv=None):
         "max_gross_exposure": strategy_config.max_gross_exposure,
     }
 
-    output_path = args.report_path or (
-        BASE_DIR / "reports" / f"ppo_walk_forward_{args.start_date}_{args.end_date}.json"
+    default_report_name = (
+        f"ppo_walk_forward_multiseed_{args.start_date}_{args.end_date}.json"
+        if args.seeds is not None
+        else f"ppo_walk_forward_{args.start_date}_{args.end_date}.json"
     )
+    output_path = args.report_path or (BASE_DIR / "reports" / default_report_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
     print("PPO walk-forward evaluation completed.")

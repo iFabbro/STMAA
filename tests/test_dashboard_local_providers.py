@@ -349,7 +349,8 @@ def test_broker_state_missing_timestamp_is_not_reported_fresh(tmp_path):
     path = tmp_path / "broker_state.json"
     path.write_text(json.dumps(_broker_state_payload(account_snapshot_at=None)), encoding="utf-8")
     result = read_persisted_broker_state(path, now=datetime(2026, 11, 9, 8, 1, tzinfo=timezone.utc))
-    assert result.status is SourceStatus.MISSING
+    assert result.status is SourceStatus.OK
+    assert result.value["account_snapshot_status"] == SourceStatus.MISSING.value
     assert result.observed_at is None
     assert "timestamp is missing" in result.detail
 

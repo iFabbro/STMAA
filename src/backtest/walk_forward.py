@@ -271,7 +271,7 @@ def run_multi_seed_walk_forward_validation(
     if not isinstance(seeds, list) or not seeds:
         raise ValueError("seeds must be a non-empty list of integers")
     if any(not isinstance(seed, int) or isinstance(seed, bool) for seed in seeds):
-        raise ValueError("every seed must be an integer")
+        raise ValueError("seeds must contain only integers")
     if len(set(seeds)) != len(seeds):
         raise ValueError("seeds must be unique")
 

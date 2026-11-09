@@ -24,10 +24,10 @@ def test_historical_end_uses_twenty_minute_cutoff_before_session_open():
 def test_historical_end_excludes_in_progress_daily_bar():
     now = pd.Timestamp("2026-11-03T15:00:00Z")
     actual = pd.Timestamp(AlpacaFeed._historical_request_end(now))
-    expected = pd.Timestamp("2026-11-03T00:00:00").tz_localize(
+    session_start = pd.Timestamp("2026-11-03T00:00:00").tz_localize(
         "America/New_York"
     ).tz_convert("UTC")
-    assert actual == expected
+    assert actual == session_start - pd.Timedelta(seconds=1)
 
 
 def test_historical_end_includes_completed_session_after_delay():

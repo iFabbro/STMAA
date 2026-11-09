@@ -88,9 +88,13 @@ class AlpacaFeed:
             market_open = pd.Timestamp(schedule.iloc[0]["market_open"]).tz_convert("UTC")
             market_close = pd.Timestamp(schedule.iloc[0]["market_close"]).tz_convert("UTC")
             if market_open <= current < market_close:
-                return pd.Timestamp(ny_date).tz_localize(
+                # Alpaca's daily-bar end bound includes a bar stamped exactly
+                # at the session's midnight UTC-converted boundary. Exclude that
+                # in-progress session explicitly while retaining SIP history.
+                session_start = pd.Timestamp(ny_date).tz_localize(
                     "America/New_York"
-                ).tz_convert("UTC").to_pydatetime()
+                ).tz_convert("UTC")
+                return (session_start - pd.Timedelta(seconds=1)).to_pydatetime()
         return cutoff.to_pydatetime()
 
     @staticmethod

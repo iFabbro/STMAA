@@ -4,6 +4,11 @@ from typing import Callable, Dict, List
 import numpy as np
 import pandas as pd
 
+try:
+    from src.backtest.performance_metrics import calculate_performance_metrics
+except ModuleNotFoundError:
+    from backtest.performance_metrics import calculate_performance_metrics
+
 
 class ExecutionConsistentBacktest:
     """Use prior-close holdings for close-to-close returns."""
@@ -137,49 +142,22 @@ class ExecutionConsistentBacktest:
         }
 
     def _calculate_metrics(self, portfolio_series: pd.Series) -> Dict:
-        """Calculate annualized metrics from the initial-capital equity curve."""
+        """Calculate annualized metrics using the shared equity-curve implementation."""
         if portfolio_series.empty:
             raise ValueError("portfolio_series must not be empty")
-        values = portfolio_series.astype(float)
-        if not np.isfinite(values.to_numpy()).all() or (values <= 0).any():
-            raise ValueError("Portfolio values must be finite and positive")
-
-        # The baseline makes the initial rebalance cost part of returns and risk.
-        equity_curve = np.concatenate(([self.initial_capital], values.to_numpy()))
-        period_returns = equity_curve[1:] / equity_curve[:-1] - 1.0
-        cumulative_return = float(equity_curve[-1] / self.initial_capital - 1.0)
-        periods = len(period_returns)
-        annualized_return = (
-            float((equity_curve[-1] / self.initial_capital) ** (self.periods_per_year / periods) - 1.0)
-            if periods > 0 else 0.0
+        values = portfolio_series.astype(float).to_numpy()
+        equity_curve = np.concatenate(([self.initial_capital], values))
+        metrics = calculate_performance_metrics(
+            equity_curve,
+            periods_per_year=self.periods_per_year,
         )
-
-        return_std = float(period_returns.std(ddof=1)) if periods > 1 else 0.0
-        annualized_vol = return_std * np.sqrt(self.periods_per_year)
-        sharpe_ratio = (
-            float(period_returns.mean() / return_std * np.sqrt(self.periods_per_year))
-            if return_std > 0 else 0.0
-        )
-
-        drawdown_peaks = np.maximum.accumulate(equity_curve)
-        drawdown = equity_curve / drawdown_peaks - 1.0
-        max_drawdown = float(drawdown.min())
-
-        downside_returns = np.minimum(period_returns, 0.0)
-        downside_deviation = float(np.sqrt(np.mean(np.square(downside_returns))))
-        sortino_ratio = (
-            float(period_returns.mean() / downside_deviation * np.sqrt(self.periods_per_year))
-            if downside_deviation > 0 else 0.0
-        )
-        calmar_ratio = (
-            annualized_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
-        )
+        # Preserve the legacy backtest result names and zero-denominator behavior.
         return {
-            "cumulative_return": cumulative_return,
-            "annualized_return": annualized_return,
-            "annualized_volatility": float(annualized_vol),
-            "sharpe_ratio": sharpe_ratio,
-            "sortino_ratio": sortino_ratio,
-            "calmar_ratio": float(calmar_ratio),
-            "max_drawdown": max_drawdown,
+            "cumulative_return": metrics["total_return"],
+            "annualized_return": metrics["cagr"],
+            "annualized_volatility": metrics["annualized_volatility"],
+            "sharpe_ratio": metrics["sharpe_ratio"] if metrics["sharpe_ratio"] is not None else 0.0,
+            "sortino_ratio": metrics["sortino_ratio"] if metrics["sortino_ratio"] is not None else 0.0,
+            "calmar_ratio": metrics["calmar_ratio"] if metrics["calmar_ratio"] is not None else 0.0,
+            "max_drawdown": metrics["max_drawdown"],
         }

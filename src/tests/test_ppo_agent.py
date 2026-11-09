@@ -83,6 +83,35 @@ def test_ppo_evaluation_uses_preceding_training_close_for_first_holdout_observat
     assert metrics["steps"] == 2
 
 
+def test_ppo_evaluation_returns_full_execution_aware_metrics():
+    validation, tickers = market_data(prices_a=(100.0, 110.0, 121.0, 133.1))
+    agent = PPOAgent(
+        tickers=tickers,
+        initial_capital=100000.0,
+        transaction_cost=0.0,
+        slippage=0.0,
+        max_position_size=1.0,
+        max_gross_exposure=1.0,
+        load_existing_model=False,
+    )
+
+    class FullyInvestedModel:
+        def predict(self, observation, deterministic=True):
+            return np.array([1.0]), None
+
+    agent.model = FullyInvestedModel()
+    metrics = agent.evaluate(validation)
+
+    assert metrics["final_value"] == pytest.approx(133100.0)
+    assert metrics["cumulative_return"] == pytest.approx(0.331)
+    assert metrics["total_return"] == pytest.approx(0.331)
+    assert metrics["cagr"] == pytest.approx(0.331 ** (252.0 / 3.0) - 1.0)
+    assert metrics["total_turnover"] == pytest.approx(1.0)
+    assert metrics["average_turnover"] == pytest.approx(1.0 / 3.0)
+    assert metrics["total_transaction_costs"] == pytest.approx(0.0)
+    assert metrics["periods"] == 3
+
+
 def test_environment_observation_matches_declared_space():
     data, tickers = market_data(prices_b=(100.0, 90.0, 81.0))
     env = StockTradingEnv(data, tickers, lookback=0)

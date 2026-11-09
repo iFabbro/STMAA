@@ -14,6 +14,7 @@ from src.dashboard.local_providers import (
     read_latest_run,
     read_latest_snapshot,
     read_recent_events,
+    read_persisted_broker_state,
 )
 
 
@@ -304,3 +305,71 @@ def test_json_provider_rejects_future_timestamps_without_freshness_threshold(tmp
     )
     now = datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc)
     assert read_json_snapshot(path, now=now).status is SourceStatus.INVALID
+
+  
+def _broker_state_payload(**overrides):
+    payload = {
+        "state_schema_version": 2,
+        "state_revision": 4,
+        "account_mode": "paper",
+        "account_id": "paper-account",
+        "account_snapshot_at": "2026-11-09T08:00:00+00:00",
+        "account_data_fresh": True,
+        "order_submission_unresolved": {},
+        "order_submission_confirmed": {},
+        "emergency_liquidation_pending": {},
+        "emergency_liquidation_unresolved": {},
+        "opg_batches": {},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_broker_state_freshness_uses_timestamp_even_when_flag_is_true(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(_broker_state_payload()), encoding="utf-8")
+    now = datetime(2026, 11, 9, 8, 30, tzinfo=timezone.utc)
+    result = read_persisted_broker_state(path, max_age_seconds=900, now=now)
+    assert result.status is SourceStatus.STALE
+    assert result.observed_at == "2026-11-09T08:00:00+00:00"
+    assert result.value["account_data_fresh"] is True
+    assert "exceeds" in result.detail
+
+
+def test_broker_state_false_freshness_flag_is_stale_even_with_recent_timestamp(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(_broker_state_payload(account_data_fresh=False)), encoding="utf-8")
+    now = datetime(2026, 11, 9, 8, 1, tzinfo=timezone.utc)
+    result = read_persisted_broker_state(path, max_age_seconds=900, now=now)
+    assert result.status is SourceStatus.STALE
+    assert "not fresh" in result.detail
+
+
+def test_broker_state_missing_timestamp_is_not_reported_fresh(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(_broker_state_payload(account_snapshot_at=None)), encoding="utf-8")
+    result = read_persisted_broker_state(path, now=datetime(2026, 11, 9, 8, 1, tzinfo=timezone.utc))
+    assert result.status is SourceStatus.MISSING
+    assert result.observed_at is None
+    assert "timestamp is missing" in result.detail
+
+
+def test_broker_state_future_timestamp_is_invalid(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(_broker_state_payload(account_snapshot_at="2026-11-09T09:00:00+00:00")), encoding="utf-8")
+    now = datetime(2026, 11, 9, 8, 0, tzinfo=timezone.utc)
+    result = read_persisted_broker_state(path, now=now)
+    assert result.status is SourceStatus.INVALID
+    assert "future" in result.detail
+
+
+def test_broker_state_invalid_freshness_flag_is_rejected(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text(json.dumps(_broker_state_payload(account_data_fresh="true")), encoding="utf-8")
+    assert read_persisted_broker_state(path).status is SourceStatus.INVALID
+
+
+def test_broker_state_corrupt_json_is_invalid(tmp_path):
+    path = tmp_path / "broker_state.json"
+    path.write_text("{broken", encoding="utf-8")
+    assert read_persisted_broker_state(path).status is SourceStatus.INVALID

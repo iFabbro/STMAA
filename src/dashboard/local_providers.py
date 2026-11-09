@@ -132,7 +132,7 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
             return None, f"invalid numeric field: {key}"
     if "positions_status" in normalized and (
         not isinstance(normalized["positions_status"], str)
-        or normalized["positions_status"] not in {"OK", "UNAVAILABLE"}
+        or normalized["positions_status"] not in {"OK", "UNAVAILABLE", "MISSING"}
     ):
         return None, "invalid text field: positions_status"
     if "positions_source" in normalized and normalized["positions_source"] is not None and not isinstance(normalized["positions_source"], str):
@@ -146,8 +146,10 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
         positions = normalized["positions"]
         if positions is not None and not isinstance(positions, list):
             return None, "invalid collection field: positions"
-        if positions is None and normalized.get("positions_status") != "UNAVAILABLE":
-            return None, "missing positions collection without unavailable status"
+        if positions is None and normalized.get("positions_status") not in {"UNAVAILABLE", "MISSING"}:
+            return None, "missing positions collection without unavailable or missing status"
+        if positions is not None and normalized.get("positions_status") == "MISSING":
+            return None, "missing positions status cannot contain a position collection"
         if isinstance(positions, list):
             seen_symbols = set()
             required = {"symbol", "qty", "market_value", "avg_entry_price", "unrealized_pl"}

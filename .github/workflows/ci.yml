@@ -33,11 +33,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The Intel runner has repeatedly received HTTP 504/timeouts from GitHub
+      # Releases while setup-uv downloads its standalone binary. Install the
+      # same pinned uv release from its PyPI wheel on this runner instead.
+      - name: Install uv from PyPI (macOS Intel)
+        if: matrix.os == 'macos-15-intel'
+        run: python -m pip install --disable-pip-version-check uv==0.10.0
+
       - name: Set up uv
+        if: matrix.os != 'macos-15-intel'
         uses: astral-sh/setup-uv@v6
         with:
           version: "0.10.0"
           enable-cache: true
+
+      - name: Verify uv version
+        run: uv --version
 
       - name: Verify dependency lock
         run: uv lock --check

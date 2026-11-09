@@ -374,3 +374,64 @@ def test_broker_state_corrupt_json_is_invalid(tmp_path):
     path = tmp_path / "broker_state.json"
     path.write_text("{broken", encoding="utf-8")
     assert read_persisted_broker_state(path).status is SourceStatus.INVALID
+
+
+
+def test_json_provider_accepts_explicit_missing_positions_without_fabricating_empty_list(tmp_path):
+    path = tmp_path / "positions-missing.json"
+    path.write_text(json.dumps({
+        "timestamp": "2026-11-08T08:00:00+00:00",
+        "positions": None,
+        "positions_status": "MISSING",
+        "positions_source": None,
+        "positions_snapshot_at": None,
+    }), encoding="utf-8")
+
+    result = read_json_snapshot(path)
+
+    assert result.status is SourceStatus.OK
+    assert result.value["positions_status"] == "MISSING"
+    assert result.value["positions"] is None
+
+
+def test_json_provider_rejects_missing_positions_status_with_collection(tmp_path):
+    path = tmp_path / "positions-missing-with-data.json"
+    path.write_text(json.dumps({
+        "timestamp": "2026-11-08T08:00:00+00:00",
+        "positions": [],
+        "positions_status": "MISSING",
+    }), encoding="utf-8")
+
+    assert read_json_snapshot(path).status is SourceStatus.INVALID
+
+
+def test_json_provider_distinguishes_empty_verified_positions_from_missing_and_unavailable(tmp_path):
+    path = tmp_path / "positions-contract.json"
+    base_snapshot = {
+        "timestamp": "2026-11-08T08:00:00+00:00",
+        "positions_source": "alpaca_positions",
+        "positions_snapshot_at": "2026-11-08T08:00:00+00:00",
+    }
+
+    path.write_text(json.dumps({
+        **base_snapshot, "positions_status": "OK", "positions": [],
+    }), encoding="utf-8")
+    verified_empty = read_json_snapshot(path)
+    assert verified_empty.status is SourceStatus.OK
+    assert verified_empty.value["positions"] == []
+
+    path.write_text(json.dumps({
+        **base_snapshot, "positions_status": "UNAVAILABLE", "positions": None,
+        "positions_snapshot_at": None,
+    }), encoding="utf-8")
+    unavailable = read_json_snapshot(path)
+    assert unavailable.status is SourceStatus.OK
+    assert unavailable.value["positions"] is None
+
+    path.write_text(json.dumps({
+        **base_snapshot, "positions_status": "MISSING", "positions": None,
+        "positions_snapshot_at": None,
+    }), encoding="utf-8")
+    missing = read_json_snapshot(path)
+    assert missing.status is SourceStatus.OK
+    assert missing.value["positions"] is None

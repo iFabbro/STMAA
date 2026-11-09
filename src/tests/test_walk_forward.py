@@ -212,7 +212,7 @@ def test_multi_seed_walk_forward_reuses_identical_folds_and_reports_dispersion()
     assert aggregate["total_return"]["max"] == pytest.approx(0.223)
     assert aggregate["sharpe_ratio"]["n"] == 3
     assert "undefined_ratio" not in aggregate
-    assert "continuous" in result["aggregation"]["scope"]
+    assert "not concatenated" in result["aggregation"]["scope"]
 
 
 @pytest.mark.parametrize(

@@ -207,6 +207,14 @@ Ogni fold addestra un nuovo agente PPO soltanto sul periodo precedente e valuta 
 
 I fold partono ciascuno da capitale indipendente in liquidità: i risultati sono quindi diagnostici per fold e non vengono concatenati in una curva patrimoniale continua. La metodologia, i limiti e i dettagli sono descritti in [docs/PPO_WALK_FORWARD.md](docs/PPO_WALK_FORWARD.md). Questa valutazione non invia ordini e non usa il client di trading Alpaca.
 
+Per ripetere gli stessi fold con più inizializzazioni PPO, usare
+`--seeds` (ad esempio `--seeds 11 22 33 44 55`). Il report conserva i
+risultati per ogni seed/fold e aggiunge media, mediana, deviazione standard,
+minimo e massimo delle metriche numeriche, sia complessivamente sia per fold.
+Metriche non definite non vengono convertite in zero. Le statistiche descrivono
+run indipendenti: i rendimenti non vengono concatenati o composti in una curva
+patrimoniale continua. Dettagli: [docs/PPO_WALK_FORWARD.md](docs/PPO_WALK_FORWARD.md).
+
 ### Benchmark PPO versus equal-weight buy-and-hold
 
 Per confrontare il PPO walk-forward con una baseline passiva senza riaddestrare

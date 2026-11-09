@@ -125,10 +125,11 @@ def run_walk_forward_validation(
 
     folds = expanding_window_folds(data, min_train_size, test_size, step_size)
 
-    if agent_factory is None:
+    factory = agent_factory
+    if factory is None:
         from src.agents.ppo_agent import PPOAgent
 
-        def agent_factory(_fold_number: int, model_path: str):
+        def default_agent_factory(_fold_number: int, model_path: str):
             return PPOAgent(
                 tickers=tickers,
                 initial_capital=initial_capital,
@@ -147,6 +148,8 @@ def run_walk_forward_validation(
                 verbose=0,
             )
 
+        factory = default_agent_factory
+
     results = []
     for fold in folds:
         training, testing = fold.split(data)
@@ -158,7 +161,7 @@ def run_walk_forward_validation(
 
         with TemporaryDirectory(prefix=f"stmaa-ppo-wf-{fold.number}-") as directory:
             model_path = str(Path(directory) / "fold-model.zip")
-            agent = agent_factory(fold.number, model_path)
+            agent = factory(fold.number, model_path)
             agent.train(training, total_timesteps=total_timesteps)
             metrics = agent.evaluate(testing, previous_close=previous_close)
 

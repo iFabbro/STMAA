@@ -556,10 +556,16 @@ def read_persisted_broker_state(
         "account_id": payload.get("account_id"),
         "account_snapshot_at": account_snapshot_at,
         "account_data_fresh": account_data_fresh,
+        "account_snapshot_status": freshness_status.value,
+        "account_snapshot_detail": freshness_detail,
         "order_submission_unresolved": payload["order_submission_unresolved"],
         "order_submission_confirmed": payload["order_submission_confirmed"],
         "emergency_liquidation_pending": payload["emergency_liquidation_pending"],
         "emergency_liquidation_unresolved": payload["emergency_liquidation_unresolved"],
         "opg_batches": opg_batches,
     }
-    return SourceResult(freshness_status, source, value=value, observed_at=account_snapshot_at, detail=freshness_detail)
+    # A missing account snapshot does not invalidate otherwise valid execution
+    # lifecycle evidence. Preserve the provider-level OK contract and expose
+    # snapshot freshness independently in the returned value.
+    provider_status = SourceStatus.OK if freshness_status is SourceStatus.MISSING else freshness_status
+    return SourceResult(provider_status, source, value=value, observed_at=account_snapshot_at, detail=freshness_detail)

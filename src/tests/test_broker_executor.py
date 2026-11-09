@@ -4006,7 +4006,7 @@ def test_account_status_rejects_boolean_financial_values(
     assert persisted["account_data_fresh"] is False
 
 
-def _attempt_execution_lock_in_child_process(state_file, result_queue):
+def _attempt_execution_lock_in_child_process(state_file, result_queue, ready_queue):
     """Acquire the same OS lock from an independent process."""
     import threading
     from pathlib import Path
@@ -4015,6 +4015,10 @@ def _attempt_execution_lock_in_child_process(state_file, result_queue):
     executor.state_file = Path(state_file)
     executor.execution_lock_timeout_seconds = 0.15
     executor._execution_lock_local = threading.local()
+    # Signal only after the spawned interpreter has imported the test module and
+    # completed child setup. Process startup time must not be measured as lock
+    # acquisition time (notably on macOS Intel runners).
+    ready_queue.put("ready")
     try:
         with executor.execution_lock():
             result_queue.put("acquired")
@@ -4029,18 +4033,26 @@ def test_execution_lock_serializes_independent_processes(alpaca_env, tmp_path):
     executor = BrokerExecutor()
     context = multiprocessing.get_context("spawn")
     result_queue = context.Queue()
+    ready_queue = context.Queue()
 
     with executor.execution_lock():
         child = context.Process(
             target=_attempt_execution_lock_in_child_process,
-            args=(str(executor.state_file), result_queue),
+            args=(str(executor.state_file), result_queue, ready_queue),
         )
         child.start()
-        child.join(timeout=5)
-
-        assert not child.is_alive(), "child process did not respect execution-lock timeout"
-        assert child.exitcode == 0
-        result = result_queue.get(timeout=1)
+        try:
+            # Wait for child initialization separately; the lock timeout is
+            # asserted only after the child is ready to attempt flock().
+            assert ready_queue.get(timeout=30) == "ready"
+            child.join(timeout=3)
+            assert not child.is_alive(), "child process did not respect execution-lock timeout"
+            assert child.exitcode == 0
+            result = result_queue.get(timeout=1)
+        finally:
+            if child.is_alive():
+                child.terminate()
+                child.join(timeout=5)
 
     assert result == "Timed out acquiring broker execution lock; refusing execution"
 

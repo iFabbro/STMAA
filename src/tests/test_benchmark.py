@@ -129,3 +129,41 @@ def test_equal_weight_benchmark_opt_in_timeseries_tracks_drifted_exposure():
     assert final_close[0] > first_close[0]
     assert final_close[1] < first_close[1]
     assert result["timeseries"][-1]["turnover"] == pytest.approx(0.0)
+
+
+
+def test_exposure_matched_equal_weight_tracks_ppo_target_exposure_and_rebalances():
+    from src.backtest.benchmark import evaluate_exposure_matched_equal_weight
+
+    data = _prices()
+    trace = [
+        {"timestamp": str(data.index[i]), "target_weights": [0.2, 0.2]}
+        for i in range(1, len(data))
+    ]
+    result = evaluate_exposure_matched_equal_weight(
+        data, ["A", "B"], trace, initial_capital=1000.0,
+        transaction_cost=0.001, slippage=0.0005,
+        max_position_size=0.2, include_timeseries=True,
+    )
+    assert result["entry_execution"] == "next_bar_open"
+    assert result["exposure_policy"] == "match_ppo_target_gross_exposure_each_execution_bar"
+    assert len(result["timeseries"]) == len(data) - 1
+    assert [row["target_gross_exposure"] for row in result["timeseries"]] == pytest.approx([0.4] * 3)
+    assert result["total_turnover"] > 0.4
+    assert result["total_transaction_costs"] > 0.6
+
+
+def test_exposure_matched_equal_weight_rejects_misaligned_ppo_trace():
+    from src.backtest.benchmark import evaluate_exposure_matched_equal_weight
+
+    data = _prices()
+    trace = [
+        {"timestamp": "2024-01-01", "target_weights": [0.2, 0.2]}
+        for _ in range(len(data) - 1)
+    ]
+    with pytest.raises(ValueError, match="timestamps do not align"):
+        evaluate_exposure_matched_equal_weight(
+            data, ["A", "B"], trace, initial_capital=1000.0,
+            transaction_cost=0.001, slippage=0.0005,
+            max_position_size=0.2,
+        )

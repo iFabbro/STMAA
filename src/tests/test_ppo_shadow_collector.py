@@ -106,10 +106,19 @@ class FakeAgent:
 TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64}
 
 
+
+def test_collection_is_disabled_without_explicit_activation(tmp_path):
+    collector = PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "disabled.jsonl",
+                                   ["AAA", "BBB"], provenance=TEST_PROVENANCE)
+    with pytest.raises(RuntimeError, match="disabled pending explicit holdout activation"):
+        collector.collect_once()
+    assert not (tmp_path / "disabled.jsonl").exists()
+
+
 def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     feed = FakeFeed()
     path = tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
     assert collector.collect_once()["executed_pending_target"] is False
     assert collector.collect_once()["status"] == "duplicate_session"
     feed.session = "2026-01-05"

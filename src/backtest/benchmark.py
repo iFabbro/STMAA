@@ -151,6 +151,7 @@ def evaluate_single_asset_buy_and_hold(
     data: pd.DataFrame, ticker: str, *, exposure: float,
     initial_capital: float, transaction_cost: float, slippage: float,
     periods_per_year: float = 252.0, risk_free_rate: float = 0.0,
+    include_timeseries: bool = False,
 ) -> dict:
     """Evaluate one ETF at fixed exposure, without the PPO per-name cap."""
     if not isinstance(ticker, str) or not ticker.strip():
@@ -167,6 +168,7 @@ def evaluate_single_asset_buy_and_hold(
         transaction_cost=transaction_cost, slippage=slippage,
         max_position_size=1.0, max_gross_exposure=float(exposure),
         periods_per_year=periods_per_year, risk_free_rate=risk_free_rate,
+        include_timeseries=include_timeseries,
     )
     return {
         **result, "benchmark_ticker": ticker, "target_exposure": float(exposure),

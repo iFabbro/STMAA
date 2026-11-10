@@ -43,6 +43,7 @@ def main(argv=None):
     parser.add_argument("--transaction-cost", type=float, default=None)
     parser.add_argument("--slippage", type=float, default=None)
     parser.add_argument("--report-path", type=Path, default=None)
+    parser.add_argument("--include-timeseries", action="store_true", help="Include daily exposure and turnover traces for diagnostics")
     args = parser.parse_args(argv)
 
     if args.total_timesteps <= 0:
@@ -87,6 +88,7 @@ def main(argv=None):
         "batch_size": args.batch_size,
         "n_epochs": args.n_epochs,
         "gamma": args.gamma,
+        "include_timeseries": args.include_timeseries,
     }
     if args.seeds is not None:
         if len(set(args.seeds)) != len(args.seeds):

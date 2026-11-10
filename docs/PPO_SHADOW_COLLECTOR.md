@@ -24,7 +24,7 @@ Partial, malformed, reordered, or modified records fail closed. The filesystem r
 
 ## Activation
 
-No collection starts on import. Construct a validated PPOAgent with the frozen model and exact strategy parameters, then explicitly call build_default_collector with a durable ledger path outside version control. The factory constructs only AlpacaFeed, whose provider client is StockHistoricalDataClient for market data. Collection must remain inactive until the prospective holdout freeze register is reviewed and explicitly activated.
+No collection starts on import, and collection is disabled by default. Construct a validated PPOAgent with the frozen model and exact strategy parameters, then explicitly call build_default_collector with a durable ledger path outside version control, collection_authorized=True, and a non-empty activation_reference. The factory constructs only AlpacaFeed, whose provider client is StockHistoricalDataClient for market data. Do not set the authorization flag until the prospective holdout freeze register is approved and the operator has explicitly authorized the prospective collection.
 
 ## Validation
 

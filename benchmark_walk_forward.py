@@ -19,6 +19,8 @@ from backtest.benchmark import (
     evaluate_single_asset_buy_and_hold,
 )
 
+from backtest.benchmark_methodology import execution_data_fingerprint
+
 
 _REQUIRED_TRAINING_PARAMETERS = (
     "initial_capital",
@@ -102,6 +104,14 @@ def compare_walk_forward_report(
                 f"but market data contains {len(testing)}"
             )
 
+        data_fingerprint = execution_data_fingerprint(testing, tickers)
+        expected_fingerprint = fold.get("execution_data_fingerprint")
+        if expected_fingerprint is not None and expected_fingerprint != data_fingerprint:
+            raise ValueError(
+                f"Execution-data fingerprint mismatch for PPO fold {fold_number}; "
+                "benchmark data is not identical to the PPO evaluation data"
+            )
+
         benchmark = evaluate_equal_weight_buy_and_hold(
             testing,
             tickers,
@@ -135,6 +145,9 @@ def compare_walk_forward_report(
                 "test_start": str(test_start),
                 "test_end": str(test_end),
                 "observations": len(testing),
+                "entry_execution": "next_bar_open",
+                "execution_data_fingerprint": data_fingerprint,
+                "execution_data_identity": "PASS" if expected_fingerprint == data_fingerprint else "INCONCLUSIVE",
                 "ppo": ppo_metrics,
                 "equal_weight_buy_and_hold": benchmark,
                 "spy_50pct_exposure": spy_50,

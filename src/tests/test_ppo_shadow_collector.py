@@ -5,10 +5,48 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from src.agents.ppo_shadow_collector import PPOShadowCollector
+from types import SimpleNamespace
+from src.agents.ppo_shadow_collector import PPOShadowCollector, _agent_provenance
+from src.data.market_data_contract import market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 from src.agents.ppo_shadow_replay import replay_shadow_ledger
+
+
+
+def test_model_provenance_verifies_artifact_manifest_and_training_config(tmp_path):
+    model_path = tmp_path / "ppo_trading_model.zip"
+    artifact = b"verified-test-model"
+    digest = __import__("hashlib").sha256(artifact).hexdigest()
+    artifact_name = f"ppo_trading_model.{digest}.zip"
+    (tmp_path / artifact_name).write_bytes(artifact)
+    manifest = {
+        "contract_version": 7,
+        "tickers": ["AAA", "BBB"],
+        "transaction_cost": 0.001,
+        "slippage": 0.0005,
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+        "action_contract": "long_only_capped_target_weights_zero_floor",
+        "execution_contract": "close_signal_next_bar_open_fill",
+        "observation_contract": "dimensionless_ohlc_features_v1",
+        "market_data_contract": market_data_contract(),
+        "model_sha256": digest,
+        "artifact_file": artifact_name,
+        "training": {"initial_capital": 10000.0, "seed": 42},
+    }
+    (tmp_path / "ppo_trading_model.zip.metadata.json").write_text(json.dumps(manifest))
+    agent = SimpleNamespace(
+        inference_available=True, model_path=str(model_path), tickers=["AAA", "BBB"],
+        transaction_cost=0.001, slippage=0.0005, max_position_size=0.2,
+        max_gross_exposure=0.5, initial_capital=10000.0,
+    )
+    provenance = _agent_provenance(agent)
+    assert provenance["model_sha256"] == digest
+    assert provenance["strategy_config"]["initial_capital"] == 10000.0
+    (tmp_path / artifact_name).write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="identity"):
+        _agent_provenance(agent)
 
 
 def test_ledger_hash_chain_rejects_tampering(tmp_path):

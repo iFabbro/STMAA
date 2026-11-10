@@ -9,6 +9,8 @@ class PPOShadowPortfolio:
     initial_capital: float = 100000.0
     transaction_cost: float = 0.001
     slippage: float = 0.0005
+    max_position_size: float = 0.2
+    max_gross_exposure: float = 0.5
     cash: float | None = None
     shares: dict | None = None
     last_equity: float | None = None
@@ -17,9 +19,14 @@ class PPOShadowPortfolio:
         self.tickers = tuple(self.tickers)
         if not self.tickers or len(set(self.tickers)) != len(self.tickers):
             raise ValueError("Tickers must be non-empty and unique")
-        vals = np.asarray([self.initial_capital, self.transaction_cost, self.slippage], dtype=float)
-        if not np.isfinite(vals).all() or self.initial_capital <= 0 or min(self.transaction_cost, self.slippage) < 0 or self.transaction_cost + self.slippage >= 1:
-            raise ValueError("Invalid portfolio capital or costs")
+        vals = np.asarray([self.initial_capital, self.transaction_cost, self.slippage,
+                           self.max_position_size, self.max_gross_exposure], dtype=float)
+        if (not np.isfinite(vals).all() or self.initial_capital <= 0
+                or min(self.transaction_cost, self.slippage) < 0
+                or self.transaction_cost + self.slippage >= 1
+                or not 0 < self.max_position_size <= 1
+                or not 0 < self.max_gross_exposure <= 1):
+            raise ValueError("Invalid portfolio capital, costs, or allocation caps")
         self.cash = float(self.initial_capital if self.cash is None else self.cash)
         self.shares = {t: 0.0 for t in self.tickers} if self.shares is None else dict(self.shares)
         self.last_equity = float(self.initial_capital if self.last_equity is None else self.last_equity)
@@ -50,8 +57,10 @@ class PPOShadowPortfolio:
         if set(target_weights) != set(self.tickers):
             raise ValueError("Target weights must cover exactly the configured tickers")
         w = np.asarray([target_weights[t] for t in self.tickers], dtype=float)
-        if not np.isfinite(w).all() or (w < 0).any() or (w > 0.2 + 1e-8).any() or w.sum() > 0.5 + 1e-8:
-            raise ValueError("Targets violate long-only, 20% position, or 50% gross caps")
+        if (not np.isfinite(w).all() or (w < 0).any()
+                or (w > self.max_position_size + 1e-8).any()
+                or w.sum() > self.max_gross_exposure + 1e-8):
+            raise ValueError("Targets violate long-only position or gross-exposure caps")
         # Mark existing holdings at today's open before changing the portfolio.
         equity_open = self.cash + sum(self.shares[t] * open_prices[t] for t in self.tickers)
         if not np.isfinite(equity_open) or equity_open <= 0:
@@ -80,9 +89,12 @@ class PPOShadowPortfolio:
     def to_state(self):
         return {"tickers": list(self.tickers), "initial_capital": self.initial_capital,
                 "transaction_cost": self.transaction_cost, "slippage": self.slippage,
+                "max_position_size": self.max_position_size,
+                "max_gross_exposure": self.max_gross_exposure,
                 "cash": self.cash, "shares": dict(self.shares), "last_equity": self.last_equity}
 
     @classmethod
     def from_state(cls, state):
         return cls(tuple(state["tickers"]), state["initial_capital"], state["transaction_cost"],
-                   state["slippage"], state["cash"], state["shares"], state["last_equity"])
+                   state["slippage"], state["max_position_size"], state["max_gross_exposure"],
+                   state["cash"], state["shares"], state["last_equity"])

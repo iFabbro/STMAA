@@ -154,7 +154,7 @@ def test_cli_loads_project_dotenv_before_downloading_history(monkeypatch, tmp_pa
         benchmark_cli,
         "compare_walk_forward_report",
         lambda history, report, include_timeseries=False: {
-            "summary": {"fold_count": 1},
+            "summary": {"fold_count": 1, "benchmark_return_wins": 0},
             "folds": [],
         },
     )

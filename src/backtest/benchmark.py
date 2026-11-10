@@ -180,11 +180,13 @@ def evaluate_exposure_matched_equal_weight(
         raise ValueError("PPO exposure trace must contain one row per next-Open execution")
     if not 0 < max_position_size <= 1:
         raise ValueError("max_position_size must be in (0, 1]")
-    rate = float(transaction_cost) + float(slippage)
-    if not np.isfinite([initial_capital, rate, max_position_size]).all():
+    transaction_cost = float(transaction_cost)
+    slippage = float(slippage)
+    rate = transaction_cost + slippage
+    if not np.isfinite([initial_capital, transaction_cost, slippage, rate, max_position_size]).all():
         raise ValueError("benchmark parameters must be finite")
-    if initial_capital <= 0 or rate < 0 or rate >= 1:
-        raise ValueError("capital must be positive and combined costs must be in [0, 1)")
+    if initial_capital <= 0 or transaction_cost < 0 or slippage < 0 or rate >= 1:
+        raise ValueError("capital must be positive and costs must be non-negative with a combined rate below 1")
     open_columns = [f"Open_{ticker}" for ticker in tickers]
     close_columns = [f"Close_{ticker}" for ticker in tickers]
     missing = [column for column in open_columns + close_columns if column not in data]

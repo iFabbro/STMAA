@@ -14,6 +14,8 @@ def _history():
             "Close_A": [10.0, 11.0, 12.0, 13.0],
             "Open_B": [20.0, 20.0, 20.0, 20.0],
             "Close_B": [20.0, 20.0, 20.0, 20.0],
+            "Open_SPY": [100.0, 100.0, 101.0, 102.0],
+            "Close_SPY": [100.0, 101.0, 102.0, 103.0],
         },
         index=index,
     )
@@ -59,4 +61,28 @@ def test_comparison_uses_saved_fold_dates_and_reports_return_difference():
 def test_comparison_rejects_missing_saved_test_dates():
     history = _history().iloc[:3]
     with pytest.raises(ValueError, match="does not exactly cover"):
+        compare_walk_forward_report(history, _report())
+
+
+def test_comparison_adds_spy_at_50_and_100_percent_without_changing_ppo_universe():
+    result = compare_walk_forward_report(_history(), _report())
+    fold = result["folds"][0]
+    assert result["data"]["tickers"] == ["A", "B"]
+    assert result["data"]["benchmark_ticker"] == "SPY"
+    assert fold["spy_50pct_exposure"]["gross_target_exposure"] == pytest.approx(0.5)
+    assert fold["spy_100pct_exposure"]["gross_target_exposure"] == pytest.approx(1.0)
+    assert fold["spy_50pct_exposure"]["entry_execution"] == "next_bar_open"
+    assert fold["spy_100pct_exposure"]["entry_execution"] == "next_bar_open"
+
+
+def test_comparison_rejects_spy_inside_ppo_training_universe():
+    report = _report()
+    report["data"]["tickers"].append("SPY")
+    with pytest.raises(ValueError, match="outside the PPO training ticker universe"):
+        compare_walk_forward_report(_history(), report)
+
+
+def test_comparison_rejects_missing_spy_prices():
+    history = _history().drop(columns=["Open_SPY", "Close_SPY"])
+    with pytest.raises(ValueError, match="missing SPY"):
         compare_walk_forward_report(history, _report())

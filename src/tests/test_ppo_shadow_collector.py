@@ -1,5 +1,6 @@
 """Regression tests for shadow ledger, portfolio, replay, and isolation."""
 import ast
+import hashlib
 import json
 from pathlib import Path
 import numpy as np
@@ -17,7 +18,7 @@ from src.agents.ppo_shadow_replay import replay_shadow_ledger
 def test_model_provenance_verifies_artifact_manifest_and_training_config(tmp_path):
     model_path = tmp_path / "ppo_trading_model.zip"
     artifact = b"verified-test-model"
-    digest = __import__("hashlib").sha256(artifact).hexdigest()
+    digest = hashlib.sha256(artifact).hexdigest()
     artifact_name = f"ppo_trading_model.{digest}.zip"
     (tmp_path / artifact_name).write_bytes(artifact)
     manifest = {

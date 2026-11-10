@@ -130,6 +130,8 @@ def test_walk_forward_runner_trains_only_on_past_and_passes_boundary_close():
 
     assert result["fold_count"] == 3
     assert len(calls) == 3
+    assert all(row["entry_execution"] == "next_bar_open" for row in result["folds"])
+    assert all(len(row["execution_data_fingerprint"]) == 64 for row in result["folds"])
     for call in calls:
         assert call["train_end"] < call["test_start"]
         expected = data.loc[call["train_end"], "Close_A"]

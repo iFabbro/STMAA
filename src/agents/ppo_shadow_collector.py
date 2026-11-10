@@ -69,6 +69,12 @@ class PPOShadowCollector:
         if not isinstance(self.provenance, dict):
             raise ValueError("Shadow provenance must be a dictionary")
         _canonical(self.provenance)
+        frozen_config = self.provenance.get("strategy_config")
+        if frozen_config is not None:
+            for key in ("tickers", "initial_capital", "transaction_cost", "slippage"):
+                configured = list(self.tickers) if key == "tickers" else self.defaults[key]
+                if frozen_config.get(key) != configured:
+                    raise ValueError(f"Collector configuration differs from model provenance: {key}")
 
     def _restore(self):
         records = self.ledger.read()
@@ -83,10 +89,11 @@ class PPOShadowCollector:
                 or metadata.get("config") != config or metadata.get("provenance") != self.provenance):
             raise ValueError("Shadow ledger run metadata differs from active model/configuration")
         portfolio = PPOShadowPortfolio(**self.defaults)
-        pending, last_decision_session, last_event_session, benchmark = None, None, None, None
+        pending, last_decision_session, last_event_session, last_event_type, benchmark = None, None, None, None, None
         for record in records[1:]:
             event = record["payload"]
             last_event_session = event.get("session", last_event_session)
+            last_event_type = event["type"]
             if event["type"] == "portfolio_transition":
                 portfolio = PPOShadowPortfolio.from_state(event["portfolio"])
                 pending = None
@@ -97,7 +104,7 @@ class PPOShadowCollector:
                 raise ValueError(f"Unsupported shadow ledger event: {event.get('type')!r}")
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
-        return portfolio, pending, last_decision_session, last_event_session, benchmark
+        return portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark
 
     @staticmethod
     def _latest(frame, expected_session, label):
@@ -126,12 +133,14 @@ class PPOShadowCollector:
         if not np.isfinite([benchmark_open, benchmark_close]).all() or min(benchmark_open, benchmark_close) <= 0:
             raise ValueError("Benchmark prices must be finite and positive")
 
-        portfolio, pending, last_decision_session, last_event_session, benchmark = self._restore()
+        portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark = self._restore()
         if last_decision_session == session:
             return {"status": "duplicate_session", "session": session}
         if last_event_session is not None and session < last_event_session:
             raise ValueError("Market data moved backwards relative to the ledger")
         if last_event_session is not None and session > last_event_session:
+            if last_event_type != "decision":
+                raise ValueError("Previous session has no completed decision; refusing to skip shadow inference")
             if last_event_session not in session_dates:
                 raise ValueError("Last ledger session is outside the supplied market-data window")
             previous_index = session_dates.index(last_event_session)

@@ -12,6 +12,7 @@ import pandas as pd
 
 from config import BASE_DIR, DATA_DIR
 from data.data_processor import DataProcessor
+from dotenv import load_dotenv
 from train import prepare_historical_data
 from backtest.benchmark import (
     evaluate_equal_weight_buy_and_hold,
@@ -224,6 +225,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     try:
+        load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
         ppo_report = _load_ppo_report(args.ppo_report)
         tickers = list(ppo_report["data"]["tickers"])
         if "SPY" in tickers:

@@ -90,7 +90,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
         def predict_weights(self, frame, current_weights=None):
             raise RuntimeError("inference unavailable")
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
     collector.collect_once()
     feed.session = "2026-01-05"
     failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)

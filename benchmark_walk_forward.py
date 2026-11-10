@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from train import prepare_historical_data
 from backtest.benchmark import (
     evaluate_equal_weight_buy_and_hold,
+    evaluate_exposure_matched_equal_weight,
     evaluate_single_asset_buy_and_hold,
 )
 
@@ -128,6 +129,22 @@ def compare_walk_forward_report(
             slippage=float(parameters["slippage"]),
             include_timeseries=include_timeseries,
         )
+        ppo_trace = ppo_metrics.get("timeseries")
+        if isinstance(ppo_trace, list) and len(ppo_trace) == len(testing) - 1:
+            matched_exposure = evaluate_exposure_matched_equal_weight(
+                testing,
+                tickers,
+                ppo_trace,
+                initial_capital=initial_capital,
+                transaction_cost=float(parameters["transaction_cost"]),
+                slippage=float(parameters["slippage"]),
+                max_position_size=float(parameters["max_position_size"]),
+                include_timeseries=include_timeseries,
+            )
+            matched_exposure_status = "AVAILABLE"
+        else:
+            matched_exposure = None
+            matched_exposure_status = "INCONCLUSIVE"
         spy_100 = evaluate_single_asset_buy_and_hold(
             testing, "SPY", exposure=1.0, initial_capital=initial_capital,
             transaction_cost=float(parameters["transaction_cost"]),
@@ -150,6 +167,8 @@ def compare_walk_forward_report(
                 "execution_data_identity": "PASS" if expected_fingerprint == data_fingerprint else "INCONCLUSIVE",
                 "ppo": ppo_metrics,
                 "equal_weight_buy_and_hold": benchmark,
+                "ppo_exposure_matched_equal_weight": matched_exposure,
+                "ppo_exposure_matched_equal_weight_status": matched_exposure_status,
                 "spy_50pct_exposure": spy_50,
                 "spy_100pct_exposure": spy_100,
                 "comparison": {
@@ -157,6 +176,10 @@ def compare_walk_forward_report(
                         benchmark_return - ppo_return
                     ) * 100.0,
                     "benchmark_outperformed_ppo_return": benchmark_return > ppo_return,
+                    "exposure_matched_return_difference_percentage_points": (
+                        (float(matched_exposure["total_return"]) - ppo_return) * 100.0
+                        if matched_exposure is not None else None
+                    ),
                     "spy_50pct_return_difference_percentage_points": (spy_50_return - ppo_return) * 100.0,
                     "spy_100pct_return_difference_percentage_points": (spy_100_return - ppo_return) * 100.0,
                     "spy_50pct_outperformed_ppo_return": spy_50_return > ppo_return,
@@ -183,7 +206,8 @@ def compare_walk_forward_report(
     spy_100_wins = sum(item["comparison"]["spy_100pct_outperformed_ppo_return"] for item in results)
     return {
         "method": "independent_fold_equal_weight_and_spy_buy_and_hold",
-        "benchmarks": ["equal_weight_buy_and_hold", "SPY_50pct_exposure", "SPY_100pct_exposure"],
+        "benchmarks": ["equal_weight_buy_and_hold", "ppo_exposure_matched_equal_weight", "SPY_50pct_exposure", "SPY_100pct_exposure"],
+        "execution_data_identity": "Per-fold SHA-256 over ordered Open/Close prices and timestamps; a mismatch against the PPO report aborts comparison.",
         "execution_alignment": (
             "Both strategies start all-cash at the first test observation and "
             "first enter at the next bar Open. The benchmark pays the same "

@@ -101,7 +101,7 @@ def test_collector_rejects_non_advancing_session(tmp_path):
     collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"])
     collector.collect_once()
     feed.sessions = ["2026-01-01"]
-    with pytest.raises(ValueError, match="outside the supplied market-data window"):
+    with pytest.raises(ValueError, match="moved backwards"):
         collector.collect_once()
 
 

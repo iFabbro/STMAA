@@ -35,7 +35,8 @@ uv run --locked python walk_forward.py \
   --min-train-observations 756 \
   --test-observations 126 \
   --total-timesteps 50000 \
-  --seed 42
+  --seed 42 \
+  --include-timeseries
 ```
 
 `--end-date` is exclusive. Defaults are 756 training observations and 126
@@ -95,3 +96,6 @@ are not concatenated, compounded, or presented as one continuous equity curve.
 The report therefore measures sensitivity to PPO initialization across the
 fixed evaluation design; it does not create additional independent market
 periods, remove selection bias, or establish profitability.
+
+
+Each fold also stores a SHA-256 fingerprint of its ordered execution Open/Close panel and an explicit next_bar_open declaration. Use --include-timeseries when the report will feed the methodology audit or exposure-matched benchmark; it preserves daily target weights, realized weights, exposure, turnover and costs.

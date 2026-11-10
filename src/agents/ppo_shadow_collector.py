@@ -33,9 +33,14 @@ class PPOShadowCollector:
 
     def collect_once(self, days=100):
         frame = self.feed.get_bars(list(self.tickers), days=days)
-        if not isinstance(frame, pd.DataFrame) or frame.empty or not isinstance(frame.index, pd.DatetimeIndex) or frame.index.has_duplicates:
-            raise ValueError("Feed must return non-empty daily data with a unique DatetimeIndex")
-        session = pd.Timestamp(frame.index[-1]).date().isoformat()
+        if (not isinstance(frame, pd.DataFrame) or frame.empty
+                or not isinstance(frame.index, pd.DatetimeIndex)
+                or frame.index.has_duplicates or not frame.index.is_monotonic_increasing):
+            raise ValueError("Feed must return chronological daily data with a unique DatetimeIndex")
+        session_dates = [pd.Timestamp(value).date().isoformat() for value in frame.index]
+        if len(set(session_dates)) != len(session_dates):
+            raise ValueError("Feed contains multiple bars for one session")
+        session = session_dates[-1]
         row = frame.iloc[-1]
         opens = {t: float(row[f"Open_{t}"]) for t in self.tickers}
         closes = {t: float(row[f"Close_{t}"]) for t in self.tickers}
@@ -44,6 +49,12 @@ class PPOShadowCollector:
             return {"status": "duplicate_session", "session": session}
         if last_event_session is not None and session < last_event_session:
             raise ValueError("Market data moved backwards relative to the ledger")
+        if last_event_session is not None and session > last_event_session:
+            if last_event_session not in session_dates:
+                raise ValueError("Last ledger session is outside the supplied market-data window")
+            previous_index = session_dates.index(last_event_session)
+            if previous_index + 1 >= len(session_dates) or session_dates[previous_index + 1] != session:
+                raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
         transition = None
         if pending is not None:

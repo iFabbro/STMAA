@@ -334,6 +334,13 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
         base["seed_comparisons"] = [seed["folds"][index] for seed in per_seed]
     comparison["method"] = "independent_fold_multi_seed_ppo_vs_equal_weight_and_spy"
     comparison["seeds"] = seeds
+    # Remove the single-seed summary inherited from the reference run: it would
+    # otherwise mislabel the first seed as the aggregate multi-seed result.
+    for key in (
+        "benchmark_return_wins", "ppo_return_wins",
+        "mean_ppo_fold_return", "median_ppo_fold_return",
+    ):
+        comparison["summary"].pop(key, None)
     comparison["summary"]["seed_count"] = len(seeds)
     comparison["summary"]["ppo_run_count"] = len(seeds) * len(reference_folds)
     comparison["summary"]["per_seed"] = [

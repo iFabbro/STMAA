@@ -225,7 +225,8 @@ uv run --locked python benchmark_walk_forward.py \
   --ppo-report reports/ppo_walk_forward_20261109.json \
   --start-date 2018-01-01 \
   --end-date 2026-01-01 \
-  --report-path reports/ppo_benchmark_comparison_20261109.json
+  --report-path reports/ppo_benchmark_comparison_20261109.json \
+  --include-timeseries
 ```
 
 Il benchmark equal-weight usa gli stessi fold OOS, capitale, costi, slippage e limiti di

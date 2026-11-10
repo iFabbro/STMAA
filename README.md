@@ -243,7 +243,7 @@ continua. La metodologia è descritta in [docs/PPO_BENCHMARK.md](docs/PPO_BENCHM
 
 ### Confronto multi-seed: risultati e limiti (10 novembre 2026)
 
-L'analisi descrittiva completata usa 3 inizializzazioni PPO (seed 42, 7 e 21) sugli stessi 11 fold walk-forward: 33 valutazioni seed/fold, ma soltanto 11 periodi di mercato distinti. Le inizializzazioni multiple misurano la sensibilità alla casualità del training; non moltiplicano il numero di periodi OOS indipendenti.
+L'analisi descrittiva completata usa 3 inizializzazioni PPO (seed 42, 7 e 21) sugli stessi 11 fold walk-forward: 33 valutazioni seed/fold, ma soltanto 11 periodi di mercato distinti. Il dataset analizzato comprendeva 7 ticker, dal 30 gennaio 2018 al 6 novembre 2026, per 2.206 osservazioni. Le inizializzazioni multiple misurano la sensibilità alla casualità del training; non moltiplicano il numero di periodi OOS indipendenti.
 
 | Indicatore | Risultato descrittivo |
 |---|---:|
@@ -291,6 +291,8 @@ unavailable). Le soglie predefinite sono 1.200 secondi per la freschezza
 2% per segnalare spread ampi. Sono configurabili tramite
 STMAA_QUOTE_MAX_AGE_SECONDS, STMAA_QUOTE_FUTURE_TOLERANCE_SECONDS e
 STMAA_QUOTE_WIDE_SPREAD_PCT.
+
+Il feed delle barre storiche e quello delle quotazioni recenti sono configurazioni distinte: `DATA_FEED` governa le barre strategiche (SIP), mentre `DATA_QUOTE_FEED` governa le quotazioni (delayed SIP nella configurazione attuale). La telemetria distingue la sorgente della quotazione e controlla freschezza, timestamp futuri e spread; il confronto con IEX è diagnostico e non sostituisce il feed SIP del contratto PPO. Un dato obsoleto o incoerente deve restare visibile come tale e non essere interpretato come prova di freschezza del feed.
 
 I campi sono esclusivamente diagnostici: non modificano il prezzo medio,
 il contratto dati PPO, i manifest, i segnali, i pesi, il risk overlay o il

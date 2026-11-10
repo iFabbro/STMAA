@@ -42,12 +42,20 @@ def _agent_provenance(agent):
     for key, value in expected.items():
         if manifest.get(key) != value:
             raise ValueError(f"PPO manifest does not match active agent setting: {key}")
+    training = manifest.get("training")
+    if (manifest.get("contract_version") != 7
+            or manifest.get("action_contract") != "long_only_capped_target_weights_zero_floor"
+            or manifest.get("execution_contract") != "close_signal_next_bar_open_fill"
+            or manifest.get("observation_contract") != "dimensionless_ohlc_features_v1"
+            or not isinstance(training, dict)
+            or training.get("initial_capital") != float(agent.initial_capital)):
+        raise ValueError("PPO manifest model/training contract differs from active agent")
     return {
         "model_sha256": digest,
         "artifact_file": artifact_name,
         "manifest_sha256": hashlib.sha256(_canonical(manifest)).hexdigest(),
         "contract_version": manifest.get("contract_version"),
-        "training": manifest.get("training", {}),
+        "training": training,
         "strategy_config": {
             **expected,
             "initial_capital": float(agent.initial_capital),

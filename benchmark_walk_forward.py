@@ -334,7 +334,17 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
         ):
             raise ValueError("Multi-seed PPO fold is missing total_return metrics")
 
-    single = {**ppo_report, "folds": reference_folds}
+    # A single benchmark schedule cannot represent several distinct PPO
+    # exposure schedules. Keep multi-seed exposure matching explicitly
+    # inconclusive until a per-seed comparator is computed.
+    reference_folds_for_benchmark = []
+    for fold in reference_folds:
+        benchmark_fold = dict(fold)
+        benchmark_metrics = dict(fold["metrics"])
+        benchmark_metrics.pop("timeseries", None)
+        benchmark_fold["metrics"] = benchmark_metrics
+        reference_folds_for_benchmark.append(benchmark_fold)
+    single = {**ppo_report, "folds": reference_folds_for_benchmark}
     single.pop("runs", None)
     comparison = compare_walk_forward_report(history, single, include_timeseries=include_timeseries)
     per_seed = []

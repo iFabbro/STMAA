@@ -128,7 +128,12 @@ def evaluate_single_asset_buy_and_hold(
     """Evaluate one ETF at fixed exposure, without the PPO per-name cap."""
     if not isinstance(ticker, str) or not ticker.strip():
         raise ValueError("ticker must be a non-empty symbol")
-    if isinstance(exposure, bool) or not np.isfinite(exposure) or not 0 < exposure <= 1:
+    if (
+        isinstance(exposure, bool)
+        or not isinstance(exposure, (int, float, np.integer, np.floating))
+        or not np.isfinite(exposure)
+        or not 0 < exposure <= 1
+    ):
         raise ValueError("exposure must be finite and in (0, 1]")
     result = evaluate_equal_weight_buy_and_hold(
         data, [ticker], initial_capital=initial_capital,

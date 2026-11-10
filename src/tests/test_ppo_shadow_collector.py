@@ -64,10 +64,13 @@ class FakeAgent:
         return np.asarray([.2, .1])
 
 
+TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64}
+
+
 def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     feed = FakeFeed()
     path = tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
     assert collector.collect_once()["executed_pending_target"] is False
     assert collector.collect_once()["status"] == "duplicate_session"
     feed.session = "2026-01-05"
@@ -76,6 +79,10 @@ def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     assert replay["decision_count"] == 2
     assert replay["transition_count"] == 1
     assert replay["portfolio"]["last_equity"] > 10000
+    assert replay["benchmark"]["last_equity"] > 10000
+    assert replay["provenance"] == TEST_PROVENANCE
+    assert replay["last_decision"]["feature_snapshot"]["Close_AAA"] == 101.0
+    assert replay["last_decision"]["benchmark_snapshot"]["ticker"] == "SPY"
 
 
 def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path):
@@ -86,7 +93,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
     collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
     collector.collect_once()
     feed.session = "2026-01-05"
-    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
+    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
     with pytest.raises(RuntimeError, match="inference unavailable"):
         failing.collect_once()
     assert replay_shadow_ledger(path)["transition_count"] == 1
@@ -98,7 +105,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
 
 def test_collector_rejects_non_advancing_session(tmp_path):
     feed = FakeFeed()
-    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"])
+    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"], provenance=TEST_PROVENANCE)
     collector.collect_once()
     feed.sessions = ["2026-01-01"]
     with pytest.raises(ValueError, match="moved backwards"):
@@ -107,7 +114,7 @@ def test_collector_rejects_non_advancing_session(tmp_path):
 
 def test_collector_rejects_skipped_market_sessions(tmp_path):
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"])
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], provenance=TEST_PROVENANCE)
     collector.collect_once()
     feed.session = "2026-01-05"
     feed.session = "2026-01-06"

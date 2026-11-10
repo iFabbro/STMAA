@@ -24,6 +24,8 @@ class PPOShadowCollector:
                 pending = None
             elif event["type"] == "decision":
                 pending, last_decision_session = event, event["session"]
+            else:
+                raise ValueError(f"Unsupported shadow ledger event: {event.get('type')!r}")
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
         return portfolio, pending, last_decision_session

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 
@@ -43,6 +44,7 @@ def _agent_provenance(agent):
         if manifest.get(key) != value:
             raise ValueError(f"PPO manifest does not match active agent setting: {key}")
     training = manifest.get("training")
+    validate_market_data_contract(manifest.get("market_data_contract"))
     if (manifest.get("contract_version") != 7
             or manifest.get("action_contract") != "long_only_capped_target_weights_zero_floor"
             or manifest.get("execution_contract") != "close_signal_next_bar_open_fill"

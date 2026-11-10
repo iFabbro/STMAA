@@ -3,6 +3,7 @@
 import pandas as pd
 import pytest
 
+import benchmark_walk_forward as benchmark_cli
 from benchmark_walk_forward import compare_walk_forward_report
 
 
@@ -129,3 +130,50 @@ def test_multi_seed_comparison_rejects_changed_fold_layout():
     base.pop("folds")
     with pytest.raises(ValueError, match="inconsistent fold boundaries"):
         compare_multi_seed_walk_forward_report(_history(), base)
+
+
+
+def test_cli_loads_project_dotenv_before_downloading_history(monkeypatch, tmp_path):
+    events = []
+    monkeypatch.setattr(
+        benchmark_cli,
+        "load_dotenv",
+        lambda **kwargs: events.append(("dotenv", kwargs)),
+    )
+    monkeypatch.setattr(benchmark_cli, "_load_ppo_report", lambda path: _report())
+    monkeypatch.setattr(benchmark_cli, "DataProcessor", lambda path: object())
+
+    def fake_prepare_historical_data(processor, tickers, start_date, end_date):
+        events.append(("history", tickers))
+        return _history()
+
+    monkeypatch.setattr(
+        benchmark_cli, "prepare_historical_data", fake_prepare_historical_data
+    )
+    monkeypatch.setattr(
+        benchmark_cli,
+        "compare_walk_forward_report",
+        lambda history, report, include_timeseries=False: {
+            "summary": {"fold_count": 1},
+            "folds": [],
+        },
+    )
+
+    benchmark_cli.main(
+        [
+            "--ppo-report",
+            str(tmp_path / "ppo.json"),
+            "--start-date",
+            "2024-01-01",
+            "--end-date",
+            "2024-02-01",
+            "--report-path",
+            str(tmp_path / "comparison.json"),
+        ]
+    )
+
+    assert [event[0] for event in events] == ["dotenv", "history"]
+    assert events[0][1] == {
+        "dotenv_path": benchmark_cli.BASE_DIR / ".env",
+        "override": False,
+    }

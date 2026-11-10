@@ -32,7 +32,7 @@ def test_virtual_portfolio_uses_open_for_rebalance_and_close_for_mark():
                                  {"AAA": 110, "BBB": 50}, "2026-01-05")
     assert result["equity_open"] == pytest.approx(10000)
     assert result["transaction_cost"] == pytest.approx(3)
-    assert result["equity_close"] == pytest.approx(2197) + 8000 - 3
+    assert result["equity_close"] == pytest.approx(10197)
 
 
 class FakeFeed:
@@ -64,6 +64,24 @@ def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     assert replay["portfolio"]["last_equity"] > 10000
 
 
+def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path):
+    class FailingAgent:
+        def predict_weights(self, frame, current_weights=None):
+            raise RuntimeError("inference unavailable")
+    feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
+    collector.collect_once()
+    feed.session = "2026-01-05"
+    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000)
+    with pytest.raises(RuntimeError, match="inference unavailable"):
+        failing.collect_once()
+    assert replay_shadow_ledger(path)["transition_count"] == 1
+    # Retry same session: the old target has already been consumed, so no duplicate fill.
+    retried = collector.collect_once()
+    assert retried["executed_pending_target"] is False
+    assert replay_shadow_ledger(path)["transition_count"] == 1
+
+
 def test_collector_rejects_non_advancing_session(tmp_path):
     feed = FakeFeed()
     collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"])
@@ -73,11 +91,22 @@ def test_collector_rejects_non_advancing_session(tmp_path):
         collector.collect_once()
 
 
-def test_shadow_modules_do_not_import_broker_execution_clients():
+def test_shadow_modules_do_not_import_or_call_broker_execution_clients():
     paths = [Path("src/agents/ppo_shadow_collector.py"), Path("src/agents/ppo_shadow_ledger.py"),
              Path("src/agents/ppo_shadow_portfolio.py"), Path("src/agents/ppo_shadow_replay.py")]
-    forbidden = {"trade", "alpaca.trading", "alpaca.trading.client"}
+    forbidden_modules = {"trade", "alpaca.trading", "alpaca.trading.client"}
+    forbidden_calls = {"submit_order", "submit_orders", "replace_order", "cancel_order",
+                       "cancel_orders", "close_position", "close_all_positions"}
     for path in paths:
-        for node in ast.walk(ast.parse(path.read_text())):
-            names = [a.name for a in node.names] if isinstance(node, ast.Import) else ([node.module or ""] if isinstance(node, ast.ImportFrom) else [])
-            assert not any(n == f or n.startswith(f + ".") for n in names for f in forbidden), str(path)
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                names = []
+            assert not any(n == f or n.startswith(f + ".") for n in names for f in forbidden_modules), str(path)
+            if isinstance(node, ast.Call):
+                called = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ""
+                assert called not in forbidden_calls, f"{called} in {path}"

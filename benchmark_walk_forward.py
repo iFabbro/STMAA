@@ -244,16 +244,16 @@ def main(argv=None):
     )
     print("PPO versus equal-weight buy-and-hold comparison completed.")
     print(f"Folds: {comparison['summary']['fold_count']}")
-    print(
-        "Benchmark return wins: "
-        f"{comparison['summary']['benchmark_return_wins']}"
-    )
+    if "benchmark_return_wins" in comparison["summary"]:
+        print(
+            "Equal-weight benchmark return wins: "
+            f"{comparison['summary']['benchmark_return_wins']}"
+        )
+    else:
+        print(f"Multi-seed runs: {comparison['summary']['ppo_run_count']}")
+        print("Per-seed benchmark wins are available in the JSON report.")
     print(f"Report: {output_path}")
     print("Fold results are independent diagnostics, not a continuous portfolio record.")
-
-
-if __name__ == "__main__":
-    main()
 
 
 def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: dict) -> dict:
@@ -352,3 +352,8 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
         "PPO seed/fold runs remain independent; returns are not concatenated or compounded."
     )
     return comparison
+
+
+
+if __name__ == "__main__":
+    main()

@@ -205,17 +205,18 @@ def compare_walk_forward_report(
     spy_50_wins = sum(item["comparison"]["spy_50pct_outperformed_ppo_return"] for item in results)
     spy_100_wins = sum(item["comparison"]["spy_100pct_outperformed_ppo_return"] for item in results)
     return {
-        "method": "independent_fold_equal_weight_and_spy_buy_and_hold",
+        "method": "independent_fold_equal_weight_spy_and_ppo_exposure_matched",
         "benchmarks": ["equal_weight_buy_and_hold", "ppo_exposure_matched_equal_weight", "SPY_50pct_exposure", "SPY_100pct_exposure"],
         "execution_data_identity": "Per-fold SHA-256 over ordered Open/Close prices and timestamps; a mismatch against the PPO report aborts comparison.",
         "execution_alignment": (
-            "Both strategies start all-cash at the first test observation and "
-            "first enter at the next bar Open. The benchmark pays the same "
-            "turnover-based transaction_cost plus slippage, uses the same "
-            "per-position and gross-exposure caps for equal-weight. SPY is evaluated "
-            "separately at fixed 50% and 100% exposure without the PPO per-position "
-            "cap. All benchmarks use next-bar Open entry, identical cost and slippage "
-            "rates, and no rebalancing."
+            "All simulations start all-cash at the first test observation and "
+            "first execute at the next bar Open. Static equal-weight and SPY "
+            "references buy once and do not rebalance. The PPO exposure-matched "
+            "equal-weight comparator rebalances at each next bar Open using only "
+            "the PPO target gross exposure for that bar, distributed equally "
+            "across the PPO universe. Every strategy uses the same transaction-cost "
+            "and slippage rates with turnover-based costs; the static equal-weight "
+            "reference also uses the PPO per-position and gross-exposure caps."
         ),
         "aggregation": (
             "Fold results are independent all-cash simulations. Summary averages "

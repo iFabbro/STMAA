@@ -60,3 +60,13 @@ benchmark that performs better in a given period indicates that PPO's active
 decisions did not add value in that period under the modeled costs and
 constraints. Neither result establishes future profitability or readiness
 for live trading.
+
+
+## Multi-seed report compatibility
+
+The comparison CLI also accepts the JSON report produced by the multi-seed
+walk-forward runner. It verifies that every seed uses the same fold boundaries,
+evaluates each passive benchmark once per market fold, and compares every
+seed/fold PPO result against that shared benchmark result. Benchmark results
+are not duplicated as if they were independent observations. Per-seed results
+remain separate, and PPO returns are never concatenated across folds.

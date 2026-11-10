@@ -1,50 +1,132 @@
 """Independent read-only PPO shadow collector; no broker execution imports."""
+import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 
 
+def _canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def _agent_provenance(agent):
+    """Verify the loaded PPO artifact against its immutable manifest."""
+    if not getattr(agent, "inference_available", False):
+        raise ValueError("PPO agent is not validated and inference-ready")
+    model_path = Path(agent.model_path)
+    manifest_path = Path(str(model_path) + ".metadata.json")
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError("PPO artifact manifest is missing or unsafe")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_name = manifest.get("artifact_file")
+    if not isinstance(artifact_name, str) or Path(artifact_name).name != artifact_name:
+        raise ValueError("PPO manifest has an invalid artifact filename")
+    artifact_path = model_path.parent / artifact_name
+    if artifact_path.is_symlink() or not artifact_path.is_file():
+        raise ValueError("PPO model artifact is missing or unsafe")
+    digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if digest != manifest.get("model_sha256"):
+        raise ValueError("PPO model artifact SHA-256 does not match its manifest")
+    expected = {
+        "tickers": list(agent.tickers),
+        "transaction_cost": float(agent.transaction_cost),
+        "slippage": float(agent.slippage),
+        "max_position_size": float(agent.max_position_size),
+        "max_gross_exposure": float(agent.max_gross_exposure),
+    }
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            raise ValueError(f"PPO manifest does not match active agent setting: {key}")
+    return {
+        "model_sha256": digest,
+        "artifact_file": artifact_name,
+        "manifest_sha256": hashlib.sha256(_canonical(manifest)).hexdigest(),
+        "contract_version": manifest.get("contract_version"),
+        "training": manifest.get("training", {}),
+        "strategy_config": {
+            **expected,
+            "initial_capital": float(agent.initial_capital),
+        },
+    }
+
+
 class PPOShadowCollector:
     def __init__(self, agent, feed, ledger_path, tickers, initial_capital=100000.0,
-                 transaction_cost=0.001, slippage=0.0005):
+                 transaction_cost=0.001, slippage=0.0005, benchmark_ticker="SPY",
+                 provenance=None):
         self.agent, self.feed = agent, feed
         self.ledger = PPOShadowLedger(ledger_path)
         self.tickers = tuple(tickers)
+        self.benchmark_ticker = benchmark_ticker
         self.defaults = dict(tickers=self.tickers, initial_capital=initial_capital,
                              transaction_cost=transaction_cost, slippage=slippage)
+        self.provenance = provenance if provenance is not None else _agent_provenance(agent)
+        if not isinstance(self.provenance, dict):
+            raise ValueError("Shadow provenance must be a dictionary")
+        _canonical(self.provenance)
 
     def _restore(self):
+        records = self.ledger.read()
+        config = {**self.defaults, "tickers": list(self.tickers),
+                  "benchmark_ticker": self.benchmark_ticker}
+        if not records:
+            self.ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
+                                "config": config, "provenance": self.provenance})
+            records = self.ledger.read()
+        metadata = records[0]["payload"]
+        if (metadata.get("type") != "run_metadata" or metadata.get("schema") != "ppo_shadow_v1"
+                or metadata.get("config") != config or metadata.get("provenance") != self.provenance):
+            raise ValueError("Shadow ledger run metadata differs from active model/configuration")
         portfolio = PPOShadowPortfolio(**self.defaults)
-        pending, last_decision_session, last_event_session = None, None, None
-        for record in self.ledger.read():
+        pending, last_decision_session, last_event_session, benchmark = None, None, None, None
+        for record in records[1:]:
             event = record["payload"]
             last_event_session = event.get("session", last_event_session)
             if event["type"] == "portfolio_transition":
                 portfolio = PPOShadowPortfolio.from_state(event["portfolio"])
                 pending = None
+                benchmark = event["benchmark"]
             elif event["type"] == "decision":
                 pending, last_decision_session = event, event["session"]
             else:
                 raise ValueError(f"Unsupported shadow ledger event: {event.get('type')!r}")
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
-        return portfolio, pending, last_decision_session, last_event_session
+        return portfolio, pending, last_decision_session, last_event_session, benchmark
 
-    def collect_once(self, days=100):
-        frame = self.feed.get_bars(list(self.tickers), days=days)
+    @staticmethod
+    def _latest(frame, expected_session, label):
         if (not isinstance(frame, pd.DataFrame) or frame.empty
                 or not isinstance(frame.index, pd.DatetimeIndex)
                 or frame.index.has_duplicates or not frame.index.is_monotonic_increasing):
-            raise ValueError("Feed must return chronological daily data with a unique DatetimeIndex")
-        session_dates = [pd.Timestamp(value).date().isoformat() for value in frame.index]
-        if len(set(session_dates)) != len(session_dates):
-            raise ValueError("Feed contains multiple bars for one session")
-        session = session_dates[-1]
-        row = frame.iloc[-1]
-        opens = {t: float(row[f"Open_{t}"]) for t in self.tickers}
-        closes = {t: float(row[f"Close_{t}"]) for t in self.tickers}
-        portfolio, pending, last_decision_session, last_event_session = self._restore()
+            raise ValueError(f"{label} feed must return chronological daily data with a unique DatetimeIndex")
+        dates = [pd.Timestamp(value).date().isoformat() for value in frame.index]
+        if len(set(dates)) != len(dates) or dates[-1] != expected_session:
+            raise ValueError(f"{label} data is not aligned to the model market-data session")
+        return dates
+
+    def collect_once(self, days=100):
+        frame = self.feed.get_bars(list(self.tickers), days=days)
+        if not isinstance(frame, pd.DataFrame) or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+            raise ValueError("Model feed returned no valid daily market data")
+        session = pd.Timestamp(frame.index[-1]).date().isoformat()
+        session_dates = self._latest(frame, session, "Model")
+        benchmark_frame = self.feed.get_bars([self.benchmark_ticker], days=days)
+        self._latest(benchmark_frame, session, "Benchmark")
+        model_row, benchmark_row = frame.iloc[-1], benchmark_frame.iloc[-1]
+        opens = {t: float(model_row[f"Open_{t}"]) for t in self.tickers}
+        closes = {t: float(model_row[f"Close_{t}"]) for t in self.tickers}
+        benchmark_open = float(benchmark_row[f"Open_{self.benchmark_ticker}"])
+        benchmark_close = float(benchmark_row[f"Close_{self.benchmark_ticker}"])
+        if not np.isfinite([benchmark_open, benchmark_close]).all() or min(benchmark_open, benchmark_close) <= 0:
+            raise ValueError("Benchmark prices must be finite and positive")
+
+        portfolio, pending, last_decision_session, last_event_session, benchmark = self._restore()
         if last_decision_session == session:
             return {"status": "duplicate_session", "session": session}
         if last_event_session is not None and session < last_event_session:
@@ -56,17 +138,34 @@ class PPOShadowCollector:
             if previous_index + 1 >= len(session_dates) or session_dates[previous_index + 1] != session:
                 raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
-        transition = None
+        transition, benchmark_metrics = None, None
         if pending is not None:
             if session <= pending["session"]:
                 raise ValueError("Market data did not advance beyond pending signal")
             transition = portfolio.rebalance_at_open(pending["target_weights"], opens, closes, session)
-            # Persist the transition before inference. On restart, this event clears
-            # the old pending target, so a failed inference cannot execute it twice.
+            if benchmark is None:
+                benchmark = {
+                    "ticker": self.benchmark_ticker,
+                    "shares": float(self.defaults["initial_capital"]) / benchmark_open,
+                    "last_equity": float(self.defaults["initial_capital"]),
+                    "start_session": session,
+                }
+            benchmark_equity_open = benchmark["shares"] * benchmark_open
+            benchmark_equity_close = benchmark["shares"] * benchmark_close
+            benchmark_metrics = {
+                "session": session, "ticker": self.benchmark_ticker,
+                "equity_open": benchmark_equity_open,
+                "equity_close": benchmark_equity_close,
+                "step_return": benchmark_equity_close / benchmark["last_equity"] - 1.0,
+            }
+            benchmark = {**benchmark, "last_equity": benchmark_equity_close}
             self.ledger.append({"type": "portfolio_transition", "session": session,
                                 "signal_session": pending["session"], "portfolio": portfolio.to_state(),
-                                "metrics": transition,
-                                "market_data_fingerprint": frame.attrs.get("market_data_fingerprint")})
+                                "metrics": transition, "benchmark": benchmark,
+                                "benchmark_metrics": benchmark_metrics,
+                                "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
+                                "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
+
         current = portfolio.weights(closes)
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
         if target.shape != (len(self.tickers),) or not np.isfinite(target).all():
@@ -74,13 +173,18 @@ class PPOShadowCollector:
         if (target < 0).any() or (target > 0.2 + 1e-8).any() or target.sum() > 0.5 + 1e-8:
             raise ValueError("PPO target violates the configured long-only allocation caps")
         target_map = dict(zip(self.tickers, target.tolist(), strict=True))
+        feature_snapshot = {str(key): float(value) for key, value in model_row.items()}
         self.ledger.append({"type": "decision", "session": session, "target_weights": target_map,
-                            "current_weights": current,
+                            "current_weights": current, "feature_snapshot": feature_snapshot,
+                            "benchmark_snapshot": {"ticker": self.benchmark_ticker,
+                                                   "open": benchmark_open, "close": benchmark_close},
                             "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
-                            "market_data_contract": frame.attrs.get("market_data_contract")})
+                            "market_data_contract": frame.attrs.get("market_data_contract"),
+                            "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
         return {"status": "collected", "session": session,
                 "executed_pending_target": transition is not None,
-                "target_weights": target_map, "portfolio": portfolio.to_state()}
+                "target_weights": target_map, "portfolio": portfolio.to_state(),
+                "benchmark": benchmark, "benchmark_metrics": benchmark_metrics}
 
 
 def build_default_collector(agent, ledger_path, tickers, **portfolio_options):

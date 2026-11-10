@@ -31,8 +31,9 @@ def _agent_provenance(agent):
     if artifact_path.is_symlink() or not artifact_path.is_file():
         raise ValueError("PPO model artifact is missing or unsafe")
     digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-    if digest != manifest.get("model_sha256"):
-        raise ValueError("PPO model artifact SHA-256 does not match its manifest")
+    expected_name = f"{model_path.stem}.{digest}{model_path.suffix or '.zip'}"
+    if digest != manifest.get("model_sha256") or artifact_name != expected_name:
+        raise ValueError("PPO model artifact identity does not match its manifest SHA-256")
     expected = {
         "tickers": list(agent.tickers),
         "transaction_cost": float(agent.transaction_cost),

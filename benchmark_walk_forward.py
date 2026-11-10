@@ -13,7 +13,10 @@ import pandas as pd
 from config import BASE_DIR, DATA_DIR
 from data.data_processor import DataProcessor
 from train import prepare_historical_data
-from backtest.benchmark import evaluate_equal_weight_buy_and_hold
+from backtest.benchmark import (
+    evaluate_equal_weight_buy_and_hold,
+    evaluate_single_asset_buy_and_hold,
+)
 
 
 _REQUIRED_TRAINING_PARAMETERS = (
@@ -52,6 +55,10 @@ def compare_walk_forward_report(
 ) -> dict:
     """Evaluate the equal-weight baseline on the exact saved PPO test dates."""
     tickers = ppo_report["data"]["tickers"]
+    if "SPY" in tickers:
+        raise ValueError("SPY must remain outside the PPO training ticker universe")
+    if not {"Open_SPY", "Close_SPY"}.issubset(history.columns):
+        raise ValueError("Market data is missing SPY Open/Close prices")
     parameters = ppo_report["training_parameters"]
     initial_capital = float(parameters["initial_capital"])
     previous_test_end = None
@@ -97,8 +104,20 @@ def compare_walk_forward_report(
             max_position_size=float(parameters["max_position_size"]),
             max_gross_exposure=float(parameters["max_gross_exposure"]),
         )
+        spy_50 = evaluate_single_asset_buy_and_hold(
+            testing, "SPY", exposure=0.5, initial_capital=initial_capital,
+            transaction_cost=float(parameters["transaction_cost"]),
+            slippage=float(parameters["slippage"]),
+        )
+        spy_100 = evaluate_single_asset_buy_and_hold(
+            testing, "SPY", exposure=1.0, initial_capital=initial_capital,
+            transaction_cost=float(parameters["transaction_cost"]),
+            slippage=float(parameters["slippage"]),
+        )
         ppo_return = float(ppo_metrics["total_return"])
         benchmark_return = float(benchmark["total_return"])
+        spy_50_return = float(spy_50["total_return"])
+        spy_100_return = float(spy_100["total_return"])
         ppo_sharpe = ppo_metrics.get("sharpe_ratio")
         benchmark_sharpe = benchmark.get("sharpe_ratio")
         results.append(
@@ -109,11 +128,17 @@ def compare_walk_forward_report(
                 "observations": len(testing),
                 "ppo": ppo_metrics,
                 "equal_weight_buy_and_hold": benchmark,
+                "spy_50pct_exposure": spy_50,
+                "spy_100pct_exposure": spy_100,
                 "comparison": {
                     "return_difference_percentage_points": (
                         benchmark_return - ppo_return
                     ) * 100.0,
                     "benchmark_outperformed_ppo_return": benchmark_return > ppo_return,
+                    "spy_50pct_return_difference_percentage_points": (spy_50_return - ppo_return) * 100.0,
+                    "spy_100pct_return_difference_percentage_points": (spy_100_return - ppo_return) * 100.0,
+                    "spy_50pct_outperformed_ppo_return": spy_50_return > ppo_return,
+                    "spy_100pct_outperformed_ppo_return": spy_100_return > ppo_return,
                     "sharpe_difference": (
                         float(benchmark_sharpe) - float(ppo_sharpe)
                         if benchmark_sharpe is not None and ppo_sharpe is not None
@@ -130,14 +155,21 @@ def compare_walk_forward_report(
     wins = sum(
         item["comparison"]["benchmark_outperformed_ppo_return"] for item in results
     )
+    spy_50_returns = [float(item["spy_50pct_exposure"]["total_return"]) for item in results]
+    spy_100_returns = [float(item["spy_100pct_exposure"]["total_return"]) for item in results]
+    spy_50_wins = sum(item["comparison"]["spy_50pct_outperformed_ppo_return"] for item in results)
+    spy_100_wins = sum(item["comparison"]["spy_100pct_outperformed_ppo_return"] for item in results)
     return {
-        "method": "independent_fold_equal_weight_buy_and_hold",
-        "benchmark": "equal_weight_buy_and_hold",
+        "method": "independent_fold_equal_weight_and_spy_buy_and_hold",
+        "benchmarks": ["equal_weight_buy_and_hold", "SPY_50pct_exposure", "SPY_100pct_exposure"],
         "execution_alignment": (
             "Both strategies start all-cash at the first test observation and "
             "first enter at the next bar Open. The benchmark pays the same "
             "turnover-based transaction_cost plus slippage, uses the same "
-            "per-position and gross-exposure caps, and does not rebalance after entry."
+            "per-position and gross-exposure caps for equal-weight. SPY is evaluated "
+            "separately at fixed 50% and 100% exposure without the PPO per-position "
+            "cap. All benchmarks use next-bar Open entry, identical cost and slippage "
+            "rates, and no rebalancing."
         ),
         "aggregation": (
             "Fold results are independent all-cash simulations. Summary averages "
@@ -145,6 +177,7 @@ def compare_walk_forward_report(
         ),
         "data": {
             "tickers": tickers,
+            "benchmark_ticker": "SPY",
             "observations": len(history),
             "start_date": str(history.index.min()),
             "end_date": str(history.index.max()),
@@ -160,6 +193,12 @@ def compare_walk_forward_report(
             "mean_benchmark_fold_return": sum(benchmark_returns) / len(benchmark_returns),
             "median_ppo_fold_return": float(pd.Series(ppo_returns).median()),
             "median_benchmark_fold_return": float(pd.Series(benchmark_returns).median()),
+            "spy_50pct_exposure_return_wins": spy_50_wins,
+            "spy_100pct_exposure_return_wins": spy_100_wins,
+            "mean_spy_50pct_exposure_fold_return": sum(spy_50_returns) / len(spy_50_returns),
+            "median_spy_50pct_exposure_fold_return": float(pd.Series(spy_50_returns).median()),
+            "mean_spy_100pct_exposure_fold_return": sum(spy_100_returns) / len(spy_100_returns),
+            "median_spy_100pct_exposure_fold_return": float(pd.Series(spy_100_returns).median()),
         },
         "folds": results,
     }
@@ -178,8 +217,10 @@ def main(argv=None):
     try:
         ppo_report = _load_ppo_report(args.ppo_report)
         tickers = list(ppo_report["data"]["tickers"])
+        if "SPY" in tickers:
+            raise ValueError("SPY must remain outside the PPO training ticker universe")
         history = prepare_historical_data(
-            DataProcessor(DATA_DIR), tickers, args.start_date, args.end_date
+            DataProcessor(DATA_DIR), [*tickers, "SPY"], args.start_date, args.end_date
         )
         comparison = compare_walk_forward_report(history, ppo_report)
     except (ValueError, OSError) as exc:

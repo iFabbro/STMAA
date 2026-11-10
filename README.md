@@ -241,6 +241,47 @@ slippage. Il report confronta le metriche per fold; le
 simulazioni restano indipendenti e non costituiscono una curva patrimoniale
 continua. La metodologia è descritta in [docs/PPO_BENCHMARK.md](docs/PPO_BENCHMARK.md).
 
+### Confronto multi-seed: risultati e limiti (10 novembre 2026)
+
+L'analisi descrittiva completata usa 3 inizializzazioni PPO (seed 42, 7 e 21) sugli stessi 11 fold walk-forward: 33 valutazioni seed/fold, ma soltanto 11 periodi di mercato distinti. Le inizializzazioni multiple misurano la sensibilità alla casualità del training; non moltiplicano il numero di periodi OOS indipendenti.
+
+| Indicatore | Risultato descrittivo |
+|---|---:|
+| Fold con rendimento netto positivo | 24/33 (72,7%) |
+| Rendimento netto medio per fold | +3,5535% |
+| Rendimento netto mediano per fold | +4,5912% |
+| Intervallo dei rendimenti | -15,6523% / +19,0003% |
+| Drawdown medio per fold, aggregato descrittivo | circa -9,48% |
+| Peggior drawdown osservato | -27,1549% |
+
+Le medie dei rendimenti per seed sono: +5,6436% (seed 42), +2,9976% (seed 7) e +2,0193% (seed 21). Le medie Sharpe per seed sono rispettivamente 0,976, 0,675 e 0,419; le medie Sortino sono 1,524, 1,147 e 0,624. La volatilità annualizzata media per seed è compresa tra 13,68% e 14,45%. Questi valori sono medie aritmetiche di metriche calcolate separatamente per fold: non sono metriche di un portafoglio aggregato e non devono essere interpretati come un track record composto.
+
+Ogni fold parte da capitale indipendente in liquidità (capitale iniziale di riferimento 100.000 USD) e contiene 125 periodi giornalieri. Il CAGR riportato per fold è un'annualizzazione matematica di un intervallo di circa sei mesi, non un rendimento annuo effettivamente osservato. I costi sono già detratti dall'equity nel simulatore: non devono essere sottratti una seconda volta. Le ipotesi di commissione e slippage restano un modello, non una misura garantita dei costi reali di mercato, spread e market impact.
+
+Il confronto benchmark resta diagnostico: nei 33 confronti seed/fold, equal-weight ha superato il rendimento PPO in 19 casi; SPY al 50% in 14 casi; SPY al 100% in 23 casi. Questi conteggi non sono voti statistici indipendenti. SPY al 100% è un riferimento di mercato non scalato, non un confronto a rischio equivalente. Il benchmark exposure-matched equal-weight richiede le tracce giornaliere PPO: è disponibile per report single-seed con trace completa. Nel report multi-seed è intenzionalmente INCONCLUSIVE, perché usare un'unica traiettoria di esposizione per seed diversi falserebbe il confronto.
+
+**Esito della valutazione:** il campione mostra un segnale storico positivo netto, ma non dimostra ancora una redditività robusta né compatibilità con il profilo di rischio previsto. Il peggior drawdown osservato (-27,15%) supera il limite configurato del 15%. Poiché la liquidazione automatica al drawdown è disabilitata per impostazione predefinita, il valore configurato non va descritto come uno stop-loss effettivamente applicato. La multi-seed è quindi un'analisi descrittiva completata, non un PASS di validazione.
+
+### Protocollo holdout finale: stato e regole
+
+I periodi walk-forward e multi-seed già esaminati durante lo sviluppo non sono più un holdout finale intatto. Non si deve rinominare retroattivamente come "final holdout" un intervallo già consultato per diagnosi, confronto o decisioni di sviluppo. Se non esiste una finestra storica documentata come mai ispezionata, la validazione finale dovrà essere prospettica.
+
+Prima di iniziare la raccolta prospettica, il protocollo richiede di congelare e registrare:
+
+1. commit Git e stato pulito del working tree;
+2. file modello content-addressed, SHA-256 e manifest;
+3. seed/modello selezionato prima dell'inizio, senza scegliere a posteriori il seed con il miglior risultato;
+4. universo ticker, contratti dati/feature e feed;
+5. parametri PPO, capitale simulato, limiti di posizione/esposizione e regole di esecuzione;
+6. costi e slippage di base, più scenari di sensibilità predefiniti;
+7. metriche, benchmark e criteri di valutazione.
+
+La finestra prospettica raccomandata è di 252 sedute NYSE completate. Un'eventuale lettura intermedia può controllare soltanto integrità dei dati, disponibilità del processo e correttezza della raccolta; non deve essere usata per cambiare modello, parametri o criteri. Se si interrompe il protocollo per un difetto tecnico, l'interruzione e la causa devono essere registrate prima di decidere se ripartire.
+
+La valutazione finale deve riportare rendimento totale netto dei costi, drawdown massimo, volatilità, Sharpe/Sortino, esposizione, turnover, costi e confronto con equal-weight, SPY 50%, SPY 100% e, quando metodologicamente disponibile, equal-weight a esposizione PPO abbinata. Criteri preliminari: rendimento netto positivo e drawdown massimo non superiore al 15%; le altre metriche sono diagnostiche e vanno lette insieme, non isolate. Il superamento di questi criteri non garantisce risultati futuri.
+
+La raccolta prospettica è inizialmente **shadow/read-only**: nessun ordine viene inviato, cancellato o modificato per effetto del protocollo. Un eventuale test con ordini Alpaca Paper richiederà un'autorizzazione separata e limiti operativi espliciti. Il protocollo non autorizza in alcun modo operazioni live.
+
 ### Qualità delle quotazioni (monitoraggio)
 
 Gli snapshot espongono età, spread assoluto/percentuale e stato qualitativo

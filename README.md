@@ -228,10 +228,14 @@ uv run --locked python benchmark_walk_forward.py \
   --report-path reports/ppo_benchmark_comparison_20261109.json
 ```
 
-Il benchmark usa gli stessi fold OOS, capitale, costi, slippage e limiti di
+Il benchmark equal-weight usa gli stessi fold OOS, capitale, costi, slippage e limiti di
 esposizione del report PPO. Parte in liquidità, entra all'Open della seconda
 barra del fold (come il valutatore PPO), acquista a peso uguale e mantiene le
-quote senza ribilanciamento. Il report confronta le metriche per fold; le
+quote senza ribilanciamento. Il report aggiunge SPY come serie separata dall'universo PPO, con due simulazioni buy-and-hold: esposizione fissa al 50% (riferimento
+a esposizione comparabile) e al 100% (riferimento di mercato non scalato). Per
+SPY non si applica il limite del 20% per singola posizione, perché è un solo ETF;
+entrambi gli scenari usano ingresso al successivo Open e gli stessi costi e
+slippage. Il report confronta le metriche per fold; le
 simulazioni restano indipendenti e non costituiscono una curva patrimoniale
 continua. La metodologia è descritta in [docs/PPO_BENCHMARK.md](docs/PPO_BENCHMARK.md).
 

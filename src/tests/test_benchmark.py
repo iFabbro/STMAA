@@ -83,3 +83,28 @@ def test_equal_weight_benchmark_rejects_invalid_prices():
     data.loc[data.index[1], "Open_A"] = np.nan
     with pytest.raises(ValueError, match="finite"):
         _run(data)
+
+
+def test_single_asset_spy_benchmark_uses_requested_exposure_without_ppo_position_cap():
+    from src.backtest.benchmark import evaluate_single_asset_buy_and_hold
+    data = _prices().rename(columns={"Open_A": "Open_SPY", "Close_A": "Close_SPY"})
+    for exposure in (0.5, 1.0):
+        result = evaluate_single_asset_buy_and_hold(
+            data, "SPY", exposure=exposure, initial_capital=1000.0,
+            transaction_cost=0.001, slippage=0.0005,
+        )
+        assert result["target_weights"] == pytest.approx([exposure])
+        assert result["gross_target_exposure"] == pytest.approx(exposure)
+        assert result["target_exposure"] == pytest.approx(exposure)
+        assert result["entry_execution"] == "next_bar_open"
+
+
+@pytest.mark.parametrize("exposure", [0, -0.1, 1.01, float("nan"), True])
+def test_single_asset_benchmark_rejects_invalid_exposure(exposure):
+    from src.backtest.benchmark import evaluate_single_asset_buy_and_hold
+    with pytest.raises(ValueError, match="exposure"):
+        evaluate_single_asset_buy_and_hold(
+            _prices().rename(columns={"Open_A": "Open_SPY", "Close_A": "Close_SPY"}),
+            "SPY", exposure=exposure, initial_capital=1000.0,
+            transaction_cost=0.001, slippage=0.0005,
+        )

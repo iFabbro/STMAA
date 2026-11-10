@@ -138,10 +138,10 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
         def predict_weights(self, frame, current_weights=None):
             raise RuntimeError("inference unavailable")
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
     collector.collect_once()
     feed.session = "2026-01-05"
-    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE)
+    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
     with pytest.raises(RuntimeError, match="inference unavailable"):
         failing.collect_once()
     assert replay_shadow_ledger(path)["transition_count"] == 1
@@ -153,7 +153,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
 
 def test_collector_rejects_non_advancing_session(tmp_path):
     feed = FakeFeed()
-    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"], provenance=TEST_PROVENANCE)
+    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
     collector.collect_once()
     feed.sessions = ["2026-01-01"]
     with pytest.raises(ValueError, match="moved backwards"):
@@ -162,7 +162,7 @@ def test_collector_rejects_non_advancing_session(tmp_path):
 
 def test_collector_rejects_skipped_market_sessions(tmp_path):
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], provenance=TEST_PROVENANCE)
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
     collector.collect_once()
     feed.session = "2026-01-05"
     feed.session = "2026-01-06"

@@ -1,5 +1,5 @@
 """Independent read-only PPO shadow collector; no broker execution imports."""
-from pathlib import Path
+import numpy as np
 import pandas as pd
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
@@ -16,16 +16,17 @@ class PPOShadowCollector:
 
     def _restore(self):
         portfolio = PPOShadowPortfolio(**self.defaults)
-        pending, last_session = None, None
+        pending, last_decision_session = None, None
         for record in self.ledger.read():
             event = record["payload"]
             if event["type"] == "portfolio_transition":
                 portfolio = PPOShadowPortfolio.from_state(event["portfolio"])
+                pending = None
             elif event["type"] == "decision":
-                pending, last_session = event, event["session"]
+                pending, last_decision_session = event, event["session"]
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
-        return portfolio, pending, last_session
+        return portfolio, pending, last_decision_session
 
     def collect_once(self, days=100):
         frame = self.feed.get_bars(list(self.tickers), days=days)
@@ -35,23 +36,30 @@ class PPOShadowCollector:
         row = frame.iloc[-1]
         opens = {t: float(row[f"Open_{t}"]) for t in self.tickers}
         closes = {t: float(row[f"Close_{t}"]) for t in self.tickers}
-        portfolio, pending, last_session = self._restore()
-        if last_session == session:
+        portfolio, pending, last_decision_session = self._restore()
+        if last_decision_session == session:
             return {"status": "duplicate_session", "session": session}
+        if last_decision_session is not None and session < last_decision_session:
+            raise ValueError("Market data moved backwards relative to the ledger")
+
         transition = None
         if pending is not None:
             if session <= pending["session"]:
                 raise ValueError("Market data did not advance beyond pending signal")
             transition = portfolio.rebalance_at_open(pending["target_weights"], opens, closes, session)
+            # Persist the transition before inference. On restart, this event clears
+            # the old pending target, so a failed inference cannot execute it twice.
             self.ledger.append({"type": "portfolio_transition", "session": session,
                                 "signal_session": pending["session"], "portfolio": portfolio.to_state(),
                                 "metrics": transition,
                                 "market_data_fingerprint": frame.attrs.get("market_data_fingerprint")})
         current = portfolio.weights(closes)
-        target = [float(x) for x in self.agent.predict_weights(frame, current_weights=list(current.values()))]
-        if len(target) != len(self.tickers) or not all(pd.notna(x) for x in target):
+        target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
+        if target.shape != (len(self.tickers),) or not np.isfinite(target).all():
             raise ValueError("PPO returned invalid target weights")
-        target_map = dict(zip(self.tickers, target, strict=True))
+        if (target < 0).any() or (target > 0.2 + 1e-8).any() or target.sum() > 0.5 + 1e-8:
+            raise ValueError("PPO target violates the configured long-only allocation caps")
+        target_map = dict(zip(self.tickers, target.tolist(), strict=True))
         self.ledger.append({"type": "decision", "session": session, "target_weights": target_map,
                             "current_weights": current,
                             "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),

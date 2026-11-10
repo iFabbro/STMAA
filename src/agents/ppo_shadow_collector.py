@@ -69,11 +69,18 @@ def _agent_provenance(agent):
 class PPOShadowCollector:
     def __init__(self, agent, feed, ledger_path, tickers, initial_capital=100000.0,
                  transaction_cost=0.001, slippage=0.0005, benchmark_ticker="SPY",
-                 provenance=None, max_position_size=None, max_gross_exposure=None):
+                 provenance=None, max_position_size=None, max_gross_exposure=None,
+                 collection_authorized=False, activation_reference=None):
         self.agent, self.feed = agent, feed
         self.ledger = PPOShadowLedger(ledger_path)
         self.tickers = tuple(tickers)
         self.benchmark_ticker = benchmark_ticker
+        self.collection_authorized = bool(collection_authorized)
+        self.activation_reference = activation_reference
+        if self.collection_authorized and (not isinstance(activation_reference, str) or not activation_reference.strip()):
+            raise ValueError("Explicit holdout activation requires a non-empty authorization reference")
+        if not self.collection_authorized and activation_reference is not None:
+            raise ValueError("Activation reference supplied while shadow collection is disabled")
         self.provenance = provenance if provenance is not None else _agent_provenance(agent)
         if not isinstance(self.provenance, dict):
             raise ValueError("Shadow provenance must be a dictionary")
@@ -94,7 +101,9 @@ class PPOShadowCollector:
     def _restore(self):
         records = self.ledger.read()
         config = {**self.defaults, "tickers": list(self.tickers),
-                  "benchmark_ticker": self.benchmark_ticker}
+                  "benchmark_ticker": self.benchmark_ticker,
+                  "collection_authorized": self.collection_authorized,
+                  "activation_reference": self.activation_reference}
         if not records:
             self.ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
                                 "config": config, "provenance": self.provenance})
@@ -133,6 +142,8 @@ class PPOShadowCollector:
         return dates
 
     def collect_once(self, days=100):
+        if not self.collection_authorized:
+            raise RuntimeError("PPO shadow collection is disabled pending explicit holdout activation")
         frame = self.feed.get_bars(list(self.tickers), days=days)
         if not isinstance(frame, pd.DataFrame) or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
             raise ValueError("Model feed returned no valid daily market data")
@@ -213,7 +224,10 @@ class PPOShadowCollector:
                 "benchmark": benchmark, "benchmark_metrics": benchmark_metrics}
 
 
-def build_default_collector(agent, ledger_path, tickers, **portfolio_options):
+def build_default_collector(agent, ledger_path, tickers, collection_authorized=False,
+                            activation_reference=None, **portfolio_options):
     """Explicitly construct Alpaca historical-data client only when called."""
     from src.data.alpaca_feed import AlpacaFeed
-    return PPOShadowCollector(agent, AlpacaFeed(), ledger_path, tickers, **portfolio_options)
+    return PPOShadowCollector(agent, AlpacaFeed(), ledger_path, tickers,
+                              collection_authorized=collection_authorized,
+                              activation_reference=activation_reference, **portfolio_options)

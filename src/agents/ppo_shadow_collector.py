@@ -58,20 +58,24 @@ def _agent_provenance(agent):
 class PPOShadowCollector:
     def __init__(self, agent, feed, ledger_path, tickers, initial_capital=100000.0,
                  transaction_cost=0.001, slippage=0.0005, benchmark_ticker="SPY",
-                 provenance=None):
+                 provenance=None, max_position_size=None, max_gross_exposure=None):
         self.agent, self.feed = agent, feed
         self.ledger = PPOShadowLedger(ledger_path)
         self.tickers = tuple(tickers)
         self.benchmark_ticker = benchmark_ticker
-        self.defaults = dict(tickers=self.tickers, initial_capital=initial_capital,
-                             transaction_cost=transaction_cost, slippage=slippage)
         self.provenance = provenance if provenance is not None else _agent_provenance(agent)
         if not isinstance(self.provenance, dict):
             raise ValueError("Shadow provenance must be a dictionary")
         _canonical(self.provenance)
-        frozen_config = self.provenance.get("strategy_config")
-        if frozen_config is not None:
-            for key in ("tickers", "initial_capital", "transaction_cost", "slippage"):
+        frozen_config = self.provenance.get("strategy_config") or {}
+        max_position_size = frozen_config.get("max_position_size", 0.2) if max_position_size is None else max_position_size
+        max_gross_exposure = frozen_config.get("max_gross_exposure", 0.5) if max_gross_exposure is None else max_gross_exposure
+        self.defaults = dict(tickers=self.tickers, initial_capital=initial_capital,
+                             transaction_cost=transaction_cost, slippage=slippage,
+                             max_position_size=max_position_size, max_gross_exposure=max_gross_exposure)
+        if frozen_config:
+            for key in ("tickers", "initial_capital", "transaction_cost", "slippage",
+                        "max_position_size", "max_gross_exposure"):
                 configured = list(self.tickers) if key == "tickers" else self.defaults[key]
                 if frozen_config.get(key) != configured:
                     raise ValueError(f"Collector configuration differs from model provenance: {key}")
@@ -179,8 +183,10 @@ class PPOShadowCollector:
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
         if target.shape != (len(self.tickers),) or not np.isfinite(target).all():
             raise ValueError("PPO returned invalid target weights")
-        if (target < 0).any() or (target > 0.2 + 1e-8).any() or target.sum() > 0.5 + 1e-8:
-            raise ValueError("PPO target violates the configured long-only allocation caps")
+        if ((target < 0).any()
+                or (target > self.defaults["max_position_size"] + 1e-8).any()
+                or target.sum() > self.defaults["max_gross_exposure"] + 1e-8):
+            raise ValueError("PPO target violates the frozen long-only allocation caps")
         target_map = dict(zip(self.tickers, target.tolist(), strict=True))
         feature_snapshot = {str(key): float(value) for key, value in model_row.items()}
         self.ledger.append({"type": "decision", "session": session, "target_weights": target_map,

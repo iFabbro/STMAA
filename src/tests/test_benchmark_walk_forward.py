@@ -86,3 +86,44 @@ def test_comparison_rejects_missing_spy_prices():
     history = _history().drop(columns=["Open_SPY", "Close_SPY"])
     with pytest.raises(ValueError, match="missing SPY"):
         compare_walk_forward_report(history, _report())
+
+
+def test_multi_seed_comparison_reuses_one_benchmark_per_fold_for_all_seeds():
+    from benchmark_walk_forward import compare_multi_seed_walk_forward_report
+    base = _report()
+    fold = {
+        "fold": 1, "training_start": "2023-01-02", "training_end": "2024-01-02",
+        "test_start": "2024-01-03", "test_end": "2024-01-05",
+        "training_observations": 250, "test_observations": 3,
+    }
+    base["runs"] = [
+        {"seed": 11, "fold_count": 1, "folds": [{**fold, "metrics": {"total_return": 0.01}}]},
+        {"seed": 22, "fold_count": 1, "folds": [{**fold, "metrics": {"total_return": 0.02}}]},
+    ]
+    base.pop("folds")
+    result = compare_multi_seed_walk_forward_report(_history(), base)
+    assert result["seeds"] == [11, 22]
+    assert result["summary"]["ppo_run_count"] == 2
+    assert len(result["folds"]) == 1
+    assert len(result["folds"][0]["ppo_by_seed"]) == 2
+    assert result["folds"][0]["equal_weight_buy_and_hold"]["observations"] == 3
+    assert result["seed_results"][1]["folds"][0]["ppo"]["total_return"] == pytest.approx(0.02)
+
+
+def test_multi_seed_comparison_rejects_changed_fold_layout():
+    from benchmark_walk_forward import compare_multi_seed_walk_forward_report
+    base = _report()
+    fold = {
+        "fold": 1, "training_start": "2023-01-02", "training_end": "2024-01-02",
+        "test_start": "2024-01-03", "test_end": "2024-01-05",
+        "training_observations": 250, "test_observations": 3,
+        "metrics": {"total_return": 0.01},
+    }
+    changed = {**fold, "test_end": "2024-01-08"}
+    base["runs"] = [
+        {"seed": 11, "fold_count": 1, "folds": [fold]},
+        {"seed": 22, "fold_count": 1, "folds": [changed]},
+    ]
+    base.pop("folds")
+    with pytest.raises(ValueError, match="inconsistent fold boundaries"):
+        compare_multi_seed_walk_forward_report(_history(), base)

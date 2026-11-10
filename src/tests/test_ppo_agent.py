@@ -1893,3 +1893,28 @@ def test_trained_ppo_artifact_reloads_and_runs_runtime_inference(tmp_path):
     assert (weights >= 0.0).all()
     assert (weights <= restarted.max_position_size + 1e-8).all()
     assert float(weights.sum()) <= restarted.max_gross_exposure + 1e-8
+
+
+def test_ppo_evaluation_opt_in_timeseries_records_executed_and_marked_weights():
+    validation, tickers = market_data(prices_a=(100.0, 110.0, 121.0, 133.1))
+    agent = PPOAgent(
+        tickers=tickers, initial_capital=100000.0, transaction_cost=0.0,
+        slippage=0.0, max_position_size=1.0, max_gross_exposure=1.0,
+        load_existing_model=False,
+    )
+
+    class FullyInvestedModel:
+        def predict(self, observation, deterministic=True):
+            return np.array([1.0]), None
+
+    agent.model = FullyInvestedModel()
+    metrics = agent.evaluate(validation, include_timeseries=True)
+    assert metrics["timeseries_contract"] == "ppo_daily_exposure_v1"
+    assert metrics["tickers"] == ["A"]
+    assert len(metrics["timeseries"]) == metrics["steps"] == 3
+    first = metrics["timeseries"][0]
+    assert first["target_weights"] == pytest.approx([1.0])
+    assert first["executed_weights"] == pytest.approx([1.0])
+    assert first["close_weights"] == pytest.approx([1.0])
+    assert first["gross_exposure_close"] == pytest.approx(1.0)
+    assert first["turnover"] == pytest.approx(1.0)

@@ -108,3 +108,20 @@ def test_single_asset_benchmark_rejects_invalid_exposure(exposure):
             "SPY", exposure=exposure, initial_capital=1000.0,
             transaction_cost=0.001, slippage=0.0005,
         )
+
+
+def test_equal_weight_benchmark_opt_in_timeseries_tracks_drifted_exposure():
+    result = evaluate_equal_weight_buy_and_hold(
+        _prices(), ["A", "B"], initial_capital=1000.0,
+        transaction_cost=0.0, slippage=0.0, max_position_size=0.2,
+        max_gross_exposure=0.5, include_timeseries=True,
+    )
+    assert result["timeseries_contract"] == "benchmark_daily_exposure_v1"
+    assert result["tickers"] == ["A", "B"]
+    assert len(result["timeseries"]) == result["steps"] == 3
+    initial = result["timeseries"][0]["close_weights"]
+    final = result["timeseries"][-1]["close_weights"]
+    assert initial == pytest.approx([0.2, 0.2])
+    assert final[0] > initial[0]
+    assert final[1] < initial[1]
+    assert result["timeseries"][-1]["turnover"] == pytest.approx(0.0)

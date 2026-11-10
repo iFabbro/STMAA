@@ -36,13 +36,27 @@ def test_virtual_portfolio_uses_open_for_rebalance_and_close_for_mark():
 
 
 class FakeFeed:
-    session = "2026-01-02"
+    def __init__(self):
+        self.sessions = ["2026-01-02"]
+
+    @property
+    def session(self):
+        return self.sessions[-1]
+
+    @session.setter
+    def session(self, value):
+        if value not in self.sessions:
+            self.sessions.append(value)
+            self.sessions.sort()
+
     def get_bars(self, tickers, days):
         data = {}
         for t in tickers:
-            data.update({f"Open_{t}": [100.], f"Close_{t}": [101.]})
-            data.update({f"{f}_{t}": [50. if f == "RSI" else 0.] for f in ("RSI", "MACD", "BB_middle", "ATR")})
-        return pd.DataFrame(data, index=pd.DatetimeIndex([self.session]))
+            data[f"Open_{t}"] = [100.] * len(self.sessions)
+            data[f"Close_{t}"] = [101.] * len(self.sessions)
+            for feature in ("RSI", "MACD", "BB_middle", "ATR"):
+                data[f"{feature}_{t}"] = [50. if feature == "RSI" else 0.] * len(self.sessions)
+        return pd.DataFrame(data, index=pd.DatetimeIndex(self.sessions))
 
 
 class FakeAgent:
@@ -86,8 +100,18 @@ def test_collector_rejects_non_advancing_session(tmp_path):
     feed = FakeFeed()
     collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"])
     collector.collect_once()
-    feed.session = "2026-01-01"
-    with pytest.raises(ValueError, match="did not advance"):
+    feed.sessions = ["2026-01-01"]
+    with pytest.raises(ValueError, match="outside the supplied market-data window"):
+        collector.collect_once()
+
+
+def test_collector_rejects_skipped_market_sessions(tmp_path):
+    feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
+    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"])
+    collector.collect_once()
+    feed.session = "2026-01-05"
+    feed.session = "2026-01-06"
+    with pytest.raises(ValueError, match="Missed one or more NYSE sessions"):
         collector.collect_once()
 
 

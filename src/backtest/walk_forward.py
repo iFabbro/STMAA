@@ -107,6 +107,7 @@ def run_walk_forward_validation(
     n_epochs: int = 10,
     gamma: float = 0.99,
     agent_factory: Callable | None = None,
+    include_timeseries: bool = False,
 ) -> dict:
     """Train a fresh PPO model per fold and evaluate only on its future test window.
 
@@ -163,7 +164,13 @@ def run_walk_forward_validation(
             model_path = str(Path(directory) / "fold-model.zip")
             agent = factory(fold.number, model_path)
             agent.train(training, total_timesteps=total_timesteps)
-            metrics = agent.evaluate(testing, previous_close=previous_close)
+            metrics = agent.evaluate(
+                testing,
+                previous_close=previous_close,
+                include_timeseries=include_timeseries,
+            ) if include_timeseries else agent.evaluate(
+                testing, previous_close=previous_close
+            )
 
         results.append(
             {
@@ -260,6 +267,7 @@ def run_multi_seed_walk_forward_validation(
     n_epochs: int = 10,
     gamma: float = 0.99,
     agent_factory: Callable | None = None,
+    include_timeseries: bool = False,
 ) -> dict:
     """Run identical expanding-window folds independently for each requested seed.
 
@@ -314,6 +322,7 @@ def run_multi_seed_walk_forward_validation(
             n_epochs=n_epochs,
             gamma=gamma,
             agent_factory=seed_factory,
+            include_timeseries=include_timeseries,
         )
         if report["fold_count"] != len(fold_layout):
             raise RuntimeError("Fold count changed between seed runs")

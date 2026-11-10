@@ -87,6 +87,7 @@ def test_equal_weight_benchmark_rejects_invalid_prices():
 
 def test_single_asset_spy_benchmark_uses_requested_exposure_without_ppo_position_cap():
     from src.backtest.benchmark import evaluate_single_asset_buy_and_hold
+
     data = _prices().rename(columns={"Open_A": "Open_SPY", "Close_A": "Close_SPY"})
     for exposure in (0.5, 1.0):
         result = evaluate_single_asset_buy_and_hold(
@@ -102,9 +103,29 @@ def test_single_asset_spy_benchmark_uses_requested_exposure_without_ppo_position
 @pytest.mark.parametrize("exposure", [0, -0.1, 1.01, float("nan"), True])
 def test_single_asset_benchmark_rejects_invalid_exposure(exposure):
     from src.backtest.benchmark import evaluate_single_asset_buy_and_hold
+
     with pytest.raises(ValueError, match="exposure"):
         evaluate_single_asset_buy_and_hold(
             _prices().rename(columns={"Open_A": "Open_SPY", "Close_A": "Close_SPY"}),
             "SPY", exposure=exposure, initial_capital=1000.0,
             transaction_cost=0.001, slippage=0.0005,
         )
+
+
+def test_equal_weight_benchmark_opt_in_timeseries_tracks_drifted_exposure():
+    result = evaluate_equal_weight_buy_and_hold(
+        _prices(), ["A", "B"], initial_capital=1000.0,
+        transaction_cost=0.0, slippage=0.0, max_position_size=0.2,
+        max_gross_exposure=0.5, include_timeseries=True,
+    )
+    assert result["timeseries_contract"] == "benchmark_daily_exposure_v1"
+    assert result["tickers"] == ["A", "B"]
+    assert len(result["timeseries"]) == result["steps"] == 3
+    first_close = result["timeseries"][0]["close_weights"]
+    final_close = result["timeseries"][-1]["close_weights"]
+    # A appreciates 10% between entry at Open and the first Close; close
+    # weights therefore differ from the equal target weights at execution.
+    assert first_close == pytest.approx([220.0 / 1020.0, 200.0 / 1020.0])
+    assert final_close[0] > first_close[0]
+    assert final_close[1] < first_close[1]
+    assert result["timeseries"][-1]["turnover"] == pytest.approx(0.0)

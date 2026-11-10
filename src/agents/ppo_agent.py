@@ -389,6 +389,17 @@ class StockTradingEnv(gym.Env):
             "target_weights": target_weights.copy(),
             "execution_price": next_open.copy(),
             "execution_bar": self.current_step,
+            "open_weights": current_weights.copy(),
+            "executed_weights": target_weights.copy(),
+            "close_weights": (
+                self.stocks * next_close / self.total_asset
+                if self.total_asset > 0 else np.zeros(self.n_assets, dtype=float)
+            ),
+            "gross_exposure_open": float(np.abs(current_weights).sum()),
+            "gross_exposure_close": (
+                float(np.abs(self.stocks * next_close / self.total_asset).sum())
+                if self.total_asset > 0 else 0.0
+            ),
             "bankrupt": self.total_asset <= 0,
         }
 
@@ -604,6 +615,7 @@ class PPOAgent:
         previous_close: Optional[np.ndarray] = None,
         periods_per_year: float = 252.0,
         risk_free_rate: float = 0.0,
+        include_timeseries: bool = False,
     ) -> dict:
         """Evaluate a chronological holdout with execution-aware risk/return metrics.
 
@@ -628,6 +640,7 @@ class PPOAgent:
         equity = [self.initial_capital]
         turnover = []
         transaction_costs = []
+        exposure_rows = []
         terminated = False
         while not terminated:
             action, _ = self.model.predict(observation, deterministic=True)
@@ -637,6 +650,19 @@ class PPOAgent:
             equity.append(float(info["total_asset"]))
             turnover.append(float(info["turnover"]))
             transaction_costs.append(float(info["transaction_cost"]))
+            if include_timeseries:
+                exposure_rows.append({
+                    "timestamp": str(df.index[int(info.get("execution_bar", len(df) - 1))]),
+                    "equity": float(info["total_asset"]),
+                    "turnover": float(info["turnover"]),
+                    "transaction_cost": float(info["transaction_cost"]),
+                    "target_weights": np.asarray(info.get("target_weights", np.zeros(len(self.tickers))), dtype=float).tolist(),
+                    "open_weights": np.asarray(info.get("open_weights", np.zeros(len(self.tickers))), dtype=float).tolist(),
+                    "executed_weights": np.asarray(info.get("executed_weights", np.zeros(len(self.tickers))), dtype=float).tolist(),
+                    "close_weights": np.asarray(info.get("close_weights", np.zeros(len(self.tickers))), dtype=float).tolist(),
+                    "gross_exposure_open": float(info.get("gross_exposure_open", 0.0)),
+                    "gross_exposure_close": float(info.get("gross_exposure_close", 0.0)),
+                })
         values = np.asarray(equity, dtype=float)
         if not np.isfinite(values).all() or (values <= 0).any():
             raise RuntimeError("PPO validation produced invalid portfolio equity")
@@ -655,6 +681,11 @@ class PPOAgent:
             # Keep the original key for manifest and downstream compatibility.
             "cumulative_return": metrics["total_return"],
             **metrics,
+            **({
+                "tickers": list(self.tickers),
+                "timeseries": exposure_rows,
+                "timeseries_contract": "ppo_daily_exposure_v1",
+            } if include_timeseries else {}),
         }
 
     def predict_weights(

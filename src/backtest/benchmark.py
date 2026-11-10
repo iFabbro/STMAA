@@ -22,6 +22,7 @@ def evaluate_equal_weight_buy_and_hold(
     max_gross_exposure: float,
     periods_per_year: float = 252.0,
     risk_free_rate: float = 0.0,
+    include_timeseries: bool = False,
 ) -> dict:
     """Evaluate a one-time equal-weight entry using PPO's execution convention.
 
@@ -86,10 +87,21 @@ def evaluate_equal_weight_buy_and_hold(
     equity_curve = [float(initial_capital)]
     turnover_series = [turnover]
     cost_series = [float(cost)]
+    exposure_rows = []
     first_close_equity = float(cash + np.dot(shares, closes[1]))
     if not np.isfinite(first_close_equity) or first_close_equity <= 0:
         raise ValueError("benchmark produced invalid equity after initial entry")
     equity_curve.append(first_close_equity)
+    first_weights = shares * closes[1] / first_close_equity
+    if include_timeseries:
+        exposure_rows.append({
+            "timestamp": str(data.index[1]),
+            "equity": first_close_equity,
+            "turnover": turnover,
+            "transaction_cost": float(cost),
+            "close_weights": first_weights.astype(float).tolist(),
+            "gross_exposure_close": float(np.abs(first_weights).sum()),
+        })
 
     # Buy-and-hold: shares and cash remain unchanged after the initial entry.
     for row in range(2, len(data)):
@@ -99,6 +111,16 @@ def evaluate_equal_weight_buy_and_hold(
         equity_curve.append(value)
         turnover_series.append(0.0)
         cost_series.append(0.0)
+        if include_timeseries:
+            weights = shares * closes[row] / value
+            exposure_rows.append({
+                "timestamp": str(data.index[row]),
+                "equity": value,
+                "turnover": 0.0,
+                "transaction_cost": 0.0,
+                "close_weights": weights.astype(float).tolist(),
+                "gross_exposure_close": float(np.abs(weights).sum()),
+            })
 
     metrics = calculate_performance_metrics(
         equity_curve,
@@ -117,6 +139,11 @@ def evaluate_equal_weight_buy_and_hold(
         "entry_execution": "next_bar_open",
         "holding_policy": "buy_and_hold_no_rebalancing",
         **metrics,
+        **({
+            "tickers": list(tickers),
+            "timeseries": exposure_rows,
+            "timeseries_contract": "benchmark_daily_exposure_v1",
+        } if include_timeseries else {}),
     }
 
 
@@ -124,6 +151,7 @@ def evaluate_single_asset_buy_and_hold(
     data: pd.DataFrame, ticker: str, *, exposure: float,
     initial_capital: float, transaction_cost: float, slippage: float,
     periods_per_year: float = 252.0, risk_free_rate: float = 0.0,
+    include_timeseries: bool = False,
 ) -> dict:
     """Evaluate one ETF at fixed exposure, without the PPO per-name cap."""
     if not isinstance(ticker, str) or not ticker.strip():
@@ -140,6 +168,7 @@ def evaluate_single_asset_buy_and_hold(
         transaction_cost=transaction_cost, slippage=slippage,
         max_position_size=1.0, max_gross_exposure=float(exposure),
         periods_per_year=periods_per_year, risk_free_rate=risk_free_rate,
+        include_timeseries=include_timeseries,
     )
     return {
         **result, "benchmark_ticker": ticker, "target_exposure": float(exposure),

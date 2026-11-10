@@ -56,6 +56,8 @@ def _load_ppo_report(path: Path) -> dict:
 def compare_walk_forward_report(
     history: pd.DataFrame,
     ppo_report: dict,
+    *,
+    include_timeseries: bool = False,
 ) -> dict:
     """Evaluate the equal-weight baseline on the exact saved PPO test dates."""
     tickers = ppo_report["data"]["tickers"]
@@ -107,11 +109,13 @@ def compare_walk_forward_report(
             slippage=float(parameters["slippage"]),
             max_position_size=float(parameters["max_position_size"]),
             max_gross_exposure=float(parameters["max_gross_exposure"]),
+            include_timeseries=include_timeseries,
         )
         spy_50 = evaluate_single_asset_buy_and_hold(
             testing, "SPY", exposure=0.5, initial_capital=initial_capital,
             transaction_cost=float(parameters["transaction_cost"]),
             slippage=float(parameters["slippage"]),
+            include_timeseries=include_timeseries,
         )
         spy_100 = evaluate_single_asset_buy_and_hold(
             testing, "SPY", exposure=1.0, initial_capital=initial_capital,
@@ -216,6 +220,7 @@ def main(argv=None):
     parser.add_argument("--start-date", required=True, help="Inclusive raw history start, YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="Exclusive raw history end, YYYY-MM-DD")
     parser.add_argument("--report-path", type=Path, default=None)
+    parser.add_argument("--include-timeseries", action="store_true", help="Include daily benchmark exposure traces")
     args = parser.parse_args(argv)
 
     try:
@@ -227,9 +232,9 @@ def main(argv=None):
             DataProcessor(DATA_DIR), [*tickers, "SPY"], args.start_date, args.end_date
         )
         comparison = (
-            compare_multi_seed_walk_forward_report(history, ppo_report)
+            compare_multi_seed_walk_forward_report(history, ppo_report, include_timeseries=args.include_timeseries)
             if "runs" in ppo_report
-            else compare_walk_forward_report(history, ppo_report)
+            else compare_walk_forward_report(history, ppo_report, include_timeseries=args.include_timeseries)
         )
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
@@ -256,7 +261,7 @@ def main(argv=None):
     print("Fold results are independent diagnostics, not a continuous portfolio record.")
 
 
-def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: dict) -> dict:
+def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: dict, *, include_timeseries: bool = False) -> dict:
     """Compare every PPO seed with one shared benchmark simulation per fixed fold."""
     runs = ppo_report.get("runs")
     if not isinstance(runs, list) or not runs:
@@ -292,7 +297,7 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
 
     single = {**ppo_report, "folds": reference_folds}
     single.pop("runs", None)
-    comparison = compare_walk_forward_report(history, single)
+    comparison = compare_walk_forward_report(history, single, include_timeseries=include_timeseries)
     per_seed = []
     for run in runs:
         seed_rows = []

@@ -150,7 +150,8 @@ uv run --locked python train.py \
   --batch-size 64 \
   --n-epochs 10 \
   --gamma 0.99 \
-  --seed 42
+  --seed 42 \
+  --include-timeseries
 ```
 
 `--end-date` è esclusiva. Il percorso base predefinito è `models/ppo_trading_model.zip`; può essere cambiato con `--model-path`. Il percorso base non è il file binario pubblicato: dopo il salvataggio il sistema produce un artefatto immutabile con nome content-addressed, `ppo_trading_model.<sha256>.zip`, e un manifest attivo `ppo_trading_model.zip.metadata.json`. Il manifest punta all'artefatto esatto tramite nome e SHA-256. I file temporanei vengono preparati nella stessa directory; il manifest viene pubblicato atomicamente dopo l'artefatto. Non rinominare o modificare manualmente questi file.
@@ -225,7 +226,8 @@ uv run --locked python benchmark_walk_forward.py \
   --ppo-report reports/ppo_walk_forward_20261109.json \
   --start-date 2018-01-01 \
   --end-date 2026-01-01 \
-  --report-path reports/ppo_benchmark_comparison_20261109.json
+  --report-path reports/ppo_benchmark_comparison_20261109.json \
+  --include-timeseries
 ```
 
 Il benchmark equal-weight usa gli stessi fold OOS, capitale, costi, slippage e limiti di

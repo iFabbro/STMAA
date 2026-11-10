@@ -42,3 +42,20 @@ def test_execution_price_panel_rejects_missing_or_invalid_prices():
     invalid.loc[invalid.index[0], "Close_A"] = 0
     with pytest.raises(ValueError, match="finite and strictly positive"):
         execution_data_fingerprint(invalid, ["A", "B"])
+
+
+
+def test_single_ticker_legacy_ohlcv_columns_are_normalized_for_fingerprint():
+    index = pd.date_range("2024-01-02", periods=3, freq="B")
+    legacy = pd.DataFrame({
+        "Open": [10.0, 11.0, 12.0],
+        "Close": [10.5, 11.5, 12.5],
+    }, index=index)
+    suffixed = legacy.rename(columns={"Open": "Open_A", "Close": "Close_A"})
+    assert execution_data_fingerprint(legacy, ["A"]) == execution_data_fingerprint(suffixed, ["A"])
+
+
+def test_multi_ticker_fingerprint_does_not_fallback_to_unsuffixed_prices():
+    frame = _frame().drop(columns=["Open_B", "Close_B"])
+    with pytest.raises(ValueError, match="missing columns"):
+        execution_price_panel(frame, ["A", "B"])

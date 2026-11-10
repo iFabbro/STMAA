@@ -177,3 +177,30 @@ def test_cli_loads_project_dotenv_before_downloading_history(monkeypatch, tmp_pa
         "dotenv_path": benchmark_cli.BASE_DIR / ".env",
         "override": False,
     }
+
+
+
+def test_comparison_validates_execution_fingerprint_and_adds_exposure_matched_baseline():
+    from src.backtest.benchmark_methodology import execution_data_fingerprint
+
+    report = _report()
+    testing = _history().loc[pd.Timestamp("2024-01-03"):pd.Timestamp("2024-01-05"), ["Open_A", "Close_A", "Open_B", "Close_B"]]
+    report["folds"][0]["execution_data_fingerprint"] = execution_data_fingerprint(testing, ["A", "B"])
+    report["folds"][0]["entry_execution"] = "next_bar_open"
+    report["folds"][0]["metrics"]["timeseries"] = [
+        {"timestamp": str(testing.index[i]), "target_weights": [0.2, 0.2]}
+        for i in range(1, len(testing))
+    ]
+    result = compare_walk_forward_report(_history(), report)
+    fold = result["folds"][0]
+    assert fold["execution_data_identity"] == "PASS"
+    assert fold["entry_execution"] == "next_bar_open"
+    assert fold["ppo_exposure_matched_equal_weight_status"] == "AVAILABLE"
+    assert fold["ppo_exposure_matched_equal_weight"]["steps"] == 2
+
+
+def test_comparison_fails_closed_when_execution_data_fingerprint_differs():
+    report = _report()
+    report["folds"][0]["execution_data_fingerprint"] = "0" * 64
+    with pytest.raises(ValueError, match="fingerprint mismatch"):
+        compare_walk_forward_report(_history(), report)

@@ -17,11 +17,27 @@ def execution_price_panel(frame: pd.DataFrame, tickers: list[str]) -> pd.DataFra
         raise ValueError("frame and a non-empty ticker list are required")
     if len(set(tickers)) != len(tickers):
         raise ValueError("tickers must be unique")
+    # Historical single-ticker feature frames keep raw OHLCV columns
+    # unsuffixed (Open/High/Low/Close/Volume) while derived close features
+    # may be ticker-suffixed. Normalize only this unambiguous one-ticker case.
+    normalized = frame
+    if len(tickers) == 1:
+        ticker = tickers[0]
+        aliases = {
+            f"Open_{ticker}": "Open",
+            f"Close_{ticker}": "Close",
+        }
+        if any(target not in normalized.columns and source in normalized.columns
+               for target, source in aliases.items()):
+            normalized = normalized.copy()
+            for target, source in aliases.items():
+                if target not in normalized.columns and source in normalized.columns:
+                    normalized[target] = normalized[source]
     columns = [column for ticker in tickers for column in (f"Open_{ticker}", f"Close_{ticker}")]
-    missing = [column for column in columns if column not in frame.columns]
+    missing = [column for column in columns if column not in normalized.columns]
     if missing:
         raise ValueError(f"execution price panel is missing columns: {missing}")
-    panel = frame.loc[:, columns].copy()
+    panel = normalized.loc[:, columns].copy()
     if not isinstance(panel.index, pd.DatetimeIndex) or panel.index.hasnans:
         raise ValueError("execution price panel requires a valid DatetimeIndex")
     if not panel.index.is_unique or not panel.index.is_monotonic_increasing:

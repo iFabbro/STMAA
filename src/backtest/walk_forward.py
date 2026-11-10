@@ -14,6 +14,11 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+try:
+    from src.backtest.benchmark_methodology import execution_data_fingerprint
+except ModuleNotFoundError:
+    from backtest.benchmark_methodology import execution_data_fingerprint
+
 
 @dataclass(frozen=True)
 class WalkForwardFold:
@@ -172,9 +177,12 @@ def run_walk_forward_validation(
                 testing, previous_close=previous_close
             )
 
+        fold_fingerprint = execution_data_fingerprint(testing, tickers)
         results.append(
             {
                 "fold": fold.number,
+                "entry_execution": "next_bar_open",
+                "execution_data_fingerprint": fold_fingerprint,
                 "training_start": str(training.index.min()),
                 "training_end": str(training.index.max()),
                 "test_start": str(testing.index.min()),

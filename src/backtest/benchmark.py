@@ -147,6 +147,125 @@ def evaluate_equal_weight_buy_and_hold(
     }
 
 
+
+def evaluate_exposure_matched_equal_weight(
+    data: pd.DataFrame,
+    tickers: list[str],
+    ppo_timeseries: list[dict],
+    *,
+    initial_capital: float,
+    transaction_cost: float,
+    slippage: float,
+    max_position_size: float,
+    periods_per_year: float = 252.0,
+    risk_free_rate: float = 0.0,
+    include_timeseries: bool = False,
+) -> dict:
+    """Rebalance equal weights at each next Open to PPO's target gross exposure.
+
+    The PPO trace at execution timestamp t contains the target generated from
+    the preceding completed bar. The comparator uses only that target gross
+    exposure, not PPO's asset weights, and distributes it equally across the
+    same ticker universe. Both portfolios therefore act at the same next Open.
+    """
+    if not isinstance(data, pd.DataFrame) or len(data) < 2:
+        raise ValueError("data must contain at least two observations")
+    if not isinstance(data.index, pd.DatetimeIndex):
+        raise ValueError("data must have a DatetimeIndex")
+    if data.index.hasnans or not data.index.is_unique or not data.index.is_monotonic_increasing:
+        raise ValueError("data timestamps must be valid, unique, and chronological")
+    if not tickers or len(set(tickers)) != len(tickers):
+        raise ValueError("tickers must be a non-empty list of unique symbols")
+    if not isinstance(ppo_timeseries, list) or len(ppo_timeseries) != len(data) - 1:
+        raise ValueError("PPO exposure trace must contain one row per next-Open execution")
+    if not 0 < max_position_size <= 1:
+        raise ValueError("max_position_size must be in (0, 1]")
+    transaction_cost = float(transaction_cost)
+    slippage = float(slippage)
+    rate = transaction_cost + slippage
+    if not np.isfinite([initial_capital, transaction_cost, slippage, rate, max_position_size]).all():
+        raise ValueError("benchmark parameters must be finite")
+    if initial_capital <= 0 or transaction_cost < 0 or slippage < 0 or rate >= 1:
+        raise ValueError("capital must be positive and costs must be non-negative with a combined rate below 1")
+    open_columns = [f"Open_{ticker}" for ticker in tickers]
+    close_columns = [f"Close_{ticker}" for ticker in tickers]
+    missing = [column for column in open_columns + close_columns if column not in data]
+    if missing:
+        raise ValueError(f"benchmark data is missing price columns: {missing}")
+    opens = data[open_columns].to_numpy(dtype=float)
+    closes = data[close_columns].to_numpy(dtype=float)
+    if not np.isfinite(opens).all() or not np.isfinite(closes).all() or (opens <= 0).any() or (closes <= 0).any():
+        raise ValueError("benchmark prices must be finite and strictly positive")
+
+    shares = np.zeros(len(tickers), dtype=float)
+    cash = float(initial_capital)
+    equity_curve = [float(initial_capital)]
+    turnovers, costs, rows = [], [], []
+    for offset, trace in enumerate(ppo_timeseries, start=1):
+        if not isinstance(trace, dict) or str(trace.get("timestamp")) != str(data.index[offset]):
+            raise ValueError("PPO exposure trace timestamps do not align with benchmark execution bars")
+        target_weights = np.asarray(trace.get("target_weights"), dtype=float)
+        if target_weights.shape != (len(tickers),) or not np.isfinite(target_weights).all() or (target_weights < 0).any():
+            raise ValueError("PPO trace contains invalid target weights")
+        exposure = float(target_weights.sum())
+        if exposure > 1.0 + 1e-8:
+            raise ValueError("PPO target gross exposure exceeds 100%")
+        target = np.full(len(tickers), exposure / len(tickers), dtype=float)
+        if (target > max_position_size + 1e-8).any():
+            raise ValueError("exposure-matched equal weights exceed the per-position cap")
+
+        equity_open = float(cash + np.dot(shares, opens[offset]))
+        if not np.isfinite(equity_open) or equity_open <= 0:
+            raise ValueError("matched-exposure benchmark has invalid open equity")
+        current_weights = shares * opens[offset] / equity_open
+        turnover = float(np.abs(target - current_weights).sum())
+        cost = equity_open * turnover * rate
+        equity_after_cost = equity_open - cost
+        if not np.isfinite(equity_after_cost) or equity_after_cost <= 0:
+            raise ValueError("matched-exposure transaction costs exhaust capital")
+        shares = target * equity_after_cost / opens[offset]
+        cash = equity_after_cost * (1.0 - exposure)
+        equity_close = float(cash + np.dot(shares, closes[offset]))
+        if not np.isfinite(equity_close) or equity_close <= 0:
+            raise ValueError("matched-exposure benchmark produced invalid close equity")
+        equity_curve.append(equity_close)
+        turnovers.append(turnover)
+        costs.append(float(cost))
+        if include_timeseries:
+            close_weights = shares * closes[offset] / equity_close
+            rows.append({
+                "timestamp": str(data.index[offset]),
+                "equity": equity_close,
+                "target_gross_exposure": exposure,
+                "turnover": turnover,
+                "transaction_cost": float(cost),
+                "close_weights": close_weights.astype(float).tolist(),
+                "gross_exposure_close": float(np.abs(close_weights).sum()),
+            })
+
+    metrics = calculate_performance_metrics(
+        equity_curve, periods_per_year=periods_per_year,
+        risk_free_rate=risk_free_rate, turnover=turnovers,
+        transaction_costs=costs,
+    )
+    return {
+        "observations": int(len(data)),
+        "steps": int(len(equity_curve) - 1),
+        "initial_value": float(initial_capital),
+        "final_value": float(equity_curve[-1]),
+        "entry_execution": "next_bar_open",
+        "holding_policy": "daily_equal_weight_rebalance_at_ppo_target_gross_exposure",
+        "exposure_policy": "match_ppo_target_gross_exposure_each_execution_bar",
+        "exposure_source": "ppo_timeseries.target_weights",
+        **metrics,
+        **({
+            "tickers": list(tickers),
+            "timeseries": rows,
+            "timeseries_contract": "ppo_exposure_matched_equal_weight_daily_v1",
+        } if include_timeseries else {}),
+    }
+
+
 def evaluate_single_asset_buy_and_hold(
     data: pd.DataFrame, ticker: str, *, exposure: float,
     initial_capital: float, transaction_cost: float, slippage: float,

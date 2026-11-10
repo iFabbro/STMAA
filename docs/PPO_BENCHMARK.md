@@ -44,9 +44,12 @@ uv run --locked python benchmark_walk_forward.py \
 ```
 
 The raw data range must match the original PPO walk-forward run. The runner
-downloads the original seven PPO tickers plus SPY, keeping SPY outside the PPO
-training universe, and validates every saved test window and observation count. It reads the existing PPO report and does not
-train or load a PPO model.
+downloads the PPO tickers plus SPY, keeping SPY outside the PPO training
+universe, and validates every saved test window, observation count, and (when
+present) exact execution-price fingerprint. The fingerprint covers ordered
+Open/Close values and timestamps for each fold. A mismatch aborts the comparison;
+matching dates alone are not accepted as data identity. Legacy PPO reports without
+a fingerprint remain INCONCLUSIVE for provenance.
 
 The data download uses the existing historical Alpaca data processor. This
 workflow does not use the broker trading client, access account state, or
@@ -70,3 +73,33 @@ evaluates each passive benchmark once per market fold, and compares every
 seed/fold PPO result against that shared benchmark result. Benchmark results
 are not duplicated as if they were independent observations. Per-seed results
 remain separate, and PPO returns are never concatenated across folds.
+
+
+## Provenance and exposure-matched comparator
+
+Generate the PPO report with daily traces enabled:
+
+```bash
+uv run --locked python walk_forward.py ... --include-timeseries
+```
+
+Then generate the benchmark report with the same option:
+
+```bash
+uv run --locked python benchmark_walk_forward.py ... --include-timeseries
+```
+
+The PPO walk-forward producer stores a SHA-256 fingerprint for each fold's ordered Open/Close execution panel and declares next_bar_open execution. The benchmark producer recomputes that fingerprint from its downloaded fold data and refuses to compare a fold when a saved PPO fingerprint differs. Reports created before this integration do not contain the fingerprint and cannot be retroactively certified.
+
+When PPO daily traces are available, the report also calculates ppo_exposure_matched_equal_weight. At each next-bar Open it takes only the PPO target gross exposure for that execution and distributes the same gross exposure equally across the PPO ticker universe. It rebalances daily, applies the same transaction-cost and slippage rates to turnover, and marks holdings at the same day's Close. It does not copy PPO's asset selections or weights. This comparator helps separate asset selection from gross-exposure timing, but it remains an active daily-rebalanced reference and is not a buy-and-hold portfolio.
+
+The exposure-matched comparator is currently available for single-seed reports with complete PPO traces. For multi-seed reports, a single shared exposure schedule would misrepresent the different seed policies, so the comparator is reported as unavailable/inconclusive rather than borrowing the first seed's exposure path. The existing static equal-weight and SPY comparisons remain available.
+
+For the fail-closed evidence audit, use both reports with their daily traces:
+
+```bash
+uv run --locked python benchmark_methodology_audit.py \
+  --ppo-report reports/ppo_walk_forward_YYYYMMDD.json \
+  --benchmark-report reports/ppo_benchmark_comparison_YYYYMMDD.json \
+  --output reports/benchmark_methodology_audit_YYYYMMDD.json
+```

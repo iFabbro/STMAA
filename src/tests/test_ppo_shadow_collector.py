@@ -93,10 +93,12 @@ def test_collector_rejects_non_advancing_session(tmp_path):
 
 def test_shadow_modules_do_not_import_or_call_broker_execution_clients():
     paths = [Path("src/agents/ppo_shadow_collector.py"), Path("src/agents/ppo_shadow_ledger.py"),
-             Path("src/agents/ppo_shadow_portfolio.py"), Path("src/agents/ppo_shadow_replay.py")]
+             Path("src/agents/ppo_shadow_portfolio.py"), Path("src/agents/ppo_shadow_replay.py"),
+             Path("src/data/alpaca_feed.py")]
     forbidden_modules = {"trade", "alpaca.trading", "alpaca.trading.client"}
     forbidden_calls = {"submit_order", "submit_orders", "replace_order", "cancel_order",
-                       "cancel_orders", "close_position", "close_all_positions"}
+                       "cancel_orders", "close_position", "close_all_positions",
+                       "get_account", "get_orders", "get_all_positions", "get_open_position"}
     for path in paths:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):

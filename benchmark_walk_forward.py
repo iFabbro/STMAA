@@ -33,8 +33,10 @@ def _load_ppo_report(path: Path) -> dict:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"Unable to read PPO report: {path}") from exc
-    if not isinstance(report, dict) or not isinstance(report.get("folds"), list):
-        raise ValueError("PPO report must contain a folds list")
+    if not isinstance(report, dict) or not (
+        isinstance(report.get("folds"), list) or isinstance(report.get("runs"), list)
+    ):
+        raise ValueError("PPO report must contain folds or multi-seed runs")
     data = report.get("data")
     parameters = report.get("training_parameters")
     if not isinstance(data, dict) or not isinstance(data.get("tickers"), list):
@@ -44,8 +46,10 @@ def _load_ppo_report(path: Path) -> dict:
     missing = [key for key in _REQUIRED_TRAINING_PARAMETERS if key not in parameters]
     if missing:
         raise ValueError(f"PPO report is missing benchmark parameters: {missing}")
-    if not report["folds"]:
+    if "folds" in report and not report["folds"]:
         raise ValueError("PPO report contains no folds")
+    if "runs" in report and not report["runs"]:
+        raise ValueError("PPO multi-seed report contains no runs")
     return report
 
 
@@ -222,7 +226,11 @@ def main(argv=None):
         history = prepare_historical_data(
             DataProcessor(DATA_DIR), [*tickers, "SPY"], args.start_date, args.end_date
         )
-        comparison = compare_walk_forward_report(history, ppo_report)
+        comparison = (
+            compare_multi_seed_walk_forward_report(history, ppo_report)
+            if "runs" in ppo_report
+            else compare_walk_forward_report(history, ppo_report)
+        )
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
 
@@ -246,3 +254,94 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+
+
+def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: dict) -> dict:
+    """Compare every PPO seed with one shared benchmark simulation per fixed fold."""
+    runs = ppo_report.get("runs")
+    if not isinstance(runs, list) or not runs:
+        raise ValueError("Multi-seed PPO report must contain non-empty runs")
+    seeds = [run.get("seed") for run in runs if isinstance(run, dict)]
+    if len(seeds) != len(runs) or any(
+        not isinstance(seed, int) or isinstance(seed, bool) for seed in seeds
+    ) or len(set(seeds)) != len(seeds):
+        raise ValueError("Multi-seed PPO report must contain unique integer seeds")
+    reference_folds = runs[0].get("folds")
+    if not isinstance(reference_folds, list) or not reference_folds:
+        raise ValueError("Multi-seed PPO run is missing folds")
+    layout_keys = (
+        "fold", "training_start", "training_end", "test_start", "test_end",
+        "training_observations", "test_observations",
+    )
+    reference_layout = [
+        {key: fold.get(key) for key in layout_keys} for fold in reference_folds
+    ]
+    for run in runs:
+        folds = run.get("folds")
+        if not isinstance(folds, list) or len(folds) != len(reference_folds):
+            raise ValueError("Multi-seed PPO runs have inconsistent fold counts")
+        layout = [{key: fold.get(key) for key in layout_keys} for fold in folds]
+        if layout != reference_layout:
+            raise ValueError("Multi-seed PPO runs have inconsistent fold boundaries")
+        if any(
+            not isinstance(fold.get("metrics"), dict)
+            or "total_return" not in fold["metrics"]
+            for fold in folds
+        ):
+            raise ValueError("Multi-seed PPO fold is missing total_return metrics")
+
+    single = {**ppo_report, "folds": reference_folds}
+    single.pop("runs", None)
+    comparison = compare_walk_forward_report(history, single)
+    per_seed = []
+    for run in runs:
+        seed_rows = []
+        for index, fold in enumerate(run["folds"]):
+            base = comparison["folds"][index]
+            metrics = fold["metrics"]
+            ppo_return = float(metrics["total_return"])
+            ew = float(base["equal_weight_buy_and_hold"]["total_return"])
+            spy50 = float(base["spy_50pct_exposure"]["total_return"])
+            spy100 = float(base["spy_100pct_exposure"]["total_return"])
+            seed_rows.append({
+                "fold": fold["fold"],
+                "ppo": metrics,
+                "comparison": {
+                    "equal_weight_return_difference_percentage_points": (ew - ppo_return) * 100.0,
+                    "spy_50pct_return_difference_percentage_points": (spy50 - ppo_return) * 100.0,
+                    "spy_100pct_return_difference_percentage_points": (spy100 - ppo_return) * 100.0,
+                    "equal_weight_outperformed_ppo": ew > ppo_return,
+                    "spy_50pct_outperformed_ppo": spy50 > ppo_return,
+                    "spy_100pct_outperformed_ppo": spy100 > ppo_return,
+                },
+            })
+        returns = [float(row["ppo"]["total_return"]) for row in seed_rows]
+        per_seed.append({
+            "seed": run["seed"], "fold_count": len(seed_rows),
+            "equal_weight_return_wins": sum(row["comparison"]["equal_weight_outperformed_ppo"] for row in seed_rows),
+            "spy_50pct_return_wins": sum(row["comparison"]["spy_50pct_outperformed_ppo"] for row in seed_rows),
+            "spy_100pct_return_wins": sum(row["comparison"]["spy_100pct_outperformed_ppo"] for row in seed_rows),
+            "mean_ppo_fold_return": sum(returns) / len(returns),
+            "median_ppo_fold_return": float(pd.Series(returns).median()),
+            "folds": seed_rows,
+        })
+    for index, base in enumerate(comparison["folds"]):
+        base.pop("ppo", None)
+        base["ppo_by_seed"] = [
+            {"seed": run["seed"], "metrics": run["folds"][index]["metrics"]}
+            for run in runs
+        ]
+        base["seed_comparisons"] = [seed["folds"][index] for seed in per_seed]
+    comparison["method"] = "independent_fold_multi_seed_ppo_vs_equal_weight_and_spy"
+    comparison["seeds"] = seeds
+    comparison["summary"]["seed_count"] = len(seeds)
+    comparison["summary"]["ppo_run_count"] = len(seeds) * len(reference_folds)
+    comparison["summary"]["per_seed"] = [
+        {key: value for key, value in seed.items() if key != "folds"} for seed in per_seed
+    ]
+    comparison["seed_results"] = per_seed
+    comparison["aggregation"] = (
+        "Each benchmark is evaluated once per market fold and shared across seeds. "
+        "PPO seed/fold runs remain independent; returns are not concatenated or compounded."
+    )
+    return comparison

@@ -104,6 +104,8 @@ def test_multi_seed_comparison_reuses_one_benchmark_per_fold_for_all_seeds():
     result = compare_multi_seed_walk_forward_report(_history(), base)
     assert result["seeds"] == [11, 22]
     assert result["summary"]["ppo_run_count"] == 2
+    assert "mean_ppo_fold_return" not in result["summary"]
+    assert "benchmark_return_wins" not in result["summary"]
     assert len(result["folds"]) == 1
     assert len(result["folds"][0]["ppo_by_seed"]) == 2
     assert result["folds"][0]["equal_weight_buy_and_hold"]["observations"] == 3

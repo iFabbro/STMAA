@@ -130,12 +130,11 @@ def _evaluate_locked(ledger_path, output, records):
                         or context.get("tickers") != tickers):
                     raise ValueError("Persisted inference context differs from the decision's current weights")
                 weight_values = [float(current_weights[t]) for t in tickers]
-                if (not np.isfinite(weight_values).all() or any(
-                        value < 0 or value > records[0]["payload"]["config"]["max_position_size"] + 1e-8
-                        for value in weight_values)
-                        or sum(weight_values) > records[0]["payload"]["config"]["max_gross_exposure"] + 1e-8
+                # Current holdings are marked at Close and can drift beyond target caps
+                # after price moves. Caps apply to PPO target weights, not observed state.
+                if (not np.isfinite(weight_values).all() or any(value < 0 for value in weight_values)
                         or context.get("current_weights") != weight_values):
-                    raise ValueError("Persisted PPO current weights violate the frozen inference context")
+                    raise ValueError("Persisted PPO current weights differ from the frozen inference context")
             evidence.append({"session": event["session"], "role": role, "sha256": reference["sha256"]})
     for event in transitions:
         refs = event.get("input_snapshots")

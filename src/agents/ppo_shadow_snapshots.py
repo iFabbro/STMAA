@@ -58,9 +58,14 @@ class PPOShadowSnapshotStore:
         try:
             fd = os.open(path, flags, 0o400)
         except FileExistsError:
-            if path.is_symlink() or not path.is_file():
-                raise ValueError("Existing snapshot artifact is unsafe")
-            existing = path.read_bytes()
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            existing_fd = os.open(path, flags)
+            with os.fdopen(existing_fd, "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError("Existing snapshot artifact is not a regular file")
+                existing = stream.read()
             if hashlib.sha256(existing).hexdigest() != digest or existing != raw:
                 raise ValueError("Content-addressed snapshot collision or tampering")
         else:
@@ -100,9 +105,17 @@ class PPOShadowSnapshotStore:
         if reference.get("path") != expected:
             raise ValueError("Snapshot reference path is not canonical")
         path = self.root / f"{digest}.json"
-        if path.is_symlink() or not path.is_file():
-            raise ValueError("Referenced immutable input snapshot is missing or unsafe")
-        raw = path.read_bytes()
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            snapshot_fd = os.open(path, flags)
+        except FileNotFoundError as exc:
+            raise ValueError("Referenced immutable input snapshot is missing or unsafe") from exc
+        with os.fdopen(snapshot_fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError("Referenced immutable input snapshot is not a regular file")
+            raw = stream.read()
         if hashlib.sha256(raw).hexdigest() != digest or len(raw) != reference.get("size_bytes"):
             raise ValueError("Referenced immutable input snapshot failed integrity verification")
         try:

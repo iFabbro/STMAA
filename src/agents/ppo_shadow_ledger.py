@@ -69,7 +69,7 @@ class PPOShadowLedger:
             previous = records[-1]["hash"] if records else "0" * 64
             digest_input = {"sequence": len(records) + 1, "previous_hash": previous, "payload": payload}
             record = {**digest_input, "hash": hashlib.sha256(_canonical(digest_input)).hexdigest()}
-            line = _canonical(record) + b"\\n"
+            line = _canonical(record) + b"\n"
             flags = os.O_CREAT | os.O_WRONLY | os.O_APPEND
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW

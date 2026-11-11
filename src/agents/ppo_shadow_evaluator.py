@@ -159,7 +159,7 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
             "decision_count": HOLDOUT_DECISION_COUNT,
             "warmup_decisions": 1,
             "decision_rule": "completed_session_close_signal_next_nyse_session_open_fill",
-            "return_rule": "next_session_open_to_close",
+            "return_rule": "prior_close_to_current_close_equity_with_next_open_rebalance",
             "intermediate_performance_evaluation": "prohibited",
             "report_policy": "single_create_no_overwrite",
         },

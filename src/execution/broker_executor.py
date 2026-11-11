@@ -1479,6 +1479,8 @@ class BrokerExecutor:
         a returned order is persisted immediately so a later invocation can
         reconcile it against the broker's current open-order snapshot.
         """
+        self._assert_paper_mutation_allowed()
+
         def validate_positions_snapshot(snapshot):
             if not isinstance(snapshot, (list, tuple)):
                 raise RuntimeError(

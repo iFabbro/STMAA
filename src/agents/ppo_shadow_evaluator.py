@@ -7,10 +7,12 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_replay import replay_shadow_ledger
 from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
+from src.data.market_data_contract import validate_market_data_contract
 
 
 HOLDOUT_RETURN_SESSIONS = 252
@@ -44,6 +46,32 @@ def _metrics(equity_values, returns):
         "sortino_ratio": float(mean_daily * 252 / downside_deviation)
             if downside_deviation > 0 else None,
     }
+
+
+def _verify_snapshot(store, reference, role, session, expected_fingerprint):
+    if not isinstance(reference, dict) or reference.get("role") != role:
+        raise ValueError("Input snapshot role does not match its ledger field")
+    payload = store.verify(reference)
+    validate_market_data_contract(payload.get("market_data_contract"))
+    if payload.get("market_data_fingerprint") != expected_fingerprint:
+        raise ValueError("Snapshot fingerprint differs from the ledger event")
+    frame = payload.get("dataframe")
+    if not isinstance(frame, dict):
+        raise ValueError("Snapshot is missing its persisted DataFrame")
+    columns, index, data = frame.get("columns"), frame.get("index"), frame.get("data")
+    if (not isinstance(columns, list) or not columns or len(set(columns)) != len(columns)
+            or not isinstance(index, list) or not index
+            or not isinstance(data, list) or len(data) != len(index)
+            or any(not isinstance(row, list) or len(row) != len(columns) for row in data)):
+        raise ValueError("Persisted DataFrame shape is invalid")
+    dates = [pd.Timestamp(value) for value in index]
+    if (len(set(dates)) != len(dates) or dates != sorted(dates)
+            or dates[-1].date().isoformat() != session):
+        raise ValueError("Persisted DataFrame sessions do not match the ledger event")
+    values = np.asarray(data, dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("Persisted DataFrame contains non-finite values")
+    return payload
 
 
 def evaluate_shadow_holdout(ledger_path, report_path=None):
@@ -83,33 +111,38 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
             reference = refs[role]
             if reference.get("role") != role:
                 raise ValueError("Decision snapshot role mismatch")
-            payload = snapshots.verify(reference)
-            if payload.get("market_data_fingerprint") != event.get(
-                    "market_data_fingerprint" if role == "model_inference" else "benchmark_data_fingerprint"):
-                raise ValueError("Decision snapshot fingerprint differs from the ledger event")
+            payload = _verify_snapshot(
+                snapshots, reference, role, event["session"],
+                event.get("market_data_fingerprint" if role == "model_inference"
+                          else "benchmark_data_fingerprint"),
+            )
             if role == "model_inference":
                 context = payload.get("inference_context")
                 current_weights = event.get("current_weights")
+                tickers = records[0]["payload"]["config"]["tickers"]
                 if (not isinstance(context, dict) or context.get("inference_contract")
                         != "ppo_predict_weights_current_weights_v1"
-                        or not isinstance(current_weights, dict)
-                        or context.get("tickers") != list(records[0]["payload"]["config"]["tickers"])
-                        or context.get("current_weights") != [
-                            float(current_weights[t]) for t in records[0]["payload"]["config"]["tickers"]
-                        ]):
+                        or not isinstance(current_weights, dict) or set(current_weights) != set(tickers)
+                        or context.get("tickers") != tickers):
                     raise ValueError("Persisted inference context differs from the decision's current weights")
+                weight_values = [float(current_weights[t]) for t in tickers]
+                if (not np.isfinite(weight_values).all() or any(
+                        value < 0 or value > records[0]["payload"]["config"]["max_position_size"] + 1e-8
+                        for value in weight_values)
+                        or sum(weight_values) > records[0]["payload"]["config"]["max_gross_exposure"] + 1e-8
+                        or context.get("current_weights") != weight_values):
+                    raise ValueError("Persisted PPO current weights violate the frozen inference context")
             evidence.append({"session": event["session"], "role": role, "sha256": reference["sha256"]})
     for event in transitions:
         refs = event.get("input_snapshots")
         if not isinstance(refs, dict) or set(refs) != {"model_inference", "benchmark"}:
             raise ValueError("A transition is missing its complete market-data snapshots")
         for role in ("model_inference", "benchmark"):
-            payload = snapshots.verify(refs[role])
-            expected_fingerprint = event.get(
-                "market_data_fingerprint" if role == "model_inference" else "benchmark_data_fingerprint"
+            _verify_snapshot(
+                snapshots, refs[role], role, event["session"],
+                event.get("market_data_fingerprint" if role == "model_inference"
+                          else "benchmark_data_fingerprint"),
             )
-            if payload.get("market_data_fingerprint") != expected_fingerprint:
-                raise ValueError("Transition snapshot fingerprint differs from the ledger event")
             evidence.append({"session": event["session"], "role": role, "sha256": refs[role]["sha256"]})
     initial_capital = float(records[0]["payload"]["config"]["initial_capital"])
     strategy_equity = [initial_capital] + [float(event["metrics"]["equity_close"]) for event in transitions]

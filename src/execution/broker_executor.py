@@ -30,6 +30,8 @@ from src.execution.notional_cap import (
     enforce_aggregate_gross_notional_cap,
 )
 
+PAPER_API_BASE_URL = "https://paper-api.alpaca.markets"
+
 RISK_LIMITS = {
     "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", "0.50")),
     "max_drawdown": float(os.getenv("MAX_DRAWDOWN", "0.15")),
@@ -179,6 +181,16 @@ class BrokerExecutor:
         initial_capital: float = 500000.0,
         configured_symbols: Optional[List[str]] = None,
     ):
+        # This executor is intentionally Paper-only. Reject unsafe configuration
+        # before credentials, SDK clients, persistence, or any broker interaction.
+        if paper_trading is not True:
+            raise ValueError("BrokerExecutor is Paper-only; paper_trading must be exactly True")
+        if base_url != PAPER_API_BASE_URL:
+            raise ValueError(
+                "BrokerExecutor accepts only the exact Alpaca Paper endpoint "
+                f"{PAPER_API_BASE_URL!r}"
+            )
+
         # The executor owns the final safety boundary. Standalone callers may
         # provide the configured model universe explicitly or through the
         # deployment environment; target weights are never a trusted substitute.
@@ -231,8 +243,11 @@ class BrokerExecutor:
         self.trading_client = TradingClient(
             api_key=self.api_key,
             secret_key=self.api_secret,
-            paper=self.paper_trading,
+            paper=True,
+            url_override=PAPER_API_BASE_URL,
         )
+        self._paper_client_identity = id(self.trading_client)
+        self._paper_endpoint_verified = True
 
         self.alpaca_feed = AlpacaFeed(
             api_key=self.api_key,
@@ -292,6 +307,26 @@ class BrokerExecutor:
         # A persisted snapshot is historical evidence, never a fresh broker read.
         self.state["account_data_fresh"] = False
         self.logger.info(f"✅ BrokerExecutor inizializzato – paper={paper_trading}")
+
+    def _assert_paper_mutation_allowed(self) -> None:
+        """Fail closed unless this exact executor and SDK client target Alpaca Paper."""
+        if getattr(self, "paper_trading", None) is not True:
+            raise RuntimeError("Broker mutation blocked: executor is not Paper-only")
+        if getattr(self, "base_url", None) != PAPER_API_BASE_URL:
+            raise RuntimeError("Broker mutation blocked: configured endpoint is not Alpaca Paper")
+        state = getattr(self, "state", None)
+        if not isinstance(state, dict) or state.get("account_mode") != "paper":
+            raise RuntimeError("Broker mutation blocked: persisted account mode is not Paper")
+        client = getattr(self, "trading_client", None)
+        if (
+            getattr(self, "_paper_endpoint_verified", False) is not True
+            or client is None
+            or id(client) != getattr(self, "_paper_client_identity", None)
+        ):
+            raise RuntimeError("Broker mutation blocked: Paper client identity is not verified")
+        client_base_url = getattr(client, "_base_url", None)
+        if str(client_base_url).rstrip("/") != PAPER_API_BASE_URL:
+            raise RuntimeError("Broker mutation blocked: SDK client endpoint is not Alpaca Paper")
 
     def _load_state(self):
         if not self.state_file.exists():
@@ -1497,6 +1532,7 @@ class BrokerExecutor:
                         "Persisted pending liquidation order ID does not match broker order symbol"
                     )
                 continue
+            self._assert_paper_mutation_allowed()
             self.trading_client.cancel_order_by_id(order_id)
 
         remaining_orders = self._get_open_orders()
@@ -1674,6 +1710,7 @@ class BrokerExecutor:
                             "Persisted pending liquidation order ID does not match broker order symbol"
                         )
                     continue
+                self._assert_paper_mutation_allowed()
                 self.trading_client.cancel_order_by_id(order_id)
                 cancelled_new_order = True
 
@@ -1735,6 +1772,7 @@ class BrokerExecutor:
             self.state["emergency_liquidation_unresolved"] = unresolved
             self._save_state()
 
+            self._assert_paper_mutation_allowed()
             order = self.trading_client.close_position(candidate_symbol)
             order_id = getattr(order, "id", None)
             if order_id is None:
@@ -2841,10 +2879,7 @@ class BrokerExecutor:
         """
         lock = self.execution_lock() if hasattr(self, "state_file") else nullcontext()
         with lock:
-            if not isinstance(getattr(self, "state", None), dict) or self.state.get("account_mode") != "paper":
-                raise RuntimeError("OPG execution is Paper-only; refusing non-Paper account mode")
-            if getattr(self, "paper_trading", True) is False:
-                raise RuntimeError("OPG execution is Paper-only; refusing non-Paper broker client")
+            self._assert_paper_mutation_allowed()
             if getattr(self, "_current_account_identity_verified", False) is not True:
                 raise RuntimeError("Current broker account identity is not verified; refusing OPG execution")
             batches = self.state.setdefault("opg_batches", {})
@@ -2905,6 +2940,7 @@ class BrokerExecutor:
                     limit_price=order_record.get("limit_price"),
                 )
                 try:
+                    self._assert_paper_mutation_allowed()
                     broker_order = self.trading_client.submit_order(request)
                     order_id = self._validate_opg_broker_order(broker_order, order_record)
                 except Exception as submit_error:
@@ -3130,12 +3166,14 @@ class BrokerExecutor:
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         """Run the complete broker execution cycle under the shared OS lock."""
         with self.execution_lock():
+            self._assert_paper_mutation_allowed()
             return self._execute_weights_locked(weights, min_notional)
 
     def _execute_weights_locked(
         self, weights: PortfolioWeights, min_notional: float = 1.0
     ) -> Dict:
         """Run reconciliation, risk checks, and broker mutations under the execution lock."""
+        self._assert_paper_mutation_allowed()
         self._reconcile_unresolved_submissions()
         self._refresh_confirmed_submission_statuses()
         self._reconcile_terminal_order_positions()
@@ -3644,6 +3682,7 @@ class BrokerExecutor:
                             time_in_force=TimeInForce.DAY,
                             client_order_id=client_order_id,
                         )
+                    self._assert_paper_mutation_allowed()
                     order = self.trading_client.submit_order(order_req)
                     order_id = getattr(order, "id", None)
                     if not order_id:

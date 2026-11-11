@@ -31,8 +31,7 @@ def _metrics(equity_values, returns):
     peaks = np.maximum.accumulate(equity)
     drawdowns = equity / peaks - 1.0
     volatility = float(np.std(daily, ddof=1) * math.sqrt(252))
-    downside = daily[daily < 0]
-    downside_deviation = float(math.sqrt(float(np.mean(np.square(downside)))) * math.sqrt(252)) if len(downside) else 0.0
+    downside_deviation = float(math.sqrt(float(np.mean(np.square(np.minimum(daily, 0.0)))) * 252))
     mean_daily = float(np.mean(daily))
     return {
         "initial_equity": float(equity[0]),
@@ -88,6 +87,17 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
             if payload.get("market_data_fingerprint") != event.get(
                     "market_data_fingerprint" if role == "model_inference" else "benchmark_data_fingerprint"):
                 raise ValueError("Decision snapshot fingerprint differs from the ledger event")
+            if role == "model_inference":
+                context = payload.get("inference_context")
+                current_weights = event.get("current_weights")
+                if (not isinstance(context, dict) or context.get("inference_contract")
+                        != "ppo_predict_weights_current_weights_v1"
+                        or not isinstance(current_weights, dict)
+                        or context.get("tickers") != list(records[0]["payload"]["config"]["tickers"])
+                        or context.get("current_weights") != [
+                            float(current_weights[t]) for t in records[0]["payload"]["config"]["tickers"]
+                        ]):
+                    raise ValueError("Persisted inference context differs from the decision's current weights")
             evidence.append({"session": event["session"], "role": role, "sha256": reference["sha256"]})
     for event in transitions:
         refs = event.get("input_snapshots")
@@ -124,6 +134,13 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
         "final_return_session": transitions[-1]["session"],
         "strategy": strategy,
         "benchmark_spy_buy_and_hold": benchmark,
+        "acceptance": {
+            "positive_net_return": strategy["cumulative_return"] > 0.0,
+            "max_drawdown_within_15pct": strategy["max_drawdown"] >= -0.15,
+            "benchmark_outperformance_required": False,
+            "overall_pass": strategy["cumulative_return"] > 0.0
+                and strategy["max_drawdown"] >= -0.15,
+        },
         "ledger": {
             "sha256_head": replay["head_hash"],
             "record_count": replay["record_count"],

@@ -1,14 +1,17 @@
 """Independent read-only PPO shadow collector; no broker execution imports."""
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
+from src.agents.ppo_shadow_replay import replay_shadow_ledger
 
 
 def _canonical(value):
@@ -66,31 +69,81 @@ def _agent_provenance(agent):
     }
 
 
+def _load_activation_record(path, provenance, effective_config):
+    """Load and validate the operator-approved, immutable activation record."""
+    record_path = Path(path)
+    if record_path.is_symlink() or not record_path.is_file():
+        raise ValueError("Activation record must be an existing regular non-symlink file")
+    raw = record_path.read_bytes()
+    try:
+        record = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Activation record is not valid UTF-8 JSON") from exc
+    if not isinstance(record, dict) or record.get("schema") != "stmaa_ppo_shadow_activation_v1":
+        raise ValueError("Unsupported or missing activation record schema")
+    required = ("freeze_register_commit", "collector_commit", "operator_authorization",
+                "approved_at_utc", "first_session", "model_sha256", "manifest_sha256",
+                "strategy_config_sha256")
+    if any(not isinstance(record.get(key), str) or not record[key].strip() for key in required):
+        raise ValueError("Activation record is missing a required approval field")
+    for key in ("freeze_register_commit", "collector_commit"):
+        value = record[key]
+        if len(value) != 40 or value != value.lower() or any(
+                char not in "0123456789abcdef" for char in value):
+            raise ValueError(f"Activation record has an invalid {key}")
+    if record.get("freeze_register_status") != "approved":
+        raise ValueError("PPO holdout freeze register is not explicitly approved")
+    try:
+        approved_at = datetime.fromisoformat(record["approved_at_utc"].replace("Z", "+00:00"))
+        first_session = datetime.strptime(record["first_session"], "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("Activation record has an invalid approval timestamp or first session") from exc
+    if approved_at.tzinfo is None:
+        raise ValueError("Activation approval timestamp must include a timezone")
+    if first_session <= approved_at.date():
+        raise ValueError("First holdout session must be after the approval date")
+    config_digest = hashlib.sha256(_canonical(effective_config)).hexdigest()
+    expected = {
+        "model_sha256": provenance["model_sha256"],
+        "manifest_sha256": provenance["manifest_sha256"],
+        "strategy_config_sha256": config_digest,
+    }
+    for key, value in expected.items():
+        if record.get(key) != value:
+            raise ValueError(f"Activation record does not match frozen {key}")
+    if first_session.isoformat() != record["first_session"]:
+        raise ValueError("Activation first session is not canonical")
+    if mcal.get_calendar("NYSE").schedule(
+            start_date=first_session, end_date=first_session).empty:
+        raise ValueError("Activation first session is not an NYSE trading session")
+    return record, hashlib.sha256(_canonical(record)).hexdigest()
+
+
 class PPOShadowCollector:
     def __init__(self, agent, feed, ledger_path, tickers, initial_capital=100000.0,
                  transaction_cost=0.001, slippage=0.0005, benchmark_ticker="SPY",
-                 provenance=None, max_position_size=None, max_gross_exposure=None,
-                 collection_authorized=False, activation_reference=None):
+                 max_position_size=None, max_gross_exposure=None,
+                 collection_authorized=False, activation_record_path=None):
         self.agent, self.feed = agent, feed
         self.ledger = PPOShadowLedger(ledger_path)
         self.tickers = tuple(tickers)
         self.benchmark_ticker = benchmark_ticker
         self.collection_authorized = bool(collection_authorized)
-        self.activation_reference = activation_reference
-        if self.collection_authorized and (not isinstance(activation_reference, str) or not activation_reference.strip()):
-            raise ValueError("Explicit holdout activation requires a non-empty authorization reference")
-        if not self.collection_authorized and activation_reference is not None:
-            raise ValueError("Activation reference supplied while shadow collection is disabled")
-        self.provenance = provenance if provenance is not None else _agent_provenance(agent)
-        if not isinstance(self.provenance, dict):
-            raise ValueError("Shadow provenance must be a dictionary")
-        _canonical(self.provenance)
+        if not self.collection_authorized and activation_record_path is not None:
+            raise ValueError("Activation record supplied while shadow collection is disabled")
+        self.provenance = _agent_provenance(agent)
         frozen_config = self.provenance.get("strategy_config") or {}
         max_position_size = frozen_config.get("max_position_size", 0.2) if max_position_size is None else max_position_size
         max_gross_exposure = frozen_config.get("max_gross_exposure", 0.5) if max_gross_exposure is None else max_gross_exposure
         self.defaults = dict(tickers=self.tickers, initial_capital=initial_capital,
                              transaction_cost=transaction_cost, slippage=slippage,
                              max_position_size=max_position_size, max_gross_exposure=max_gross_exposure)
+        self.activation_record, self.activation_record_sha256 = None, None
+        if self.collection_authorized:
+            if activation_record_path is None:
+                raise ValueError("Explicit holdout activation requires a validated activation record file")
+            self.activation_record, self.activation_record_sha256 = _load_activation_record(
+                activation_record_path, self.provenance, self.defaults)
         if frozen_config:
             for key in ("tickers", "initial_capital", "transaction_cost", "slippage",
                         "max_position_size", "max_gross_exposure"):
@@ -103,29 +156,25 @@ class PPOShadowCollector:
         config = {**self.defaults, "tickers": list(self.tickers),
                   "benchmark_ticker": self.benchmark_ticker,
                   "collection_authorized": self.collection_authorized,
-                  "activation_reference": self.activation_reference}
+                  "activation_record_sha256": self.activation_record_sha256}
         if not records:
             self.ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
-                                "config": config, "provenance": self.provenance})
+                                "config": config, "provenance": self.provenance,
+                                "activation_record": self.activation_record})
             records = self.ledger.read()
         metadata = records[0]["payload"]
         if (metadata.get("type") != "run_metadata" or metadata.get("schema") != "ppo_shadow_v1"
-                or metadata.get("config") != config or metadata.get("provenance") != self.provenance):
+                or metadata.get("config") != config or metadata.get("provenance") != self.provenance
+                or metadata.get("activation_record") != self.activation_record):
             raise ValueError("Shadow ledger run metadata differs from active model/configuration")
-        portfolio = PPOShadowPortfolio(**self.defaults)
-        pending, last_decision_session, last_event_session, last_event_type, benchmark = None, None, None, None, None
-        for record in records[1:]:
-            event = record["payload"]
-            last_event_session = event.get("session", last_event_session)
-            last_event_type = event["type"]
-            if event["type"] == "portfolio_transition":
-                portfolio = PPOShadowPortfolio.from_state(event["portfolio"])
-                pending = None
-                benchmark = event["benchmark"]
-            elif event["type"] == "decision":
-                pending, last_decision_session = event, event["session"]
-            else:
-                raise ValueError(f"Unsupported shadow ledger event: {event.get('type')!r}")
+        replay = replay_shadow_ledger(self.ledger.path)
+        portfolio = (PPOShadowPortfolio.from_state(replay["portfolio"])
+                     if replay["portfolio"] is not None else PPOShadowPortfolio(**self.defaults))
+        pending = replay["pending_decision"]
+        last_decision_session = replay["last_decision"]["session"] if replay["last_decision"] else None
+        last_event = records[-1]["payload"]
+        last_event_session, last_event_type = last_event.get("session"), last_event["type"]
+        benchmark = replay["benchmark"]
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
         return portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark
@@ -149,8 +198,19 @@ class PPOShadowCollector:
             raise ValueError("Model feed returned no valid daily market data")
         session = pd.Timestamp(frame.index[-1]).date().isoformat()
         session_dates = self._latest(frame, session, "Model")
+        for label, data in (("Model", frame),):
+            validate_market_data_contract(data.attrs.get("market_data_contract"))
+            fingerprint = data.attrs.get("market_data_fingerprint")
+            if not isinstance(fingerprint, str) or len(fingerprint) != 64 or any(
+                    char not in "0123456789abcdef" for char in fingerprint.lower()):
+                raise ValueError(f"{label} feed is missing a valid market-data fingerprint")
         benchmark_frame = self.feed.get_bars([self.benchmark_ticker], days=days)
         self._latest(benchmark_frame, session, "Benchmark")
+        validate_market_data_contract(benchmark_frame.attrs.get("market_data_contract"))
+        benchmark_fingerprint = benchmark_frame.attrs.get("market_data_fingerprint")
+        if not isinstance(benchmark_fingerprint, str) or len(benchmark_fingerprint) != 64 or any(
+                char not in "0123456789abcdef" for char in benchmark_fingerprint.lower()):
+            raise ValueError("Benchmark feed is missing a valid market-data fingerprint")
         model_row, benchmark_row = frame.iloc[-1], benchmark_frame.iloc[-1]
         opens = {t: float(model_row[f"Open_{t}"]) for t in self.tickers}
         closes = {t: float(model_row[f"Close_{t}"]) for t in self.tickers}
@@ -159,6 +219,9 @@ class PPOShadowCollector:
         if not np.isfinite([benchmark_open, benchmark_close]).all() or min(benchmark_open, benchmark_close) <= 0:
             raise ValueError("Benchmark prices must be finite and positive")
 
+        existing_records = self.ledger.read()
+        if not existing_records and session != self.activation_record["first_session"]:
+            raise ValueError("First collection session differs from the approved activation record")
         portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark = self._restore()
         if last_decision_session == session:
             return {"status": "duplicate_session", "session": session}
@@ -225,9 +288,9 @@ class PPOShadowCollector:
 
 
 def build_default_collector(agent, ledger_path, tickers, collection_authorized=False,
-                            activation_reference=None, **portfolio_options):
+                            activation_record_path=None, **portfolio_options):
     """Explicitly construct Alpaca historical-data client only when called."""
     from src.data.alpaca_feed import AlpacaFeed
     return PPOShadowCollector(agent, AlpacaFeed(), ledger_path, tickers,
                               collection_authorized=collection_authorized,
-                              activation_reference=activation_reference, **portfolio_options)
+                              activation_record_path=activation_record_path, **portfolio_options)

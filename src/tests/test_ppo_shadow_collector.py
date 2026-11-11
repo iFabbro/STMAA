@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from types import SimpleNamespace
+import src.agents.ppo_shadow_collector as shadow_collector
 from src.agents.ppo_shadow_collector import PPOShadowCollector, _agent_provenance
 from src.data.market_data_contract import market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
@@ -95,7 +96,10 @@ class FakeFeed:
             data[f"Close_{t}"] = [101.] * len(self.sessions)
             for feature in ("RSI", "MACD", "BB_middle", "ATR"):
                 data[f"{feature}_{t}"] = [50. if feature == "RSI" else 0.] * len(self.sessions)
-        return pd.DataFrame(data, index=pd.DatetimeIndex(self.sessions))
+        frame = pd.DataFrame(data, index=pd.DatetimeIndex(self.sessions))
+        frame.attrs["market_data_contract"] = market_data_contract()
+        frame.attrs["market_data_fingerprint"] = hashlib.sha256(frame.to_csv().encode()).hexdigest()
+        return frame
 
 
 class FakeAgent:
@@ -103,22 +107,41 @@ class FakeAgent:
         return np.asarray([.2, .1])
 
 
-TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64}
+TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64,
+                   "strategy_config": {}}
+
+
+def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_capital=100000.0):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    options = dict(initial_capital=initial_capital, collection_authorized=authorized)
+    if authorized:
+        config = {"tickers": ("AAA", "BBB"), "initial_capital": initial_capital,
+                  "transaction_cost": 0.001, "slippage": 0.0005,
+                  "max_position_size": 0.2, "max_gross_exposure": 0.5}
+        digest = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        activation = {"schema": "stmaa_ppo_shadow_activation_v1", "freeze_register_status": "approved",
+            "freeze_register_commit": "1" * 40, "collector_commit": "2" * 40,
+            "operator_authorization": "approved by test fixture", "approved_at_utc": "2026-01-01T00:00:00Z",
+            "first_session": "2026-01-02", "model_sha256": TEST_PROVENANCE["model_sha256"],
+            "manifest_sha256": TEST_PROVENANCE["manifest_sha256"], "strategy_config_sha256": digest}
+        activation_path = path.with_suffix(".activation.json")
+        activation_path.write_text(json.dumps(activation))
+        options["activation_record_path"] = activation_path
+    return PPOShadowCollector(agent, feed, path, ["AAA", "BBB"], **options)
 
 
 
-def test_collection_is_disabled_without_explicit_activation(tmp_path):
-    collector = PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "disabled.jsonl",
-                                   ["AAA", "BBB"], provenance=TEST_PROVENANCE)
+def test_collection_is_disabled_without_explicit_activation(tmp_path, monkeypatch):
+    collector = make_collector(monkeypatch, FakeAgent(), FakeFeed(), tmp_path / "disabled.jsonl")
     with pytest.raises(RuntimeError, match="disabled pending explicit holdout activation"):
         collector.collect_once()
     assert not (tmp_path / "disabled.jsonl").exists()
 
 
-def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
+def test_collector_pending_target_replay_and_duplicate_guard(tmp_path, monkeypatch):
     feed = FakeFeed()
     path = tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000)
     assert collector.collect_once()["executed_pending_target"] is False
     assert collector.collect_once()["status"] == "duplicate_session"
     feed.session = "2026-01-05"
@@ -133,15 +156,15 @@ def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     assert replay["last_decision"]["benchmark_snapshot"]["ticker"] == "SPY"
 
 
-def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path):
+def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path, monkeypatch):
     class FailingAgent:
         def predict_weights(self, frame, current_weights=None):
             raise RuntimeError("inference unavailable")
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000)
     collector.collect_once()
     feed.session = "2026-01-05"
-    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    failing = make_collector(monkeypatch, FailingAgent(), feed, path, authorized=True, initial_capital=10000)
     with pytest.raises(RuntimeError, match="inference unavailable"):
         failing.collect_once()
     assert replay_shadow_ledger(path)["transition_count"] == 1
@@ -151,18 +174,18 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
     assert replay_shadow_ledger(path)["transition_count"] == 1
 
 
-def test_collector_rejects_non_advancing_session(tmp_path):
+def test_collector_rejects_non_advancing_session(tmp_path, monkeypatch):
     feed = FakeFeed()
-    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, tmp_path / "ledger.jsonl", authorized=True)
     collector.collect_once()
     feed.sessions = ["2026-01-01"]
     with pytest.raises(ValueError, match="moved backwards"):
         collector.collect_once()
 
 
-def test_collector_rejects_skipped_market_sessions(tmp_path):
+def test_collector_rejects_skipped_market_sessions(tmp_path, monkeypatch):
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True)
     collector.collect_once()
     feed.session = "2026-01-05"
     feed.session = "2026-01-06"
@@ -191,3 +214,95 @@ def test_shadow_modules_do_not_import_or_call_broker_execution_clients():
             if isinstance(node, ast.Call):
                 called = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ""
                 assert called not in forbidden_calls, f"{called} in {path}"
+
+
+
+def test_activation_requires_structured_approved_record(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    with pytest.raises(ValueError, match="validated activation record"):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           collection_authorized=True)
+    collector_path = tmp_path / "bad.activation.json"
+    collector_path.write_text(json.dumps({"schema": "stmaa_ppo_shadow_activation_v1",
+                                          "freeze_register_status": "draft"}))
+    with pytest.raises(ValueError, match="missing a required approval field"):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           collection_authorized=True, activation_record_path=collector_path)
+
+
+def test_operational_constructor_does_not_accept_injected_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    with pytest.raises(TypeError):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           provenance=TEST_PROVENANCE)
+
+
+def test_ledger_rejects_partial_trailing_record_without_repair(tmp_path):
+    path = tmp_path / "partial.jsonl"
+    ledger = PPOShadowLedger(path)
+    ledger.append({"type": "header"})
+    with path.open("ab") as stream:
+        stream.write(b'{"sequence":2')
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="Incomplete trailing ledger record"):
+        ledger.read()
+    with pytest.raises(ValueError, match="Incomplete trailing ledger record"):
+        ledger.append({"type": "next"})
+    assert path.read_bytes() == original
+
+
+def test_ledger_reader_and_writer_are_serialized(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    path = tmp_path / "concurrent.jsonl"
+    ledger = PPOShadowLedger(path)
+
+    def writer():
+        for index in range(40):
+            ledger.append({"type": "event", "index": index})
+
+    def reader():
+        observed = []
+        for _ in range(40):
+            observed.append(len(ledger.read()))
+        return observed
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        write_future = pool.submit(writer)
+        read_future = pool.submit(reader)
+        write_future.result(timeout=10)
+        observed = read_future.result(timeout=10)
+    assert observed == sorted(observed)
+    assert len(ledger.read()) == 40
+
+
+def test_semantic_replay_rejects_second_decision_without_transition(tmp_path):
+    path = tmp_path / "invalid-sequence.jsonl"
+    ledger = PPOShadowLedger(path)
+    config = {"tickers": ["AAA", "BBB"], "max_position_size": 0.2, "max_gross_exposure": 0.5}
+    ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
+                   "config": config, "provenance": TEST_PROVENANCE})
+    ledger.append({"type": "decision", "session": "2026-01-02",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    ledger.append({"type": "decision", "session": "2026-01-05",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    with pytest.raises(ValueError, match="second decision"):
+        replay_shadow_ledger(path)
+
+
+def test_semantic_replay_rejects_transition_not_next_nyse_session(tmp_path):
+    path = tmp_path / "invalid-transition.jsonl"
+    ledger = PPOShadowLedger(path)
+    config = {"tickers": ["AAA", "BBB"], "max_position_size": 0.2, "max_gross_exposure": 0.5}
+    ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
+                   "config": config, "provenance": TEST_PROVENANCE})
+    ledger.append({"type": "decision", "session": "2026-01-02",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    portfolio = PPOShadowPortfolio(("AAA", "BBB"), initial_capital=10000).to_state()
+    ledger.append({"type": "portfolio_transition", "session": "2026-01-06",
+                   "signal_session": "2026-01-02", "portfolio": portfolio,
+                   "metrics": {"session": "2026-01-06", "equity_close": 10000},
+                   "benchmark": {"ticker": "SPY", "shares": 1, "last_equity": 10000},
+                   "benchmark_metrics": {"session": "2026-01-06", "ticker": "SPY",
+                                         "equity_close": 10000}})
+    with pytest.raises(ValueError, match="next NYSE session"):
+        replay_shadow_ledger(path)

@@ -108,7 +108,7 @@ class FakeAgent:
 
 
 TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64,
-                   "strategy_config": {"max_position_size": 0.2, "max_gross_exposure": 0.5}}
+                   "strategy_config": {}}
 
 
 def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_capital=100000.0):

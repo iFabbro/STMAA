@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
@@ -109,6 +110,9 @@ def _load_activation_record(path, provenance, effective_config):
             raise ValueError(f"Activation record does not match frozen {key}")
     if first_session.isoformat() != record["first_session"]:
         raise ValueError("Activation first session is not canonical")
+    if mcal.get_calendar("NYSE").schedule(
+            start_date=first_session, end_date=first_session).empty:
+        raise ValueError("Activation first session is not an NYSE trading session")
     return record, hashlib.sha256(_canonical(record)).hexdigest()
 
 
@@ -191,8 +195,19 @@ class PPOShadowCollector:
             raise ValueError("Model feed returned no valid daily market data")
         session = pd.Timestamp(frame.index[-1]).date().isoformat()
         session_dates = self._latest(frame, session, "Model")
+        for label, data in (("Model", frame),):
+            validate_market_data_contract(data.attrs.get("market_data_contract"))
+            fingerprint = data.attrs.get("market_data_fingerprint")
+            if not isinstance(fingerprint, str) or len(fingerprint) != 64 or any(
+                    char not in "0123456789abcdef" for char in fingerprint.lower()):
+                raise ValueError(f"{label} feed is missing a valid market-data fingerprint")
         benchmark_frame = self.feed.get_bars([self.benchmark_ticker], days=days)
         self._latest(benchmark_frame, session, "Benchmark")
+        validate_market_data_contract(benchmark_frame.attrs.get("market_data_contract"))
+        benchmark_fingerprint = benchmark_frame.attrs.get("market_data_fingerprint")
+        if not isinstance(benchmark_fingerprint, str) or len(benchmark_fingerprint) != 64 or any(
+                char not in "0123456789abcdef" for char in benchmark_fingerprint.lower()):
+            raise ValueError("Benchmark feed is missing a valid market-data fingerprint")
         model_row, benchmark_row = frame.iloc[-1], benchmark_frame.iloc[-1]
         opens = {t: float(model_row[f"Open_{t}"]) for t in self.tickers}
         closes = {t: float(model_row[f"Close_{t}"]) for t in self.tickers}
@@ -201,6 +216,9 @@ class PPOShadowCollector:
         if not np.isfinite([benchmark_open, benchmark_close]).all() or min(benchmark_open, benchmark_close) <= 0:
             raise ValueError("Benchmark prices must be finite and positive")
 
+        existing_records = self.ledger.read()
+        if not existing_records and session != self.activation_record["first_session"]:
+            raise ValueError("First collection session differs from the approved activation record")
         portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark = self._restore()
         if last_decision_session == session:
             return {"status": "duplicate_session", "session": session}

@@ -1,5 +1,6 @@
 """Append-only, hash-chained JSONL ledger for PPO shadow events."""
 import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -61,11 +62,17 @@ class PPOShadowLedger:
                 previous = digest
         return result
 
-    def read(self):
+    @contextmanager
+    def locked_read(self):
+        """Hold a shared process lock for a consistent multi-step evidence read."""
         lock, mode = self._locked(fcntl.LOCK_SH)
         with lock:
             fcntl.flock(lock.fileno(), mode)
-            return self._read_unlocked()
+            yield self._read_unlocked()
+
+    def read(self):
+        with self.locked_read() as records:
+            return records
 
     def append(self, payload):
         if not isinstance(payload, dict):

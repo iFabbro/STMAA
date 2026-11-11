@@ -13,6 +13,9 @@ from src.data.market_data_contract import market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 from src.agents.ppo_shadow_replay import replay_shadow_ledger
+from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
+import src.agents.ppo_shadow_evaluator as shadow_evaluator
+from src.agents.ppo_shadow_evaluator import evaluate_shadow_holdout
 
 
 
@@ -306,3 +309,64 @@ def test_semantic_replay_rejects_transition_not_next_nyse_session(tmp_path):
                                          "equity_close": 10000}})
     with pytest.raises(ValueError, match="next NYSE session"):
         replay_shadow_ledger(path)
+
+
+
+def test_snapshot_store_persists_and_verifies_full_inference_frame(tmp_path):
+    frame = FakeFeed().get_bars(["AAA", "BBB"], days=100)
+    store = PPOShadowSnapshotStore(tmp_path / "ledger.jsonl")
+    reference = store.put(frame, "model_inference")
+    payload = store.verify(reference)
+    assert payload["role"] == "model_inference"
+    assert payload["market_data_fingerprint"] == frame.attrs["market_data_fingerprint"]
+    stored_frame = payload["dataframe"]
+    restored = pd.DataFrame(
+        stored_frame["data"],
+        columns=stored_frame["columns"],
+        index=pd.DatetimeIndex(stored_frame["index"], name=stored_frame["index_name"]),
+    )
+    pd.testing.assert_frame_equal(restored, frame)
+    artifact = store.root / reference["path"].split("/")[-1]
+    artifact.chmod(0o600)  # Simulate an owner-level tamper attempt against the read-only artifact.
+    artifact.write_text("{}")
+    with pytest.raises(ValueError, match="integrity verification"):
+        store.verify(reference)
+
+
+def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(shadow_evaluator, "HOLDOUT_RETURN_SESSIONS", 2)
+    monkeypatch.setattr(shadow_evaluator, "HOLDOUT_DECISION_COUNT", 2)
+    feed, path = FakeFeed(), tmp_path / "holdout.jsonl"
+    collector = make_collector(
+        monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000
+    )
+    collector.collect_once()
+    report_path = tmp_path / "holdout.final_report.json"
+    with pytest.raises(ValueError, match="exactly 2 completed return-bearing sessions"):
+        evaluate_shadow_holdout(path, report_path)
+    assert not report_path.exists()
+
+    feed.session = "2026-01-05"
+    collector.collect_once()
+    with pytest.raises(ValueError, match="exactly 2 completed return-bearing sessions"):
+        evaluate_shadow_holdout(path, report_path)
+    assert not report_path.exists()
+
+    feed.session = "2026-01-06"
+    result = collector.collect_once(finalize=True)
+    assert result["status"] == "finalized"
+    decisions = [record["payload"] for record in PPOShadowLedger(path).read()[1:]
+                 if record["payload"].get("type") == "decision"]
+    # Close-to-close price movement can push observed holdings above a target cap.
+    assert decisions[1]["current_weights"]["AAA"] > 0.2
+    report = evaluate_shadow_holdout(path, report_path)
+    assert report["status"] == "FINAL"
+    assert report["protocol"]["return_bearing_sessions"] == 2
+    assert report["protocol"]["decision_count"] == 2
+    assert report["first_return_session"] == "2026-01-05"
+    assert report["final_return_session"] == "2026-01-06"
+    assert report["input_snapshot_evidence"]["verified_references"] == 8
+    with pytest.raises(FileExistsError, match="never overwritten"):
+        evaluate_shadow_holdout(path, report_path)

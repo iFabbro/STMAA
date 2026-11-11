@@ -12,6 +12,7 @@ from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 from src.agents.ppo_shadow_replay import replay_shadow_ledger
+from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
 
 
 def _canonical(value):
@@ -190,7 +191,7 @@ class PPOShadowCollector:
             raise ValueError(f"{label} data is not aligned to the model market-data session")
         return dates
 
-    def collect_once(self, days=100):
+    def collect_once(self, days=100, finalize=False):
         if not self.collection_authorized:
             raise RuntimeError("PPO shadow collection is disabled pending explicit holdout activation")
         frame = self.feed.get_bars(list(self.tickers), days=days)
@@ -237,6 +238,8 @@ class PPOShadowCollector:
                 raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
         transition, benchmark_metrics = None, None
+        if finalize and pending is None:
+            raise ValueError("Final collection requires a pending decision to settle")
         if pending is not None:
             if session <= pending["session"]:
                 raise ValueError("Market data did not advance beyond pending signal")
@@ -257,14 +260,35 @@ class PPOShadowCollector:
                 "step_return": benchmark_equity_close / benchmark["last_equity"] - 1.0,
             }
             benchmark = {**benchmark, "last_equity": benchmark_equity_close}
+
+        current = portfolio.weights(closes)
+        inference_context = {
+            "tickers": list(self.tickers),
+            "current_weights": [float(current[t]) for t in self.tickers],
+            "inference_contract": "ppo_predict_weights_current_weights_v1",
+        }
+        snapshot_store = PPOShadowSnapshotStore(self.ledger.path)
+        input_snapshots = {
+            "model_inference": snapshot_store.put(
+                frame, "model_inference", inference_context=inference_context
+            ),
+            "benchmark": snapshot_store.put(benchmark_frame, "benchmark"),
+        }
+        if transition is not None:
             self.ledger.append({"type": "portfolio_transition", "session": session,
                                 "signal_session": pending["session"], "portfolio": portfolio.to_state(),
                                 "metrics": transition, "benchmark": benchmark,
                                 "benchmark_metrics": benchmark_metrics,
                                 "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
-                                "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
+                                "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
+                                "input_snapshots": input_snapshots})
 
-        current = portfolio.weights(closes)
+        if finalize:
+            if transition is None:
+                raise ValueError("Final collection did not complete a return-bearing transition")
+            return {"status": "finalized", "session": session,
+                    "executed_pending_target": True}
+
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
         if target.shape != (len(self.tickers),) or not np.isfinite(target).all():
             raise ValueError("PPO returned invalid target weights")
@@ -280,11 +304,10 @@ class PPOShadowCollector:
                                                    "open": benchmark_open, "close": benchmark_close},
                             "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
                             "market_data_contract": frame.attrs.get("market_data_contract"),
-                            "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
+                            "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
+                            "input_snapshots": input_snapshots})
         return {"status": "collected", "session": session,
-                "executed_pending_target": transition is not None,
-                "target_weights": target_map, "portfolio": portfolio.to_state(),
-                "benchmark": benchmark, "benchmark_metrics": benchmark_metrics}
+                "executed_pending_target": transition is not None}
 
 
 def build_default_collector(agent, ledger_path, tickers, collection_authorized=False,

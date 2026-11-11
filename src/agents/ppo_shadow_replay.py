@@ -61,8 +61,7 @@ def _validate_transition(event, pending, config):
     return portfolio, benchmark, benchmark_metrics
 
 
-def replay_shadow_ledger(path):
-    records = PPOShadowLedger(path).read()
+def replay_shadow_records(records):
     if not records:
         raise ValueError("Shadow ledger is empty")
     decisions, portfolio = [], None
@@ -115,3 +114,9 @@ def replay_shadow_ledger(path):
         "provenance": provenance,
         "head_hash": records[-1]["hash"],
     }
+
+
+
+def replay_shadow_ledger(path):
+    """Read and semantically replay a shadow ledger."""
+    return replay_shadow_records(PPOShadowLedger(path).read())

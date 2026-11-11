@@ -24,7 +24,10 @@ class PPOShadowLedger:
     def _locked(self, mode):
         if self.lock_path.is_symlink():
             raise ValueError("Shadow ledger lock path must not be a symlink")
-        fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        flags = os.O_CREAT | os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(self.lock_path, flags, 0o600)
         return os.fdopen(fd, "a+b"), mode
 
     def _read_unlocked(self):
@@ -33,7 +36,13 @@ class PPOShadowLedger:
         if self.path.is_symlink() or not stat.S_ISREG(self.path.stat().st_mode):
             raise ValueError("Shadow ledger must be a regular non-symlink file")
         result, previous = [], "0" * 64
-        with self.path.open("rb") as stream:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        ledger_fd = os.open(self.path, flags)
+        with os.fdopen(ledger_fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError("Shadow ledger must be a regular file")
             for sequence, line in enumerate(stream, 1):
                 if not line.endswith(b"\n"):
                     raise ValueError("Incomplete trailing ledger record; preserve original and recover manually")
@@ -73,6 +82,7 @@ class PPOShadowLedger:
             flags = os.O_CREAT | os.O_WRONLY | os.O_APPEND
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
+            file_was_absent = not self.path.exists()
             ledger_fd = os.open(self.path, flags, 0o600)
             try:
                 offset = 0
@@ -84,4 +94,10 @@ class PPOShadowLedger:
                 os.fsync(ledger_fd)
             finally:
                 os.close(ledger_fd)
+            if file_was_absent:
+                directory_fd = os.open(self.path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             return record

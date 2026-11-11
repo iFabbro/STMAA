@@ -2879,6 +2879,13 @@ class BrokerExecutor:
         """
         lock = self.execution_lock() if hasattr(self, "state_file") else nullcontext()
         with lock:
+            if (
+                getattr(self, "paper_trading", None) is not True
+                or getattr(self, "base_url", None) != PAPER_API_BASE_URL
+                or not isinstance(getattr(self, "state", None), dict)
+                or self.state.get("account_mode") != "paper"
+            ):
+                raise RuntimeError("OPG execution is Paper-only; refusing non-Paper broker configuration")
             if getattr(self, "_current_account_identity_verified", False) is not True:
                 raise RuntimeError("Current broker account identity is not verified; refusing OPG execution")
             batches = self.state.setdefault("opg_batches", {})

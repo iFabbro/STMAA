@@ -191,7 +191,7 @@ class PPOShadowCollector:
             raise ValueError(f"{label} data is not aligned to the model market-data session")
         return dates
 
-    def collect_once(self, days=100):
+    def collect_once(self, days=100, finalize=False):
         if not self.collection_authorized:
             raise RuntimeError("PPO shadow collection is disabled pending explicit holdout activation")
         frame = self.feed.get_bars(list(self.tickers), days=days)
@@ -238,6 +238,8 @@ class PPOShadowCollector:
                 raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
         transition, benchmark_metrics = None, None
+        if finalize and pending is None:
+            raise ValueError("Final collection requires a pending decision to settle")
         if pending is not None:
             if session <= pending["session"]:
                 raise ValueError("Market data did not advance beyond pending signal")
@@ -280,6 +282,12 @@ class PPOShadowCollector:
                                 "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
                                 "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
                                 "input_snapshots": input_snapshots})
+
+        if finalize:
+            if transition is None:
+                raise ValueError("Final collection did not complete a return-bearing transition")
+            return {"status": "finalized", "session": session,
+                    "executed_pending_target": True}
 
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
         if target.shape != (len(self.tickers),) or not np.isfinite(target).all():

@@ -138,7 +138,7 @@ def test_collection_is_disabled_without_explicit_activation(tmp_path, monkeypatc
     assert not (tmp_path / "disabled.jsonl").exists()
 
 
-def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
+def test_collector_pending_target_replay_and_duplicate_guard(tmp_path, monkeypatch):
     feed = FakeFeed()
     path = tmp_path / "ledger.jsonl"
     collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000)
@@ -156,7 +156,7 @@ def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     assert replay["last_decision"]["benchmark_snapshot"]["ticker"] == "SPY"
 
 
-def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path):
+def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path, monkeypatch):
     class FailingAgent:
         def predict_weights(self, frame, current_weights=None):
             raise RuntimeError("inference unavailable")
@@ -174,7 +174,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
     assert replay_shadow_ledger(path)["transition_count"] == 1
 
 
-def test_collector_rejects_non_advancing_session(tmp_path):
+def test_collector_rejects_non_advancing_session(tmp_path, monkeypatch):
     feed = FakeFeed()
     collector = make_collector(monkeypatch, FakeAgent(), feed, tmp_path / "ledger.jsonl", authorized=True)
     collector.collect_once()
@@ -183,7 +183,7 @@ def test_collector_rejects_non_advancing_session(tmp_path):
         collector.collect_once()
 
 
-def test_collector_rejects_skipped_market_sessions(tmp_path):
+def test_collector_rejects_skipped_market_sessions(tmp_path, monkeypatch):
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
     collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True)
     collector.collect_once()

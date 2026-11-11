@@ -10,6 +10,7 @@ import pandas as pd
 from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
+from src.agents.ppo_shadow_replay import replay_shadow_ledger
 
 
 def _canonical(value):
@@ -159,20 +160,14 @@ class PPOShadowCollector:
                 or metadata.get("config") != config or metadata.get("provenance") != self.provenance
                 or metadata.get("activation_record") != self.activation_record):
             raise ValueError("Shadow ledger run metadata differs from active model/configuration")
-        portfolio = PPOShadowPortfolio(**self.defaults)
-        pending, last_decision_session, last_event_session, last_event_type, benchmark = None, None, None, None, None
-        for record in records[1:]:
-            event = record["payload"]
-            last_event_session = event.get("session", last_event_session)
-            last_event_type = event["type"]
-            if event["type"] == "portfolio_transition":
-                portfolio = PPOShadowPortfolio.from_state(event["portfolio"])
-                pending = None
-                benchmark = event["benchmark"]
-            elif event["type"] == "decision":
-                pending, last_decision_session = event, event["session"]
-            else:
-                raise ValueError(f"Unsupported shadow ledger event: {event.get('type')!r}")
+        replay = replay_shadow_ledger(self.ledger.path)
+        portfolio = (PPOShadowPortfolio.from_state(replay["portfolio"])
+                     if replay["portfolio"] is not None else PPOShadowPortfolio(**self.defaults))
+        pending = replay["pending_decision"]
+        last_decision_session = replay["last_decision"]["session"] if replay["last_decision"] else None
+        last_event = records[-1]["payload"]
+        last_event_session, last_event_type = last_event.get("session"), last_event["type"]
+        benchmark = replay["benchmark"]
         if tuple(portfolio.tickers) != self.tickers:
             raise ValueError("Ledger symbols differ from configured symbols")
         return portfolio, pending, last_decision_session, last_event_session, last_event_type, benchmark

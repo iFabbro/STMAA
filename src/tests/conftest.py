@@ -66,3 +66,37 @@ def isolate_broker_executor_corporate_action_io(monkeypatch, request):
             "unresolved_symbols": [],
         },
     )
+
+
+@pytest.fixture(autouse=True)
+def register_mock_broker_clients_as_paper(monkeypatch, request):
+    """Give injected offline broker doubles explicit Paper provenance.
+
+    The dedicated Paper-boundary tests are excluded: they must exercise client
+    replacement and endpoint tampering without this test adapter.
+    """
+    if request.node.path.name == "test_broker_executor_paper_only.py":
+        return
+
+    from src.execution.broker_executor import BrokerExecutor, PAPER_API_BASE_URL
+
+    def test_setattr(self, name, value):
+        object.__setattr__(self, name, value)
+        if name != "trading_client" or value is None:
+            return
+        # A test-injected fake broker is an explicitly Paper-scoped adapter.
+        # Preserve any endpoint it already declares so Live-tampering tests
+        # continue to fail closed.
+        if not hasattr(value, "_base_url"):
+            try:
+                setattr(value, "_base_url", PAPER_API_BASE_URL)
+            except (AttributeError, TypeError):
+                return
+        object.__setattr__(self, "_paper_client_identity", id(value))
+        object.__setattr__(self, "_paper_endpoint_verified", True)
+        if not hasattr(self, "paper_trading"):
+            object.__setattr__(self, "paper_trading", True)
+        if not hasattr(self, "base_url"):
+            object.__setattr__(self, "base_url", PAPER_API_BASE_URL)
+
+    monkeypatch.setattr(BrokerExecutor, "__setattr__", test_setattr)

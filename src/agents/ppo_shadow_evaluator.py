@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
-from src.agents.ppo_shadow_replay import replay_shadow_ledger
+from src.agents.ppo_shadow_replay import replay_shadow_records
 from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
 from src.data.market_data_contract import validate_market_data_contract
 
@@ -84,8 +84,12 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
     output = Path(report_path) if report_path is not None else ledger_path.with_name(
         ledger_path.stem + ".final_report.json"
     )
-    records = PPOShadowLedger(ledger_path).read()
-    replay = replay_shadow_ledger(ledger_path)
+    with PPOShadowLedger(ledger_path).locked_read() as records:
+        return _evaluate_locked(ledger_path, output, records)
+
+
+def _evaluate_locked(ledger_path, output, records):
+    replay = replay_shadow_records(records)
     if replay["transition_count"] != HOLDOUT_RETURN_SESSIONS:
         raise ValueError(
             f"Final evaluation requires exactly {HOLDOUT_RETURN_SESSIONS} completed return-bearing sessions; "

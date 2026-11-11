@@ -49,8 +49,8 @@ Each collection session stores the complete model-feed DataFrame supplied to `PP
 The holdout contains **252 return-bearing NYSE sessions**, not 252 PPO decision dates:
 
 1. Decision 1 is generated after the first eligible completed SIP session. It is a warm-up signal and produces no return.
-2. Decision 1 is applied at the next NYSE session Open. That Open-to-Close interval is return-bearing session 1.
-3. At each return-bearing session close, the collector records the next decision. The next NYSE session Open consumes that decision.
+2. Decision 1 is applied at the next NYSE session Open; the portfolio is marked at that session's Close. This is return-bearing session 1.
+3. At each return-bearing session close, the collector records the next decision. The next NYSE session Open consumes that decision. Returns are measured from the prior close to the current close, with existing holdings absorbing the overnight gap before the new target is applied.
 4. The final evidence set therefore contains exactly **253 decisions and 252 portfolio/benchmark transitions**, with no pending decision. The first decision date is the warm-up date; the first return date is the next NYSE session.
 
 A missed session, malformed event, missing snapshot, partial ledger, or count other than 253 decisions / 252 transitions prevents final evaluation. No backfill, skipped-session substitution, early stop, or restart of the clock is permitted.
@@ -68,7 +68,7 @@ print(report["acceptance"])
 
 The default output is `logs/ppo_shadow_holdout.final_report.json`. The evaluator replays the complete ledger, checks the exact event counts and terminal state, verifies every decision and transition snapshot, recomputes the strategy and SPY metrics from the 252 persisted transitions, and atomically publishes one final report. It refuses incomplete or overlong ledgers and refuses to overwrite an existing report. If evaluation is interrupted or a report already exists, preserve the evidence and use a separate documented forensic review; do not delete the report to rerun evaluation.
 
-The report includes net cumulative return, maximum drawdown, annualized volatility, Sharpe and Sortino diagnostics for the strategy and SPY. The fixed primary acceptance checks are positive net strategy return and maximum drawdown no worse than -15%. SPY outperformance is not required. The evaluator does not change the model, select seeds, or tune parameters.
+The report includes net cumulative return, maximum drawdown, annualized volatility, Sharpe and Sortino diagnostics for the strategy and SPY. Daily strategy returns include the overnight gap on pre-existing holdings plus the current-session Open-to-Close movement; the first return-bearing session begins from the all-cash initial state. The fixed primary acceptance checks are positive net strategy return and maximum drawdown no worse than -15%. SPY outperformance is not required. The evaluator does not change the model, select seeds, or tune parameters.
 
 The collector's return value exposes session/status only, not interim portfolio or benchmark performance. The append-only ledger still contains the auditable transition data required for replay; software cannot prevent an operator with filesystem access from manually inspecting that raw evidence. The no-interim-performance-review / no-tuning rule therefore remains an explicit operator control, not a cryptographic access-control guarantee. Do not use intermediate ledger contents to select, tune, stop, or restart the holdout.
 

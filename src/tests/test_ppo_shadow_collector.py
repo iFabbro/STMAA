@@ -327,6 +327,7 @@ def test_snapshot_store_persists_and_verifies_full_inference_frame(tmp_path):
     )
     pd.testing.assert_frame_equal(restored, frame)
     artifact = store.root / reference["path"].split("/")[-1]
+    artifact.chmod(0o600)  # Simulate an owner-level tamper attempt against the read-only artifact.
     artifact.write_text("{}")
     with pytest.raises(ValueError, match="integrity verification"):
         store.verify(reference)
@@ -354,13 +355,14 @@ def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
     assert not report_path.exists()
 
     feed.session = "2026-01-06"
-    collector.collect_once()
+    result = collector.collect_once(finalize=True)
+    assert result["status"] == "finalized"
     report = evaluate_shadow_holdout(path, report_path)
     assert report["status"] == "FINAL"
     assert report["protocol"]["return_bearing_sessions"] == 2
-    assert report["protocol"]["decision_count"] == 3
+    assert report["protocol"]["decision_count"] == 2
     assert report["first_return_session"] == "2026-01-05"
     assert report["final_return_session"] == "2026-01-06"
-    assert report["input_snapshot_evidence"]["verified_references"] == 10
+    assert report["input_snapshot_evidence"]["verified_references"] == 8
     with pytest.raises(FileExistsError, match="never overwritten"):
         evaluate_shadow_holdout(path, report_path)

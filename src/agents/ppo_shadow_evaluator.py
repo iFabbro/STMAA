@@ -98,7 +98,7 @@ def _evaluate_locked(ledger_path, output, records):
     if replay["decision_count"] != HOLDOUT_DECISION_COUNT or replay["pending_decision"] is not None:
         raise ValueError(
             f"Final evaluation requires {HOLDOUT_DECISION_COUNT} decisions (one warm-up plus "
-            f"{HOLDOUT_RETURN_SESSIONS} return sessions) and no pending decision"
+            f"{HOLDOUT_RETURN_SESSIONS - 1} subsequent signals) and no pending decision"
         )
     events = [record["payload"] for record in records[1:]]
     decisions = [event for event in events if event.get("type") == "decision"]

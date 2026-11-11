@@ -413,9 +413,27 @@ Il progetto usa un'unica base di codice e un unico lock file per le architetture
 
 Il workflow GitHub Actions esegue l'intera suite di test su Linux, macOS Intel (`macos-15-intel`) e Apple Silicon (`macos-15`). I test di identità dei processi e recupero delle sessioni orfane vengono eseguiti su tutte e tre le piattaforme, senza esclusioni specifiche per macOS. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
-## Stato dello sviluppo
+## Stato dello sviluppo e verifiche (11 novembre 2026)
 
-STMAA rimane in stato **alpha / sperimentale**. Il lavoro in corso comprende l'estensione delle verifiche end-to-end, la riconciliazione dello stato del broker, il calcolo del rischio in presenza di dati incompleti o obsoleti e la distinzione tra funzionalità implementate e obiettivi di ricerca futuri. Reinforcement learning, ottimizzazione del portafoglio ed eventuali capacità future di live trading devono essere valutati separatamente: la loro presenza nella struttura del repository non implica che siano pronti per la produzione.
+STMAA rimane in stato **alpha / sperimentale**. Le fasi di hardening architetturale, consolidamento dei controlli di rischio/esecuzione e riproducibilità dell'installazione sono completate a livello di codice e test. Questo stato non equivale a una validazione operativa end-to-end né dimostra redditività o idoneità alla produzione.
+
+| Fase | Stato | Evidenza e limiti |
+|---|---|---|
+| 1 — Hardening architetturale e Paper-only | Completata a livello di codice/test | Guardie Paper-only, controlli di freschezza e qualità dei dati, telemetria SIP/IEX e raccolta shadow predisposta. Non equivale a una prova operativa prolungata. |
+| 2 — Rischio ed esecuzione | Completata a livello di codice/test | Controlli fail-closed, riconciliazione, protezioni dell'executor e test degli scenari di errore. I test mock/locali non sostituiscono una validazione end-to-end contro il broker. |
+| 3 — Installabilità e riproducibilità | Completata | Doctor offline, lock file e istruzioni clean-install. Su macOS 12.7.6 Intel, un clone pulito ha completato `uv sync --locked`; `doctor.py` ha riportato 5 PASS, 1 WARN atteso e 0 FAIL perché il clone isolato non conteneva `.env`; la suite ha superato **1.449 test** in 187,30 secondi. |
+| 4 — Validazione end-to-end locale su macOS | In corso | Il checkout principale è allineato al commit `663feeec8c253c9c1955d9572b6a45220056b7f5`, con working tree pulito. Il Doctor locale ha riportato **8 PASS, 0 WARN, 0 FAIL**, inclusa la configurazione Paper e la presenza dei campi credenziali. Restano da verificare i flussi locali e la dashboard nel checkout aggiornato. |
+| 5 — Raccolta shadow prospettica | Da avviare dopo la Fase 4 | La raccolta iniziale è read-only: nessun ordine deve essere inviato, modificato o cancellato. Eventuali test con ordini Alpaca Paper richiedono un'autorizzazione separata ed esplicita. |
+
+### Interpretazione delle verifiche
+
+Il comando `doctor.py` è una diagnostica **offline**: controlla la configurazione locale e la presenza dei campi credenziali, ma non autentica le chiavi, non contatta Alpaca e non verifica la raggiungibilità dell'account. Un esito positivo non sostituisce il preflight read-only del broker.
+
+Il warning `.env` nel clone pulito è atteso: il file contiene configurazione e credenziali locali e non deve essere copiato nel repository. Nel checkout operativo dell'utente il Doctor ha rilevato la configurazione Paper completa. Non pubblicare mai il contenuto di `.env`, chiavi API, token o altri segreti.
+
+La suite automatizzata superata, la CI verde e l'installazione pulita verificano rispettivamente regressioni coperte dai test, compatibilità sulle piattaforme CI e riproducibilità dell'ambiente. Nessuno di questi risultati dimostra da solo il corretto comportamento di ogni flusso contro un account Alpaca reale, neppure in Paper.
+
+La Fase 4 deve quindi completare le verifiche locali di avvio, dashboard, lettura dello stato e comportamento fail-closed senza introdurre operazioni broker non autorizzate. La Fase 5 dovrà usare un protocollo prospettico congelato e mantenere separati i controlli di integrità della raccolta dalla valutazione delle prestazioni. Reinforcement learning, ottimizzazione del portafoglio ed eventuali capacità future di live trading restano ambiti da valutare separatamente.
 
 ## Contribuire
 

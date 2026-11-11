@@ -214,3 +214,95 @@ def test_shadow_modules_do_not_import_or_call_broker_execution_clients():
             if isinstance(node, ast.Call):
                 called = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ""
                 assert called not in forbidden_calls, f"{called} in {path}"
+
+
+
+def test_activation_requires_structured_approved_record(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    with pytest.raises(ValueError, match="validated activation record"):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           collection_authorized=True)
+    collector_path = tmp_path / "bad.activation.json"
+    collector_path.write_text(json.dumps({"schema": "stmaa_ppo_shadow_activation_v1",
+                                          "freeze_register_status": "draft"}))
+    with pytest.raises(ValueError, match="missing a required approval field"):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           collection_authorized=True, activation_record_path=collector_path)
+
+
+def test_operational_constructor_does_not_accept_injected_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    with pytest.raises(TypeError):
+        PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "ledger.jsonl", ["AAA", "BBB"],
+                           provenance=TEST_PROVENANCE)
+
+
+def test_ledger_rejects_partial_trailing_record_without_repair(tmp_path):
+    path = tmp_path / "partial.jsonl"
+    ledger = PPOShadowLedger(path)
+    ledger.append({"type": "header"})
+    with path.open("ab") as stream:
+        stream.write(b'{"sequence":2')
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="Incomplete trailing ledger record"):
+        ledger.read()
+    with pytest.raises(ValueError, match="Incomplete trailing ledger record"):
+        ledger.append({"type": "next"})
+    assert path.read_bytes() == original
+
+
+def test_ledger_reader_and_writer_are_serialized(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    path = tmp_path / "concurrent.jsonl"
+    ledger = PPOShadowLedger(path)
+
+    def writer():
+        for index in range(40):
+            ledger.append({"type": "event", "index": index})
+
+    def reader():
+        observed = []
+        for _ in range(40):
+            observed.append(len(ledger.read()))
+        return observed
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        write_future = pool.submit(writer)
+        read_future = pool.submit(reader)
+        write_future.result(timeout=10)
+        observed = read_future.result(timeout=10)
+    assert observed == sorted(observed)
+    assert len(ledger.read()) == 40
+
+
+def test_semantic_replay_rejects_second_decision_without_transition(tmp_path):
+    path = tmp_path / "invalid-sequence.jsonl"
+    ledger = PPOShadowLedger(path)
+    config = {"tickers": ["AAA", "BBB"], "max_position_size": 0.2, "max_gross_exposure": 0.5}
+    ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
+                   "config": config, "provenance": TEST_PROVENANCE})
+    ledger.append({"type": "decision", "session": "2026-01-02",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    ledger.append({"type": "decision", "session": "2026-01-05",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    with pytest.raises(ValueError, match="second decision"):
+        replay_shadow_ledger(path)
+
+
+def test_semantic_replay_rejects_transition_not_next_nyse_session(tmp_path):
+    path = tmp_path / "invalid-transition.jsonl"
+    ledger = PPOShadowLedger(path)
+    config = {"tickers": ["AAA", "BBB"], "max_position_size": 0.2, "max_gross_exposure": 0.5}
+    ledger.append({"type": "run_metadata", "schema": "ppo_shadow_v1",
+                   "config": config, "provenance": TEST_PROVENANCE})
+    ledger.append({"type": "decision", "session": "2026-01-02",
+                   "target_weights": {"AAA": 0.2, "BBB": 0.1}})
+    portfolio = PPOShadowPortfolio(("AAA", "BBB"), initial_capital=10000).to_state()
+    ledger.append({"type": "portfolio_transition", "session": "2026-01-06",
+                   "signal_session": "2026-01-02", "portfolio": portfolio,
+                   "metrics": {"session": "2026-01-06", "equity_close": 10000},
+                   "benchmark": {"ticker": "SPY", "shares": 1, "last_equity": 10000},
+                   "benchmark_metrics": {"session": "2026-01-06", "ticker": "SPY",
+                                         "equity_close": 10000}})
+    with pytest.raises(ValueError, match="next NYSE session"):
+        replay_shadow_ledger(path)

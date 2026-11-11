@@ -337,7 +337,7 @@ def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(shadow_evaluator, "HOLDOUT_RETURN_SESSIONS", 2)
-    monkeypatch.setattr(shadow_evaluator, "HOLDOUT_DECISION_COUNT", 3)
+    monkeypatch.setattr(shadow_evaluator, "HOLDOUT_DECISION_COUNT", 2)
     feed, path = FakeFeed(), tmp_path / "holdout.jsonl"
     collector = make_collector(
         monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000

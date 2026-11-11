@@ -5,7 +5,7 @@ from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 
 def replay_shadow_ledger(path):
     records = PPOShadowLedger(path).read()
-    decisions, transitions, portfolio = [], [], None
+    decisions, portfolio = [], None
     benchmark, benchmark_metrics, provenance = None, [], None
     for index, record in enumerate(records):
         event = record["payload"]

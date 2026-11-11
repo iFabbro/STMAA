@@ -411,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
             db_path=args.db_path,
             duration_seconds=args.duration_hours * 60 * 60,
             heartbeat_interval_seconds=args.interval_seconds,
+            broker_access="read_only",
             branch=args.branch,
             commit_sha=args.commit_sha,
             run_metadata={
@@ -418,7 +419,6 @@ def main(argv: list[str] | None = None) -> int:
                 "provider_kind": "production_read_only",
                 "production_strategy_inference": True,
                 "observation_interval_seconds": args.interval_seconds,
-                "broker_mutations_enabled": False,
                 "broker_preflight_passed": True,
                 "broker_preflight_mode": "paper",
             },

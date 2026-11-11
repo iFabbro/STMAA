@@ -32,15 +32,21 @@ class PPOShadowSnapshotStore:
         fingerprint = frame.attrs.get("market_data_fingerprint")
         if not isinstance(contract, dict) or not isinstance(fingerprint, str):
             raise ValueError("Snapshot requires market-data contract and fingerprint")
-        table = frame.to_json(orient="table", date_format="iso", date_unit="ns",
-                              double_precision=15)
+        if not isinstance(frame.index, pd.DatetimeIndex):
+            raise ValueError("Inference snapshots require a DatetimeIndex")
+        table = {
+            "columns": [str(column) for column in frame.columns],
+            "index": [pd.Timestamp(value).isoformat() for value in frame.index],
+            "index_name": frame.index.name,
+            "data": frame.to_numpy(dtype=float).tolist(),
+        }
         return {
             "schema": "stmaa_ppo_shadow_input_v1",
             "role": role,
             "market_data_contract": contract,
             "market_data_fingerprint": fingerprint,
-            "dataframe_orient": "table",
-            "dataframe_json": table,
+            "dataframe_encoding": "numeric_matrix_roundtrip_v1",
+            "dataframe": table,
             "inference_context": inference_context or {},
         }
 
@@ -124,7 +130,7 @@ class PPOShadowSnapshotStore:
             raise ValueError("Input snapshot is not valid JSON") from exc
         if (payload.get("schema") != "stmaa_ppo_shadow_input_v1"
                 or payload.get("role") != reference["role"]
-                or payload.get("dataframe_orient") != "table"
-                or not isinstance(payload.get("dataframe_json"), str)):
+                or payload.get("dataframe_encoding") != "numeric_matrix_roundtrip_v1"
+                or not isinstance(payload.get("dataframe"), dict)):
             raise ValueError("Input snapshot payload contract is invalid")
         return payload

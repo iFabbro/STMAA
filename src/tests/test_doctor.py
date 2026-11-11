@@ -96,7 +96,7 @@ def test_doctor_warns_when_env_or_credentials_are_not_ready(tmp_path):
 
 
 def test_doctor_fails_when_uv_is_unavailable(tmp_path):
-    root = _root(tmp_path, env={}, lock=True)
+    root = _root(tmp_path, lock=True)
     statuses = _statuses(collect_checks(
         root, python_version=(3, 12), package_versions=_versions(),
         uv_available=False,

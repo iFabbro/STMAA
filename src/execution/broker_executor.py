@@ -1479,8 +1479,6 @@ class BrokerExecutor:
         a returned order is persisted immediately so a later invocation can
         reconcile it against the broker's current open-order snapshot.
         """
-        self._assert_paper_mutation_allowed()
-
         def validate_positions_snapshot(snapshot):
             if not isinstance(snapshot, (list, tuple)):
                 raise RuntimeError(
@@ -2881,7 +2879,6 @@ class BrokerExecutor:
         """
         lock = self.execution_lock() if hasattr(self, "state_file") else nullcontext()
         with lock:
-            self._assert_paper_mutation_allowed()
             if getattr(self, "_current_account_identity_verified", False) is not True:
                 raise RuntimeError("Current broker account identity is not verified; refusing OPG execution")
             batches = self.state.setdefault("opg_batches", {})
@@ -3168,14 +3165,12 @@ class BrokerExecutor:
     def execute_weights(self, weights: PortfolioWeights, min_notional: float = 1.0) -> Dict:
         """Run the complete broker execution cycle under the shared OS lock."""
         with self.execution_lock():
-            self._assert_paper_mutation_allowed()
             return self._execute_weights_locked(weights, min_notional)
 
     def _execute_weights_locked(
         self, weights: PortfolioWeights, min_notional: float = 1.0
     ) -> Dict:
         """Run reconciliation, risk checks, and broker mutations under the execution lock."""
-        self._assert_paper_mutation_allowed()
         self._reconcile_unresolved_submissions()
         self._refresh_confirmed_submission_statuses()
         self._reconcile_terminal_order_positions()

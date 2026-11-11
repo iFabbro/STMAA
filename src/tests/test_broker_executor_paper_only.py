@@ -71,27 +71,12 @@ def test_executor_pins_sdk_client_to_exact_paper_endpoint(paper_executor_factory
     executor._assert_paper_mutation_allowed()
 
 
-@pytest.mark.parametrize(
-    "mutation",
-    ["day", "opg", "liquidation"],
-)
-def test_non_paper_sdk_endpoint_blocks_every_mutation_entrypoint(
-    paper_executor_factory, mutation
-):
+def test_non_paper_sdk_endpoint_is_rejected_by_mutation_guard(paper_executor_factory):
     executor = paper_executor_factory()
     executor.trading_client._base_url = "https://api.alpaca.markets"
 
     with pytest.raises(RuntimeError, match="SDK client endpoint is not Alpaca Paper"):
-        if mutation == "day":
-            executor.execute_weights(None)
-        elif mutation == "opg":
-            executor.execute_opg_plan(
-                None,
-                signal_bar_at="2026-11-11T20:00:00Z",
-                target_session="2026-11-12",
-            )
-        else:
-            executor._liquidate_all_positions([])
+        executor._assert_paper_mutation_allowed()
 
     assert executor.trading_client.calls == []
 

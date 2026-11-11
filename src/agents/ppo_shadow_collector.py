@@ -88,7 +88,8 @@ def _load_activation_record(path, provenance, effective_config):
         raise ValueError("Activation record is missing a required approval field")
     for key in ("freeze_register_commit", "collector_commit"):
         value = record[key]
-        if len(value) != 40 or any(char not in "0123456789abcdef" for char in value.lower()):
+        if len(value) != 40 or value != value.lower() or any(
+                char not in "0123456789abcdef" for char in value):
             raise ValueError(f"Activation record has an invalid {key}")
     if record.get("freeze_register_status") != "approved":
         raise ValueError("PPO holdout freeze register is not explicitly approved")
@@ -99,6 +100,8 @@ def _load_activation_record(path, provenance, effective_config):
         raise ValueError("Activation record has an invalid approval timestamp or first session") from exc
     if approved_at.tzinfo is None:
         raise ValueError("Activation approval timestamp must include a timezone")
+    if first_session <= approved_at.date():
+        raise ValueError("First holdout session must be after the approval date")
     config_digest = hashlib.sha256(_canonical(effective_config)).hexdigest()
     expected = {
         "model_sha256": provenance["model_sha256"],

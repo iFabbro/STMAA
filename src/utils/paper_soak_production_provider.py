@@ -42,7 +42,8 @@ class ProductionPaperSoakObservationProvider:
         state = self.executor.state
         self._prior_state_has_account_history = any(
             (
-                bool(state.get("account_id")),
+                # Account identity is established by a read-only snapshot and
+                # does not prove prior execution or persisted equity history.
                 bool(state.get("last_execution_time")),
                 bool(state.get("total_orders")),
                 bool(state.get("equity_history")),

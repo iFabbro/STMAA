@@ -293,3 +293,57 @@ def test_provider_marks_existing_position_over_position_limit_inconsistent():
 
     assert observation.health.broker_state_consistent is False
     assert observation.decision["position_limits_consistent"] is False
+
+def test_account_identity_without_prior_activity_uses_verified_equity_as_run_baseline():
+    bot = FakeBot()
+    state = bot.executor.state
+    for field in (
+        "risk_peak_portfolio_value",
+        "risk_peak_equity_source",
+        "risk_peak_account_mode",
+        "risk_peak_account_id",
+    ):
+        state.pop(field, None)
+
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    assert observation.decision["peak_equity"] == pytest.approx(100_000.0)
+    assert observation.decision["drawdown"] == pytest.approx(0.0)
+    # The read-only provider must not initialize or persist a broker-state peak.
+    assert "risk_peak_portfolio_value" not in state
+    assert "risk_peak_equity_source" not in state
+    assert "risk_peak_account_mode" not in state
+    assert "risk_peak_account_id" not in state
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("last_execution_time", "2026-11-10T15:00:00+00:00"),
+        ("total_orders", 1),
+        ("equity_history", [100_000.0]),
+        ("order_submission_unresolved", {"order-1": {"symbol": "AAPL"}}),
+        ("order_submission_confirmed", {"order-1": {"symbol": "AAPL"}}),
+        ("emergency_liquidation_pending", {"request-1": {"symbol": "AAPL"}}),
+        ("emergency_liquidation_unresolved", {"request-1": {"symbol": "AAPL"}}),
+    ],
+)
+def test_provider_fails_closed_when_prior_account_activity_exists_without_risk_peak(
+    field, value
+):
+    bot = FakeBot()
+    state = bot.executor.state
+    for peak_field in (
+        "risk_peak_portfolio_value",
+        "risk_peak_equity_source",
+        "risk_peak_account_mode",
+        "risk_peak_account_id",
+    ):
+        state.pop(peak_field, None)
+    state[field] = value
+
+    with pytest.raises(
+        RuntimeError,
+        match="Cannot calculate shadow drawdown: persisted risk peak is missing",
+    ):
+        ProductionPaperSoakObservationProvider(bot)()

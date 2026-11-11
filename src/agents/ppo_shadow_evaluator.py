@@ -94,7 +94,12 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
         if not isinstance(refs, dict) or set(refs) != {"model_inference", "benchmark"}:
             raise ValueError("A transition is missing its complete market-data snapshots")
         for role in ("model_inference", "benchmark"):
-            snapshots.verify(refs[role])
+            payload = snapshots.verify(refs[role])
+            expected_fingerprint = event.get(
+                "market_data_fingerprint" if role == "model_inference" else "benchmark_data_fingerprint"
+            )
+            if payload.get("market_data_fingerprint") != expected_fingerprint:
+                raise ValueError("Transition snapshot fingerprint differs from the ledger event")
     initial_capital = float(records[0]["payload"]["config"]["initial_capital"])
     strategy_equity = [initial_capital] + [float(event["metrics"]["equity_close"]) for event in transitions]
     strategy_returns = [float(event["metrics"]["step_return"]) for event in transitions]

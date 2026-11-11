@@ -70,10 +70,10 @@ class PPOShadowSnapshotStore:
             existing_fd = os.open(path, flags)
             with os.fdopen(existing_fd, "rb") as stream:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                    raise ValueError("Existing snapshot artifact is not a regular file")
+                    raise ValueError("Existing snapshot artifact is not a regular file") from None
                 existing = stream.read()
             if hashlib.sha256(existing).hexdigest() != digest or existing != raw:
-                raise ValueError("Content-addressed snapshot collision or tampering")
+                raise ValueError("Content-addressed snapshot collision or tampering") from None
         else:
             try:
                 offset = 0

@@ -87,10 +87,11 @@ class AlpacaFeed:
         if not schedule.empty:
             market_open = pd.Timestamp(schedule.iloc[0]["market_open"]).tz_convert("UTC")
             market_close = pd.Timestamp(schedule.iloc[0]["market_close"]).tz_convert("UTC")
-            if market_open <= current < market_close:
+            if market_open <= current < market_close + pd.Timedelta(minutes=20):
                 # Alpaca's daily-bar end bound includes a bar stamped exactly
-                # at the session's midnight UTC-converted boundary. Exclude that
-                # in-progress session explicitly while retaining SIP history.
+                # at the session's midnight UTC-converted boundary. Keep excluding
+                # the current session through the 20-minute post-close finalization
+                # window so the requested bars match the latest completed session.
                 session_start = pd.Timestamp(ny_date).tz_localize(
                     "America/New_York"
                 ).tz_convert("UTC")

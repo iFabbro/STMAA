@@ -392,7 +392,20 @@ Per verificare anche i test e gli strumenti di sviluppo:
 uv sync --locked --group dev
 uv run --locked pytest src/tests tests -q
 uv run --locked ruff check .
+uv run --locked python doctor.py
 ```
+
+`doctor.py` verifica localmente Python 3.12, presenza del lock file, disponibilità di `uv`,
+dipendenze runtime e configurazione Paper. Non effettua richieste di rete, non contatta Alpaca,
+non legge lo stato del broker e non invia ordini. Le credenziali mancanti sono segnalate come
+avviso perché non servono per test e diagnostica locale; sono necessarie soltanto per i flussi
+che si collegano ad Alpaca. Un esito senza errori non sostituisce il preflight read-only
+dell'account Paper.
+
+Il test di installazione pulita riproducibile è eseguito dalla CI su Linux, macOS Intel e
+Apple Silicon: checkout pulito, installazione con `uv sync --locked --group dev`,
+controllo dipendenze, suite completa e Ruff. Sul Mac locale, eseguire i comandi sopra in un
+clone aggiornato; non eliminare `.env`, `logs/` o `models/` per simulare una nuova installazione.
 
 Il progetto usa un'unica base di codice e un unico lock file per le architetture Intel (x86_64) e Apple Silicon (arm64): non esistono fork del codice per Mac vecchi e recenti. Il lock file fissa PyTorch 2.2.2 e Stable-Baselines3 2.3.2 per mantenere la compatibilità con i wheel macOS Intel; la stessa combinazione viene verificata anche su Apple Silicon. Il supporto a versioni future di PyTorch richiederà una nuova verifica esplicita della disponibilità di wheel x86_64 e dei contratti PPO. La verifica locale sopra riportata resta necessaria sul computer di destinazione. Il recupero delle sessioni orfane usa il timestamp di avvio del processo fornito dal kernel: Linux tramite `/proc` e macOS tramite `proc_pidinfo(PROC_PIDTBSDINFO)`. Se il sistema operativo non consente di verificare l'identità, STMAA lascia la sessione invariata (fail-closed).
 

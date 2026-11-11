@@ -38,3 +38,38 @@ Run:
 Tests cover next-open accounting, SPY benchmark replay, artifact/config provenance binding, activation-record validation, rejection of injected provenance, hash-chain tampering, partial trailing writes, concurrent reader/writer access, semantic decision/transition ordering, duplicate and skipped sessions, restart/retry behavior, and AST-based rejection of broker execution imports and order/position endpoint calls.
 
 Passing tests is not broker certification or evidence of profitability.
+
+
+## Immutable inference evidence and final holdout evaluation
+
+Each collection session stores the complete model-feed DataFrame supplied to `PPOAgent.predict_weights()` and the complete benchmark DataFrame in a sibling directory named `<ledger>.snapshots/`. Snapshot files are canonical JSON, content-addressed by SHA-256, created without overwrite, written with complete-write loops and `fsync`, and referenced from both the decision and transition ledger events. The model snapshot also preserves the ordered ticker list, the exact current-weight vector supplied to inference, and the inference-call contract. The ledger records each snapshot's role, relative path, byte size, and digest. Missing, unsafe, or digest-mismatched snapshots fail closed during final evaluation. Keep the ledger and its snapshot directory together; back up both as one evidence set. A hash proves byte integrity, not the truth of the upstream provider response.
+
+### Fixed 252-session counting rule
+
+The holdout contains **252 return-bearing NYSE sessions**, not 252 PPO decision dates:
+
+1. Decision 1 is generated after the first eligible completed SIP session. It is a warm-up signal and produces no return.
+2. Decision 1 is applied at the next NYSE session Open. That Open-to-Close interval is return-bearing session 1.
+3. At each return-bearing session close, the collector records the next decision. The next NYSE session Open consumes that decision.
+4. The final evidence set therefore contains exactly **253 decisions and 252 portfolio/benchmark transitions**, with no pending decision. The first decision date is the warm-up date; the first return date is the next NYSE session.
+
+A missed session, malformed event, missing snapshot, partial ledger, or count other than 253 decisions / 252 transitions prevents final evaluation. No backfill, skipped-session substitution, early stop, or restart of the clock is permitted.
+
+### One-shot evaluator
+
+After the 252nd transition is durably recorded, run the evaluator once from the freeze host:
+
+```python
+from src.agents.ppo_shadow_evaluator import evaluate_shadow_holdout
+
+report = evaluate_shadow_holdout("logs/ppo_shadow_holdout.jsonl")
+print(report["acceptance"])
+```
+
+The default output is `logs/ppo_shadow_holdout.final_report.json`. The evaluator replays the complete ledger, checks the exact event counts and terminal state, verifies every decision and transition snapshot, recomputes the strategy and SPY metrics from the 252 persisted transitions, and atomically publishes one final report. It refuses incomplete or overlong ledgers and refuses to overwrite an existing report. If evaluation is interrupted or a report already exists, preserve the evidence and use a separate documented forensic review; do not delete the report to rerun evaluation.
+
+The report includes net cumulative return, maximum drawdown, annualized volatility, Sharpe and Sortino diagnostics for the strategy and SPY. The fixed primary acceptance checks are positive net strategy return and maximum drawdown no worse than -15%. SPY outperformance is not required. The evaluator does not change the model, select seeds, or tune parameters.
+
+The collector's return value exposes session/status only, not interim portfolio or benchmark performance. The append-only ledger still contains the auditable transition data required for replay; software cannot prevent an operator with filesystem access from manually inspecting that raw evidence. The no-interim-performance-review / no-tuning rule therefore remains an explicit operator control, not a cryptographic access-control guarantee. Do not use intermediate ledger contents to select, tune, stop, or restart the holdout.
+
+Passing the evaluator is evidence about this fixed prospective sample only. It does not authorize collection, Paper orders, or live trading.

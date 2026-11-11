@@ -12,6 +12,7 @@ from src.data.market_data_contract import validate_market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
 from src.agents.ppo_shadow_replay import replay_shadow_ledger
+from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
 
 
 def _canonical(value):
@@ -236,6 +237,11 @@ class PPOShadowCollector:
             if previous_index + 1 >= len(session_dates) or session_dates[previous_index + 1] != session:
                 raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
+        snapshot_store = PPOShadowSnapshotStore(self.ledger.path)
+        input_snapshots = {
+            "model_inference": snapshot_store.put(frame, "model_inference"),
+            "benchmark": snapshot_store.put(benchmark_frame, "benchmark"),
+        }
         transition, benchmark_metrics = None, None
         if pending is not None:
             if session <= pending["session"]:
@@ -262,7 +268,8 @@ class PPOShadowCollector:
                                 "metrics": transition, "benchmark": benchmark,
                                 "benchmark_metrics": benchmark_metrics,
                                 "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
-                                "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
+                                "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
+                                "input_snapshots": input_snapshots})
 
         current = portfolio.weights(closes)
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
@@ -280,7 +287,8 @@ class PPOShadowCollector:
                                                    "open": benchmark_open, "close": benchmark_close},
                             "market_data_fingerprint": frame.attrs.get("market_data_fingerprint"),
                             "market_data_contract": frame.attrs.get("market_data_contract"),
-                            "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint")})
+                            "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
+                            "input_snapshots": input_snapshots})
         return {"status": "collected", "session": session,
                 "executed_pending_target": transition is not None,
                 "target_weights": target_map, "portfolio": portfolio.to_state(),

@@ -143,9 +143,9 @@ The prospective holdout must follow the project's current priority order:
 2. Risk control: drawdown, volatility, exposure, and capital protection.
 3. Statistical robustness: multi-seed evidence, walk-forward stability, and sensitivity checks.
 4. Operational validation: read-only Alpaca Paper data collection; no broker orders.
-5. Competitive optimization: benchmark outperformance only if it does not weaken the first four objectives.
+5. Optional competitive diagnostics: benchmark comparisons may inform research, but beating SPY is not a project acceptance criterion. STMAA succeeds if it operates autonomously within its risk constraints and demonstrates positive net profitability on genuinely out-of-sample evidence.
 
-The 252-session holdout is prospective evidence, not a tuning set. Do not inspect interim performance, change model/configuration/costs/criteria, select a seed, or restart the clock based on results. Any protocol deviation must be recorded and adjudicated before continuing.
+The 252-session holdout is prospective evidence, not a tuning set. The primary outcome is autonomous operational correctness, risk-limit adherence, and positive net return after modeled costs; benchmark outperformance is not required. Do not inspect interim performance, change model/configuration/costs/criteria, select a seed, or restart the clock based on results. Any protocol deviation must be recorded and adjudicated before continuing.
 
 ## 8. Activation record (intentionally blank)
 

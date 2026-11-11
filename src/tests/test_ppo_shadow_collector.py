@@ -319,9 +319,13 @@ def test_snapshot_store_persists_and_verifies_full_inference_frame(tmp_path):
     payload = store.verify(reference)
     assert payload["role"] == "model_inference"
     assert payload["market_data_fingerprint"] == frame.attrs["market_data_fingerprint"]
-    restored = pd.read_json(payload["dataframe_json"], orient="table")
-    assert list(restored.columns) == list(frame.columns)
-    assert restored.iloc[-1].to_dict() == frame.iloc[-1].to_dict()
+    stored_frame = payload["dataframe"]
+    restored = pd.DataFrame(
+        stored_frame["data"],
+        columns=stored_frame["columns"],
+        index=pd.DatetimeIndex(stored_frame["index"], name=stored_frame["index_name"]),
+    )
+    pd.testing.assert_frame_equal(restored, frame)
     artifact = store.root / reference["path"].split("/")[-1]
     artifact.write_text("{}")
     with pytest.raises(ValueError, match="integrity verification"):

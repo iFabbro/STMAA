@@ -89,7 +89,7 @@ def register_mock_broker_clients_as_paper(monkeypatch, request):
         # continue to fail closed.
         if not hasattr(value, "_base_url"):
             try:
-                setattr(value, "_base_url", PAPER_API_BASE_URL)
+                value._base_url = PAPER_API_BASE_URL
             except (AttributeError, TypeError):
                 return
         object.__setattr__(self, "_paper_client_identity", id(value))

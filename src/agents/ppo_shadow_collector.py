@@ -237,11 +237,6 @@ class PPOShadowCollector:
             if previous_index + 1 >= len(session_dates) or session_dates[previous_index + 1] != session:
                 raise ValueError("Missed one or more NYSE sessions; refusing a delayed shadow fill")
 
-        snapshot_store = PPOShadowSnapshotStore(self.ledger.path)
-        input_snapshots = {
-            "model_inference": snapshot_store.put(frame, "model_inference"),
-            "benchmark": snapshot_store.put(benchmark_frame, "benchmark"),
-        }
         transition, benchmark_metrics = None, None
         if pending is not None:
             if session <= pending["session"]:
@@ -263,6 +258,21 @@ class PPOShadowCollector:
                 "step_return": benchmark_equity_close / benchmark["last_equity"] - 1.0,
             }
             benchmark = {**benchmark, "last_equity": benchmark_equity_close}
+
+        current = portfolio.weights(closes)
+        inference_context = {
+            "tickers": list(self.tickers),
+            "current_weights": [float(current[t]) for t in self.tickers],
+            "inference_contract": "ppo_predict_weights_current_weights_v1",
+        }
+        snapshot_store = PPOShadowSnapshotStore(self.ledger.path)
+        input_snapshots = {
+            "model_inference": snapshot_store.put(
+                frame, "model_inference", inference_context=inference_context
+            ),
+            "benchmark": snapshot_store.put(benchmark_frame, "benchmark"),
+        }
+        if transition is not None:
             self.ledger.append({"type": "portfolio_transition", "session": session,
                                 "signal_session": pending["session"], "portfolio": portfolio.to_state(),
                                 "metrics": transition, "benchmark": benchmark,
@@ -271,7 +281,6 @@ class PPOShadowCollector:
                                 "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
                                 "input_snapshots": input_snapshots})
 
-        current = portfolio.weights(closes)
         target = np.asarray(self.agent.predict_weights(frame, current_weights=list(current.values())), dtype=float)
         if target.shape != (len(self.tickers),) or not np.isfinite(target).all():
             raise ValueError("PPO returned invalid target weights")
@@ -290,9 +299,7 @@ class PPOShadowCollector:
                             "benchmark_data_fingerprint": benchmark_frame.attrs.get("market_data_fingerprint"),
                             "input_snapshots": input_snapshots})
         return {"status": "collected", "session": session,
-                "executed_pending_target": transition is not None,
-                "target_weights": target_map, "portfolio": portfolio.to_state(),
-                "benchmark": benchmark, "benchmark_metrics": benchmark_metrics}
+                "executed_pending_target": transition is not None}
 
 
 def build_default_collector(agent, ledger_path, tickers, collection_authorized=False,

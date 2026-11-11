@@ -435,6 +435,23 @@ La suite automatizzata superata, la CI verde e l'installazione pulita verificano
 
 La Fase 4 deve quindi completare le verifiche locali di avvio, dashboard, lettura dello stato e comportamento fail-closed senza introdurre operazioni broker non autorizzate. La Fase 5 dovrà usare un protocollo prospettico congelato e mantenere separati i controlli di integrità della raccolta dalla valutazione delle prestazioni. Reinforcement learning, ottimizzazione del portafoglio ed eventuali capacità future di live trading restano ambiti da valutare separatamente.
 
+## Aggiornamenti recenti (9–12 novembre 2026)
+
+Le PR recenti hanno consolidato soprattutto quattro aree:
+
+- **Feed e qualità dei dati (#323–#324):** telemetria read-only per età, spread e qualità delle quotazioni Alpaca, con distinzione tra feed SIP storico e quote feed; correzione del limite temporale delle barre giornaliere SIP durante la sessione NYSE.
+- **Ricerca PPO e benchmark (#325–#332):** baseline equal-weight e SPY allineate all'esecuzione al successivo Open; valutazioni multi-seed e walk-forward; tracce giornaliere di esposizione, turnover e costi; fingerprint dei dati di esecuzione; audit metodologico fail-closed; metriche di performance condivise. I fold restano simulazioni indipendenti e i risultati descrittivi non costituiscono una prova di redditività né un track record continuo.
+- **PPO shadow e provenienza (#334–#336):** collector virtuale esplicitamente attivabile e read-only, benchmark SPY a capitale comparabile, ledger append-only con hash chain, snapshot immutabili degli input e valutatore prospettico basato su 252 sessioni NYSE di rendimento. L'attivazione resta separata dal normale ciclo di trading.
+- **Hardening operativo (#337–#341):** confine broker executor Paper-only verificato prima delle mutazioni; Doctor locale offline e senza chiamate di rete; aggiornamento dello stato di sviluppo; correzione della classificazione della storia del risk peak; distinzione esplicita tra accesso broker read-only e mutazioni broker disabilitate nei metadati del soak.
+
+### Stato della validazione operativa
+
+La validazione end-to-end su Alpaca Paper è ancora in corso. Un tentativo di soak read-only è terminato dopo 22 cicli per una discrepanza temporale tra il limite della richiesta delle barre giornaliere e il calcolo dell'ultima sessione NYSE completata, rilevata poco dopo la chiusura del mercato. In quel tentativo non sono stati inviati ordini. La correzione è in revisione nella PR #342 e deve superare CI e verifica locale prima di ripetere il soak.
+
+Il fallimento di un job CI macOS Intel dovuto a un timeout di rete durante il download di Plotly è un problema di installazione/trasporto, non un errore dei test applicativi: la suite su quel runner non è partita. Il relativo job deve essere ripetuto con impostazioni di retry/timeout adeguate e completare i test prima del merge.
+
+La raccolta shadow prospettica e qualsiasi test che comporti mutazioni broker restano separati. Nessun risultato di test, benchmark o soak deve essere interpretato come autorizzazione al live trading.
+
 ## Contribuire
 
 1. Creare un branch dedicato e circoscritto.

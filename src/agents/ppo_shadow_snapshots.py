@@ -25,7 +25,7 @@ class PPOShadowSnapshotStore:
             raise ValueError("Snapshot path must be a directory")
 
     @staticmethod
-    def _payload(frame, role):
+    def _payload(frame, role, inference_context=None):
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             raise ValueError("Only non-empty DataFrames can be snapshotted")
         contract = frame.attrs.get("market_data_contract")
@@ -41,12 +41,13 @@ class PPOShadowSnapshotStore:
             "market_data_fingerprint": fingerprint,
             "dataframe_orient": "table",
             "dataframe_json": table,
+            "inference_context": inference_context or {},
         }
 
-    def put(self, frame, role):
+    def put(self, frame, role, inference_context=None):
         if role not in {"model_inference", "benchmark"}:
             raise ValueError("Unsupported market-data snapshot role")
-        payload = self._payload(frame, role)
+        payload = self._payload(frame, role, inference_context)
         raw = _canonical(payload)
         digest = hashlib.sha256(raw).hexdigest()
         filename = f"{digest}.json"

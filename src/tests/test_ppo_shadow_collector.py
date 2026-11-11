@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from types import SimpleNamespace
+import src.agents.ppo_shadow_collector as shadow_collector
 from src.agents.ppo_shadow_collector import PPOShadowCollector, _agent_provenance
 from src.data.market_data_contract import market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
@@ -95,7 +96,10 @@ class FakeFeed:
             data[f"Close_{t}"] = [101.] * len(self.sessions)
             for feature in ("RSI", "MACD", "BB_middle", "ATR"):
                 data[f"{feature}_{t}"] = [50. if feature == "RSI" else 0.] * len(self.sessions)
-        return pd.DataFrame(data, index=pd.DatetimeIndex(self.sessions))
+        frame = pd.DataFrame(data, index=pd.DatetimeIndex(self.sessions))
+        frame.attrs["market_data_contract"] = market_data_contract()
+        frame.attrs["market_data_fingerprint"] = hashlib.sha256(frame.to_csv().encode()).hexdigest()
+        return frame
 
 
 class FakeAgent:
@@ -103,13 +107,32 @@ class FakeAgent:
         return np.asarray([.2, .1])
 
 
-TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64}
+TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64,
+                   "strategy_config": {"max_position_size": 0.2, "max_gross_exposure": 0.5}}
+
+
+def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_capital=100000.0):
+    monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    options = dict(initial_capital=initial_capital, collection_authorized=authorized)
+    if authorized:
+        config = {"tickers": ("AAA", "BBB"), "initial_capital": initial_capital,
+                  "transaction_cost": 0.001, "slippage": 0.0005,
+                  "max_position_size": 0.2, "max_gross_exposure": 0.5}
+        digest = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        activation = {"schema": "stmaa_ppo_shadow_activation_v1", "freeze_register_status": "approved",
+            "freeze_register_commit": "1" * 40, "collector_commit": "2" * 40,
+            "operator_authorization": "approved by test fixture", "approved_at_utc": "2026-01-01T00:00:00Z",
+            "first_session": "2026-01-02", "model_sha256": TEST_PROVENANCE["model_sha256"],
+            "manifest_sha256": TEST_PROVENANCE["manifest_sha256"], "strategy_config_sha256": digest}
+        activation_path = path.with_suffix(".activation.json")
+        activation_path.write_text(json.dumps(activation))
+        options["activation_record_path"] = activation_path
+    return PPOShadowCollector(agent, feed, path, ["AAA", "BBB"], **options)
 
 
 
-def test_collection_is_disabled_without_explicit_activation(tmp_path):
-    collector = PPOShadowCollector(FakeAgent(), FakeFeed(), tmp_path / "disabled.jsonl",
-                                   ["AAA", "BBB"], provenance=TEST_PROVENANCE)
+def test_collection_is_disabled_without_explicit_activation(tmp_path, monkeypatch):
+    collector = make_collector(monkeypatch, FakeAgent(), FakeFeed(), tmp_path / "disabled.jsonl")
     with pytest.raises(RuntimeError, match="disabled pending explicit holdout activation"):
         collector.collect_once()
     assert not (tmp_path / "disabled.jsonl").exists()
@@ -118,7 +141,7 @@ def test_collection_is_disabled_without_explicit_activation(tmp_path):
 def test_collector_pending_target_replay_and_duplicate_guard(tmp_path):
     feed = FakeFeed()
     path = tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000)
     assert collector.collect_once()["executed_pending_target"] is False
     assert collector.collect_once()["status"] == "duplicate_session"
     feed.session = "2026-01-05"
@@ -138,10 +161,10 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
         def predict_weights(self, frame, current_weights=None):
             raise RuntimeError("inference unavailable")
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000)
     collector.collect_once()
     feed.session = "2026-01-05"
-    failing = PPOShadowCollector(FailingAgent(), feed, path, ["AAA", "BBB"], initial_capital=10000, provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    failing = make_collector(monkeypatch, FailingAgent(), feed, path, authorized=True, initial_capital=10000)
     with pytest.raises(RuntimeError, match="inference unavailable"):
         failing.collect_once()
     assert replay_shadow_ledger(path)["transition_count"] == 1
@@ -153,7 +176,7 @@ def test_transition_is_not_replayed_if_inference_fails_after_transition(tmp_path
 
 def test_collector_rejects_non_advancing_session(tmp_path):
     feed = FakeFeed()
-    collector = PPOShadowCollector(FakeAgent(), feed, tmp_path / "ledger.jsonl", ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, tmp_path / "ledger.jsonl", authorized=True)
     collector.collect_once()
     feed.sessions = ["2026-01-01"]
     with pytest.raises(ValueError, match="moved backwards"):
@@ -162,7 +185,7 @@ def test_collector_rejects_non_advancing_session(tmp_path):
 
 def test_collector_rejects_skipped_market_sessions(tmp_path):
     feed, path = FakeFeed(), tmp_path / "ledger.jsonl"
-    collector = PPOShadowCollector(FakeAgent(), feed, path, ["AAA", "BBB"], provenance=TEST_PROVENANCE, collection_authorized=True, activation_reference="test-only")
+    collector = make_collector(monkeypatch, FakeAgent(), feed, path, authorized=True)
     collector.collect_once()
     feed.session = "2026-01-05"
     feed.session = "2026-01-06"

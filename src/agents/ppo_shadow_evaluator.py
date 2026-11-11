@@ -16,7 +16,7 @@ from src.data.market_data_contract import validate_market_data_contract
 
 
 HOLDOUT_RETURN_SESSIONS = 252
-HOLDOUT_DECISION_COUNT = HOLDOUT_RETURN_SESSIONS + 1
+HOLDOUT_DECISION_COUNT = HOLDOUT_RETURN_SESSIONS
 
 
 def _canonical(value):
@@ -77,8 +77,8 @@ def _verify_snapshot(store, reference, role, session, expected_fingerprint):
 def evaluate_shadow_holdout(ledger_path, report_path=None):
     """Write exactly one final report after 252 return-bearing NYSE sessions.
 
-    The first decision is a warm-up signal; each of the following 252 decisions
-    must be paired with a next-session Open-to-Close transition.
+    The first decision is a warm-up signal. A terminal collection call records the final
+    next-session Open-to-Close transition without creating another pending decision.
     """
     ledger_path = Path(ledger_path)
     output = Path(report_path) if report_path is not None else ledger_path.with_name(
@@ -208,7 +208,7 @@ def _evaluate_locked(ledger_path, output, records):
         finally:
             os.close(directory_fd)
     except FileExistsError:
-        raise FileExistsError("Final evaluation report already exists; it is never overwritten")
+        raise FileExistsError("Final evaluation report already exists; it is never overwritten") from None
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)

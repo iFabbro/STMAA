@@ -357,6 +357,10 @@ def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
     feed.session = "2026-01-06"
     result = collector.collect_once(finalize=True)
     assert result["status"] == "finalized"
+    decisions = [record["payload"] for record in PPOShadowLedger(path).read()[1:]
+                 if record["payload"].get("type") == "decision"]
+    # Close-to-close price movement can push observed holdings above a target cap.
+    assert decisions[1]["current_weights"]["AAA"] > 0.2
     report = evaluate_shadow_holdout(path, report_path)
     assert report["status"] == "FINAL"
     assert report["protocol"]["return_bearing_sessions"] == 2

@@ -361,6 +361,6 @@ def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
     assert report["protocol"]["decision_count"] == 3
     assert report["first_return_session"] == "2026-01-05"
     assert report["final_return_session"] == "2026-01-06"
-    assert report["input_snapshot_evidence"]["verified_references"] == 6
+    assert report["input_snapshot_evidence"]["verified_references"] == 10
     with pytest.raises(FileExistsError, match="never overwritten"):
         evaluate_shadow_holdout(path, report_path)

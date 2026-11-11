@@ -110,6 +110,7 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
             )
             if payload.get("market_data_fingerprint") != expected_fingerprint:
                 raise ValueError("Transition snapshot fingerprint differs from the ledger event")
+            evidence.append({"session": event["session"], "role": role, "sha256": refs[role]["sha256"]})
     initial_capital = float(records[0]["payload"]["config"]["initial_capital"])
     strategy_equity = [initial_capital] + [float(event["metrics"]["equity_close"]) for event in transitions]
     strategy_returns = [float(event["metrics"]["step_return"]) for event in transitions]

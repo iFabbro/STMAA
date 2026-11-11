@@ -38,14 +38,16 @@ def test_historical_end_excludes_daily_bar_during_post_close_finalization():
         now = pd.Timestamp(value)
         actual = pd.Timestamp(AlpacaFeed._historical_request_end(now))
         assert actual == expected_end
-        assert AlpacaFeed._latest_completed_nyse_session_date(actual).isoformat() == "2026-11-10"
+        latest_session = AlpacaFeed._latest_completed_nyse_session_date(actual)
+        assert latest_session.isoformat() == "2026-11-10"
 
 
 def test_historical_end_includes_session_at_twenty_minute_post_close_boundary():
     now = pd.Timestamp("2026-11-11T21:20:00Z")
     actual = pd.Timestamp(AlpacaFeed._historical_request_end(now))
     assert actual == now - pd.Timedelta(minutes=20)
-    assert AlpacaFeed._latest_completed_nyse_session_date(actual).isoformat() == "2026-11-11"
+    latest_session = AlpacaFeed._latest_completed_nyse_session_date(actual)
+    assert latest_session.isoformat() == "2026-11-11"
 
 
 def test_historical_end_includes_completed_session_after_delay():

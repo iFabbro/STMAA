@@ -64,7 +64,7 @@ def test_doctor_fails_for_unsupported_python_and_missing_lock(tmp_path):
 
 
 def test_doctor_reports_missing_dependencies(tmp_path):
-    root = _root(tmp_path, env={}, lock=True)
+    root = _root(tmp_path, lock=True)
     versions = _versions()
     versions["torch"] = None
     statuses = _statuses(collect_checks(

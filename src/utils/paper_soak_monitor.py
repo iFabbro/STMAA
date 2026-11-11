@@ -26,6 +26,7 @@ _RESERVED_METADATA = {
     "duration_seconds",
     "heartbeat_interval_seconds",
     "broker_access",
+    "broker_mutations_enabled",
     "order_submission",
 }
 
@@ -54,8 +55,12 @@ class PaperSoakMonitor:
         branch: str | None = None,
         commit_sha: str | None = None,
         run_metadata: Mapping[str, Any] | None = None,
+        broker_access: str = "disabled",
     ) -> None:
         self.db_path = Path(db_path)
+        if broker_access not in {"disabled", "read_only"}:
+            raise ValueError("broker_access must be 'disabled' or 'read_only'")
+        self.broker_access = broker_access
         self.duration_seconds = _positive_finite_seconds(
             duration_seconds, "duration_seconds"
         )
@@ -112,7 +117,8 @@ class PaperSoakMonitor:
                 "monitor_schema_version": MONITOR_SCHEMA_VERSION,
                 "duration_seconds": self.duration_seconds,
                 "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
-                "broker_access": "disabled",
+                "broker_access": self.broker_access,
+                "broker_mutations_enabled": False,
                 "order_submission": "disabled",
             },
             db_path=self.db_path,
@@ -123,7 +129,8 @@ class PaperSoakMonitor:
             payload={
                 "duration_seconds": self.duration_seconds,
                 "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
-                "broker_access": "disabled",
+                "broker_access": self.broker_access,
+                "broker_mutations_enabled": False,
                 "order_submission": "disabled",
             },
         )

@@ -54,6 +54,9 @@ jobs:
         run: uv lock --check
 
       - name: Install locked dependencies
+        env:
+          UV_HTTP_TIMEOUT: "120"
+          UV_HTTP_RETRIES: "10"
         run: uv sync --locked --group dev
 
       - name: Verify installed dependency consistency

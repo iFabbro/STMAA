@@ -15,7 +15,7 @@ from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DataTable, Footer, Static
+from textual.widgets import Button, DataTable, Footer, Static
 
 from . import local_providers as providers
 
@@ -297,14 +297,24 @@ class STMAADashboard(App):
         color: #A9BAC8;
         content-align: left middle;
     }
-    .nav-item {
+    Button.nav-item {
         width: 1fr;
+        min-width: 12;
         height: 3;
         padding: 0 1;
-        content-align: center middle;
-        border-bottom: tall #294052;
+        border: none;
+        background: #111C27;
+        color: #A9BAC8;
+        text-style: none;
     }
-    .nav-item.active {
+    Button.nav-item:hover {
+        background: #152331;
+        color: #E6EDF3;
+    }
+    Button.nav-item:focus {
+        border: tall #55C5C1;
+    }
+    Button.nav-item.active {
         color: #55C5C1;
         text-style: bold;
         background: #152331;
@@ -403,10 +413,10 @@ class STMAADashboard(App):
                 markup=False,
             )
             with Horizontal(id="navigation"):
-                yield Static("1  OVERVIEW", id="nav-overview", classes="nav-item active", markup=False)
-                yield Static("2  PORTFOLIO", id="nav-portfolio", classes="nav-item", markup=False)
-                yield Static("3  ORDERS", id="nav-orders", classes="nav-item", markup=False)
-                yield Static("4  SYSTEM", id="nav-system", classes="nav-item", markup=False)
+                yield Button("1  OVERVIEW", id="nav-overview", classes="nav-item active", variant="default")
+                yield Button("2  PORTFOLIO", id="nav-portfolio", classes="nav-item", variant="default")
+                yield Button("3  ORDERS", id="nav-orders", classes="nav-item", variant="default")
+                yield Button("4  SYSTEM", id="nav-system", classes="nav-item", variant="default")
             yield Static(
                 "Terminal width below 80 columns. Expand the terminal for the full layout.",
                 id="size-warning",
@@ -582,12 +592,24 @@ class STMAADashboard(App):
             "system": "nav-system",
         }
         for view, widget_id in nav_ids.items():
-            widget = self.query_one(f"#{widget_id}", Static)
+            widget = self.query_one(f"#{widget_id}", Button)
             widget.set_classes("nav-item active" if view == self.current_view else "nav-item")
 
     def _show_view(self, view: str) -> None:
         self.current_view = view
         self._render_view()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route mouse/keyboard button activation to the selected local view."""
+        view_by_button = {
+            "nav-overview": "overview",
+            "nav-portfolio": "portfolio",
+            "nav-orders": "orders",
+            "nav-system": "system",
+        }
+        view = view_by_button.get(event.button.id or "")
+        if view is not None:
+            self._show_view(view)
 
     def action_show_overview(self) -> None:
         self._show_view("overview")

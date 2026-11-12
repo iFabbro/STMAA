@@ -18,6 +18,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Footer, Static
 
 from . import local_providers as providers
+from .overview_components import OverviewView
 
 SNAPSHOT_MAX_AGE_SECONDS = 900
 EVENT_LIMIT = 12
@@ -425,6 +426,7 @@ class STMAADashboard(App):
             with VerticalScroll(id="view-container"):
                 yield Static("OVERVIEW", id="view-heading", markup=False)
                 yield Static("Latest persisted local monitoring state", id="view-subheading", markup=False)
+                yield OverviewView(id="overview-components")
                 yield Static(self._view_content[self.current_view], id="content", markup=True)
                 yield DataTable(id="positions-table", zebra_stripes=True)
         yield Footer()
@@ -560,6 +562,13 @@ class STMAADashboard(App):
                     system.append(f"    {message}")
             self._view_content["system"] = "\n".join(system)
 
+        self.query_one("#overview-components", OverviewView).update_data(
+            json_snapshot,
+            sqlite_snapshot,
+            recent_events,
+            format_value=_text,
+            format_age=_age,
+        )
         self._last_refresh_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         self._populate_positions_table()
         self._refresh_status_strip()
@@ -569,6 +578,8 @@ class STMAADashboard(App):
         self.query_one("#view-heading", Static).update(title)
         self.query_one("#view-subheading", Static).update(subtitle)
         self.query_one("#content", Static).update(self._view_content[self.current_view])
+        self.query_one("#overview-components", OverviewView).display = self.current_view == "overview"
+        self.query_one("#content", Static).display = self.current_view != "overview"
         table = self.query_one("#positions-table", DataTable)
         snapshot = self._portfolio_snapshot
         positions = snapshot.value.get("positions") if snapshot and isinstance(snapshot.value, dict) else None

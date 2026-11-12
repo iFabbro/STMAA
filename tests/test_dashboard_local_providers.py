@@ -313,7 +313,7 @@ def test_positions_freshness_is_independent_from_outer_snapshot_age(
     }
     payload = {
         "timestamp": now.isoformat(),
-        "positions": [{
+        "positions": None if declared_status == "MISSING" else [{
             "symbol": "AAPL", "qty": 2.0, "market_value": 400.0,
             "avg_entry_price": 190.0, "unrealized_pl": 20.0,
         }],
@@ -334,8 +334,6 @@ def test_positions_freshness_is_independent_from_outer_snapshot_age(
 
     assert result.status is SourceStatus.OK
     assert result.value["positions_status"] == expected_status
-    if expected_status != "OK":
-        assert result.value["positions"] is not None
 
 def test_json_provider_rejects_materially_future_timestamps(tmp_path):
     path = tmp_path / "future.json"

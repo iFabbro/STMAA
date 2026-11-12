@@ -413,44 +413,43 @@ Il progetto usa un'unica base di codice e un unico lock file per le architetture
 
 Il workflow GitHub Actions esegue l'intera suite di test su Linux, macOS Intel (`macos-15-intel`) e Apple Silicon (`macos-15`). I test di identità dei processi e recupero delle sessioni orfane vengono eseguiti su tutte e tre le piattaforme, senza esclusioni specifiche per macOS. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
-## Stato dello sviluppo e verifiche (11 novembre 2026)
+## Stato dello sviluppo e verifiche (12 novembre 2026)
 
-STMAA rimane in stato **alpha / sperimentale**. Le fasi di hardening architetturale, consolidamento dei controlli di rischio/esecuzione e riproducibilità dell'installazione sono completate a livello di codice e test. Questo stato non equivale a una validazione operativa end-to-end né dimostra redditività o idoneità alla produzione.
+STMAA rimane in stato **alpha / sperimentale**. L'hardening architetturale, i controlli di rischio/esecuzione e la riproducibilità dell'installazione sono completati a livello di codice e test. La verifica locale della dashboard sul Mac Intel è stata completata; la validazione operativa end-to-end contro Alpaca Paper resta invece in corso. Questi risultati non dimostrano redditività né idoneità alla produzione.
 
 | Fase | Stato | Evidenza e limiti |
 |---|---|---|
 | 1 — Hardening architetturale e Paper-only | Completata a livello di codice/test | Guardie Paper-only, controlli di freschezza e qualità dei dati, telemetria SIP/IEX e raccolta shadow predisposta. Non equivale a una prova operativa prolungata. |
 | 2 — Rischio ed esecuzione | Completata a livello di codice/test | Controlli fail-closed, riconciliazione, protezioni dell'executor e test degli scenari di errore. I test mock/locali non sostituiscono una validazione end-to-end contro il broker. |
 | 3 — Installabilità e riproducibilità | Completata | Doctor offline, lock file e istruzioni clean-install. Su macOS 12.7.6 Intel, un clone pulito ha completato `uv sync --locked`; `doctor.py` ha riportato 5 PASS, 1 WARN atteso e 0 FAIL perché il clone isolato non conteneva `.env`; la suite ha superato **1.449 test** in 187,30 secondi. |
-| 4 — Validazione end-to-end locale su macOS | In corso | Il checkout principale è allineato al commit `663feeec8c253c9c1955d9572b6a45220056b7f5`, con working tree pulito. Il Doctor locale ha riportato **8 PASS, 0 WARN, 0 FAIL**, inclusa la configurazione Paper e la presenza dei campi credenziali. Restano da verificare i flussi locali e la dashboard nel checkout aggiornato. |
-| 5 — Raccolta shadow prospettica | Da avviare dopo la Fase 4 | La raccolta iniziale è read-only: nessun ordine deve essere inviato, modificato o cancellato. Eventuali test con ordini Alpaca Paper richiedono un'autorizzazione separata ed esplicita. |
+| 4 — Verifica locale macOS e dashboard | Dashboard verificata; validazione complessiva in corso | Sul Mac Intel, con checkout aggiornato a `96ce163e2beccfa6b48a5b09a74acce867607428`, sono stati verificati l'avvio diretto e tramite `hub.py`, la navigazione e le quattro sezioni Overview, Portfolio, Orders & Executions e System. La dashboard usa provider locali read-only; Portfolio e Orders & Executions mostrano evidenze persistite, non uno stato live del broker. Restano da completare la ripetizione del soak read-only Alpaca Paper e la relativa verifica end-to-end. |
+| 5 — Raccolta shadow prospettica | Non avviata | Il collector resta separato e non attivato. L'avvio richiede la chiusura dei gate documentati nel registro di freeze e un'autorizzazione esplicita; nessun test con ordini è autorizzato da questa documentazione. |
 
 ### Interpretazione delle verifiche
 
 Il comando `doctor.py` è una diagnostica **offline**: controlla la configurazione locale e la presenza dei campi credenziali, ma non autentica le chiavi, non contatta Alpaca e non verifica la raggiungibilità dell'account. Un esito positivo non sostituisce il preflight read-only del broker.
 
-Il warning `.env` nel clone pulito è atteso: il file contiene configurazione e credenziali locali e non deve essere copiato nel repository. Nel checkout operativo dell'utente il Doctor ha rilevato la configurazione Paper completa. Non pubblicare mai il contenuto di `.env`, chiavi API, token o altri segreti.
+Il warning `.env` nel clone pulito è atteso: il file contiene configurazione e credenziali locali e non deve essere copiato nel repository. Nel checkout operativo dell'utente il Doctor ha precedentemente rilevato la configurazione Paper completa. Non pubblicare mai il contenuto di `.env`, chiavi API, token o altri segreti.
 
-La suite automatizzata superata, la CI verde e l'installazione pulita verificano rispettivamente regressioni coperte dai test, compatibilità sulle piattaforme CI e riproducibilità dell'ambiente. Nessuno di questi risultati dimostra da solo il corretto comportamento di ogni flusso contro un account Alpaca reale, neppure in Paper.
+La suite automatizzata, la CI verde e l'installazione pulita verificano rispettivamente regressioni coperte dai test, compatibilità sulle piattaforme CI e riproducibilità dell'ambiente. Nessuno di questi risultati dimostra da solo il corretto comportamento di ogni flusso contro un account Alpaca, neppure in Paper. Analogamente, la verifica delle quattro sezioni della dashboard conferma il funzionamento dell'interfaccia e dei provider locali, non la freschezza o completezza dello stato corrente del broker.
 
-La Fase 4 deve quindi completare le verifiche locali di avvio, dashboard, lettura dello stato e comportamento fail-closed senza introdurre operazioni broker non autorizzate. La Fase 5 dovrà usare un protocollo prospettico congelato e mantenere separati i controlli di integrità della raccolta dalla valutazione delle prestazioni. Reinforcement learning, ottimizzazione del portafoglio ed eventuali capacità future di live trading restano ambiti da valutare separatamente.
+La Fase 4 richiede ancora la ripetizione e la verifica del soak read-only Alpaca Paper dopo la correzione del confine temporale delle barre giornaliere. La Fase 5 resta non avviata: il collector prospettico deve superare i gate di freeze e attivazione descritti nel registro dedicato. Nessuna di queste attività autorizza ordini Paper o operatività live.
 
 ## Aggiornamenti recenti (9–12 novembre 2026)
 
-Le PR recenti hanno consolidato soprattutto quattro aree:
+Le PR recenti hanno consolidato soprattutto cinque aree:
 
 - **Feed e qualità dei dati (#323–#324):** telemetria read-only per età, spread e qualità delle quotazioni Alpaca, con distinzione tra feed SIP storico e quote feed; correzione del limite temporale delle barre giornaliere SIP durante la sessione NYSE.
 - **Ricerca PPO e benchmark (#325–#332):** baseline equal-weight e SPY allineate all'esecuzione al successivo Open; valutazioni multi-seed e walk-forward; tracce giornaliere di esposizione, turnover e costi; fingerprint dei dati di esecuzione; audit metodologico fail-closed; metriche di performance condivise. I fold restano simulazioni indipendenti e i risultati descrittivi non costituiscono una prova di redditività né un track record continuo.
-- **PPO shadow e provenienza (#334–#336):** collector virtuale esplicitamente attivabile e read-only, benchmark SPY a capitale comparabile, ledger append-only con hash chain, snapshot immutabili degli input e valutatore prospettico basato su 252 sessioni NYSE di rendimento. L'attivazione resta separata dal normale ciclo di trading.
-- **Hardening operativo (#337–#341):** confine broker executor Paper-only verificato prima delle mutazioni; Doctor locale offline e senza chiamate di rete; aggiornamento dello stato di sviluppo; correzione della classificazione della storia del risk peak; distinzione esplicita tra accesso broker read-only e mutazioni broker disabilitate nei metadati del soak.
+- **PPO shadow e provenienza (#334–#336):** collector virtuale esplicitamente attivabile e read-only, benchmark SPY a capitale comparabile, ledger append-only con hash chain, snapshot immutabili degli input e valutatore prospettico basato su 252 sessioni NYSE di rendimento. L'attivazione resta separata dal normale ciclo di trading e subordinata ai gate di freeze.
+- **Hardening operativo (#337–#341):** confine broker executor Paper-only verificato prima delle mutazioni; Doctor locale offline e senza chiamate di rete; correzione della classificazione della storia del risk peak; distinzione esplicita tra accesso broker read-only e mutazioni broker disabilitate nei metadati del soak.
+- **Dashboard e documentazione (#342–#348):** correzione del limite temporale post-chiusura per le barre giornaliere Alpaca (#342); specifica e redesign visuale della dashboard (#344–#345); classificazione indipendente della freschezza dello snapshot posizioni (#347); aggiornamento dello screenshot nel README (#348). Le modifiche dashboard restano locali/read-only e non introducono chiamate o mutazioni broker.
 
 ### Stato della validazione operativa
 
-La validazione end-to-end su Alpaca Paper è ancora in corso. Un tentativo di soak read-only è terminato dopo 22 cicli per una discrepanza temporale tra il limite della richiesta delle barre giornaliere e il calcolo dell'ultima sessione NYSE completata, rilevata poco dopo la chiusura del mercato. In quel tentativo non sono stati inviati ordini. La correzione è in revisione nella PR #342 e deve superare CI e verifica locale prima di ripetere il soak.
+La validazione end-to-end su Alpaca Paper è ancora in corso. Un precedente tentativo di soak read-only si è interrotto dopo 22 cicli per una discrepanza temporale tra il limite della richiesta delle barre giornaliere e il calcolo dell'ultima sessione NYSE completata; in quel tentativo non sono stati inviati ordini. La correzione è stata integrata in `main` con la PR #342 (merge commit `e684f82c7ac68e798129599b266ce3a6780d08f0`). **Il soak deve ancora essere ripetuto sul codice corretto**: il merge della correzione non dimostra da solo il superamento della verifica operativa.
 
-Il fallimento di un job CI macOS Intel dovuto a un timeout di rete durante il download di Plotly è un problema di installazione/trasporto, non un errore dei test applicativi: la suite su quel runner non è partita. Il relativo job deve essere ripetuto con impostazioni di retry/timeout adeguate e completare i test prima del merge.
-
-La raccolta shadow prospettica e qualsiasi test che comporti mutazioni broker restano separati. Nessun risultato di test, benchmark o soak deve essere interpretato come autorizzazione al live trading.
+La raccolta shadow prospettica resta non avviata e subordinata ai gate del registro di freeze. Qualsiasi test che comporti mutazioni broker richiede un'autorizzazione separata ed esplicita. Nessun risultato di test, benchmark, dashboard o soak deve essere interpretato come autorizzazione al live trading.
 
 ## Contribuire
 

@@ -14,8 +14,8 @@ from typing import Any, Callable, TypeVar
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Footer, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.widgets import DataTable, Footer, Static
 
 from . import local_providers as providers
 

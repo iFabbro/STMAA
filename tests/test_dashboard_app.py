@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from src.dashboard import app as dashboard_app
 from src.dashboard.app import STMAADashboard
@@ -313,9 +313,9 @@ def test_dashboard_composes_terminal_regions_and_marks_active_navigation(monkeyp
                 "#view-subheading", "#content", "#positions-table",
             ):
                 assert app.query_one(widget_id)
-            assert app.query_one("#nav-overview", Static).has_class("active")
+            assert app.query_one("#nav-overview", Button).has_class("active")
             await pilot.press("3")
-            assert app.query_one("#nav-orders", Static).has_class("active")
+            assert app.query_one("#nav-orders", Button).has_class("active")
             assert not app.query_one("#nav-overview", Static).has_class("active")
             assert "NO BROKER ACTIONS" in str(app.query_one("#status-strip", Static).render())
 
@@ -339,7 +339,7 @@ def test_dashboard_responsive_warning_boundary_and_navigation(monkeypatch):
             await pilot.resize_terminal(160, 45)
             assert app.query_one("#size-warning", Static).display is False
             await pilot.press("4")
-            assert app.query_one("#nav-system", Static).has_class("active")
+            assert app.query_one("#nav-system", Button).has_class("active")
 
     import asyncio
     asyncio.run(run())
@@ -388,6 +388,48 @@ def test_positions_table_stays_hidden_for_missing_or_empty_positions(monkeypatch
             table = app.query_one("#positions-table")
             assert table.display is False
             assert table.row_count == 0
+
+    import asyncio
+    asyncio.run(run())
+
+
+
+def test_dashboard_navigation_buttons_switch_views_with_mouse(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.click("#nav-portfolio")
+            assert app.current_view == "portfolio"
+            assert app.query_one("#nav-portfolio", Button).has_class("active")
+            await pilot.click("#nav-orders")
+            assert app.current_view == "orders"
+            assert app.query_one("#nav-orders", Button).has_class("active")
+            assert not app.query_one("#nav-portfolio", Button).has_class("active")
+            await pilot.click("#nav-system")
+            assert app.current_view == "system"
+            await pilot.click("#nav-overview")
+            assert app.current_view == "overview"
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_navigation_buttons_are_keyboard_focusable_controls(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            for button_id in (
+                "#nav-overview", "#nav-portfolio", "#nav-orders", "#nav-system",
+            ):
+                button = app.query_one(button_id, Button)
+                assert button.can_focus
+                assert button.disabled is False
+            await pilot.press("tab")
+            assert app.focused is not None
 
     import asyncio
     asyncio.run(run())

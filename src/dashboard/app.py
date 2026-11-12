@@ -256,52 +256,104 @@ class STMAADashboard(App):
     TITLE = "STMAA Institutional Terminal"
     SUB_TITLE = "STRUCTURAL TRADING MULTI-AGENT ARCHITECTURE"
 
+    # Centralized visual tokens. Keep textual status labels in every state.
     CSS = """
     Screen {
-        background: #0b1118;
-        color: #e6edf3;
+        background: #0B1118;
+        color: #E6EDF3;
+    }
+    #root {
+        height: 1fr;
+        background: #0B1118;
     }
     #masthead {
         height: 3;
         padding: 0 2;
-        background: #111c27;
-        color: #e6edf3;
+        background: #152331;
+        color: #E6EDF3;
         text-style: bold;
         content-align: left middle;
+    }
+    #descriptor {
+        color: #A9BAC8;
+        text-style: none;
     }
     #status-strip {
         height: 2;
         padding: 0 2;
-        background: #152331;
-        color: #b9c8d5;
+        background: #0E1721;
+        color: #A9BAC8;
         content-align: left middle;
     }
     #navigation {
-        height: 2;
-        padding: 0 2;
-        color: #55c5c1;
+        height: 3;
+        padding: 0 1;
+        background: #111C27;
+        color: #A9BAC8;
         content-align: left middle;
+    }
+    .nav-item {
+        width: 1fr;
+        height: 3;
+        padding: 0 1;
+        content-align: center middle;
+        border-bottom: tall #294052;
+    }
+    .nav-item.active {
+        color: #55C5C1;
+        text-style: bold;
+        background: #152331;
+        border-bottom: tall #55C5C1;
     }
     #size-warning {
         height: 2;
         padding: 0 2;
-        color: #f0c674;
-        background: #382b16;
+        color: #D29922;
+        background: #382B16;
         content-align: left middle;
         display: none;
     }
-    #content {
+    #view-container {
         height: 1fr;
-        margin: 0 1;
+        padding: 1 1;
+        background: #0B1118;
+    }
+    #view-heading {
+        height: auto;
+        padding: 0 1;
+        color: #55C5C1;
+        text-style: bold;
+    }
+    #view-subheading {
+        height: auto;
+        padding: 0 1 1 1;
+        color: #A9BAC8;
+    }
+    #content {
+        height: auto;
+        min-height: 8;
+        margin: 0 0 1 0;
         padding: 1 2;
         border: round #294052;
-        background: #0e1721;
-        color: #dce6ee;
-        overflow-y: auto;
+        background: #0E1721;
+        color: #E6EDF3;
+    }
+    #positions-table {
+        height: auto;
+        max-height: 14;
+        margin: 0 0 1 0;
+        border: round #294052;
+        background: #0E1721;
+    }
+    #positions-table > .datatable--header {
+        background: #152331;
+        color: #55C5C1;
+        text-style: bold;
     }
     Footer {
+        height: 1;
         background: #152331;
-        color: #dce6ee;
+        color: #E6EDF3;
     }
     """
 
@@ -315,47 +367,57 @@ class STMAADashboard(App):
         Binding("q", "quit", "Quit", show=True),
     ]
 
+    VIEW_LABELS = {
+        "overview": ("OVERVIEW", "Latest persisted local monitoring state"),
+        "portfolio": ("PORTFOLIO", "Persisted position observation · not a live broker query"),
+        "orders": ("ORDERS & EXECUTIONS", "Local persisted execution evidence · no broker query"),
+        "system": ("SYSTEM", "Source availability and historical lifecycle evidence"),
+    }
+
     def __init__(self) -> None:
         super().__init__()
         self.current_view = "overview"
+        self._last_refresh_at: str | None = None
+        self._portfolio_snapshot: providers.SourceResult[dict[str, Any]] | None = None
         self._view_content = {
             "overview": "Loading approved local monitoring sources…",
             "portfolio": (
-                "[b]PORTFOLIO[/b]\n\n"
-                "[#e0a84b]POSITIONS NOT CONNECTED[/]\n"
-                "The approved local-data phase does not yet expose a verified position view. "
-                "No broker positions are queried or inferred."
+                "[b]POSITIONS NOT CONNECTED[/b]\n"
+                "No verified position collection is currently available from the approved local snapshot."
             ),
             "orders": "[b]Loading persisted execution evidence…[/b]",
             "system": "Loading local system history…",
         }
 
     def compose(self) -> ComposeResult:
-        with Vertical():
+        with Vertical(id="root"):
+            yield Static("STMAA  |  STRUCTURAL TRADING MULTI-AGENT ARCHITECTURE", id="masthead", markup=False)
             yield Static(
-                "STMAA  |  STRUCTURAL TRADING MULTI-AGENT ARCHITECTURE",
-                id="masthead",
-                markup=False,
-            )
-            yield Static(
-                "ENVIRONMENT: UNKNOWN     ACCESS: READ-ONLY DASHBOARD",
+                "ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD  |  NO BROKER ACTIONS  |  REFRESH: NOT YET",
                 id="status-strip",
                 markup=False,
             )
-            yield Static(
-                "1 OVERVIEW    2 PORTFOLIO    3 ORDERS & EXECUTIONS    4 SYSTEM",
-                id="navigation",
-                markup=False,
-            )
+            with Horizontal(id="navigation"):
+                yield Static("1  OVERVIEW", id="nav-overview", classes="nav-item active", markup=False)
+                yield Static("2  PORTFOLIO", id="nav-portfolio", classes="nav-item", markup=False)
+                yield Static("3  ORDERS", id="nav-orders", classes="nav-item", markup=False)
+                yield Static("4  SYSTEM", id="nav-system", classes="nav-item", markup=False)
             yield Static(
                 "Terminal width below 80 columns. Expand the terminal for the full layout.",
                 id="size-warning",
                 markup=False,
             )
-            yield Static(self._view_content[self.current_view], id="content", markup=True)
+            with VerticalScroll(id="view-container"):
+                yield Static("OVERVIEW", id="view-heading", markup=False)
+                yield Static("Latest persisted local monitoring state", id="view-subheading", markup=False)
+                yield Static(self._view_content[self.current_view], id="content", markup=True)
+                yield DataTable(id="positions-table", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        table = self.query_one("#positions-table", DataTable)
+        table.add_columns("SYMBOL", "SIDE", "QUANTITY", "AVERAGE ENTRY", "MARKET VALUE", "UNREALIZED P/L")
+        table.display = False
         self._update_width_warning()
         self._refresh_local_data()
         self._render_view()
@@ -367,6 +429,38 @@ class STMAADashboard(App):
         if width is None:
             width = self.size.width
         self.query_one("#size-warning", Static).display = width < 80
+
+    def _refresh_status_strip(self) -> None:
+        refresh = self._last_refresh_at or "NOT YET"
+        self.query_one("#status-strip", Static).update(
+            f"ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD  |  NO BROKER ACTIONS  |  REFRESH: {refresh}"
+        )
+
+    def _populate_positions_table(self) -> None:
+        table = self.query_one("#positions-table", DataTable)
+        table.clear()
+        snapshot = self._portfolio_snapshot
+        if snapshot is None or not isinstance(snapshot.value, dict):
+            return
+        value = snapshot.value
+        positions = value.get("positions")
+        if snapshot.status != providers.SourceStatus.OK or value.get("positions_status") != "OK":
+            return
+        if not isinstance(positions, list):
+            return
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            qty = position.get("qty")
+            side = "LONG" if isinstance(qty, (int, float)) and qty > 0 else "SHORT"
+            table.add_row(
+                _text(position.get("symbol"), limit=8),
+                side,
+                _text(qty, limit=16),
+                _text(position.get("avg_entry_price"), limit=16),
+                _text(position.get("market_value"), limit=16),
+                _text(position.get("unrealized_pl"), limit=16),
+            )
 
     def _refresh_local_data(self) -> None:
         json_snapshot = _safe_read(
@@ -384,6 +478,7 @@ class STMAADashboard(App):
         )
 
         if isinstance(json_snapshot, providers.SourceResult):
+            self._portfolio_snapshot = json_snapshot
             self._view_content["portfolio"] = "\n".join(_portfolio_lines(json_snapshot))
 
         broker_state = _safe_read(
@@ -414,7 +509,7 @@ class STMAADashboard(App):
                 _source_header("Monitoring JSON", json_snapshot),
                 _source_header("SQLite snapshots", sqlite_snapshot),
                 "",
-                "[b]LATEST LOCAL RUN[/b]",
+                "[b]LATEST LOCAL RUN — STORED/HISTORICAL STATUS[/b]",
             ]
             run_value = latest_run.value if isinstance(latest_run.value, dict) else {}
             system.append(_source_header("Run history", latest_run))
@@ -443,8 +538,36 @@ class STMAADashboard(App):
                     system.append(f"    {message}")
             self._view_content["system"] = "\n".join(system)
 
+        self._last_refresh_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        self._populate_positions_table()
+        self._refresh_status_strip()
+
     def _render_view(self) -> None:
+        title, subtitle = self.VIEW_LABELS[self.current_view]
+        self.query_one("#view-heading", Static).update(title)
+        self.query_one("#view-subheading", Static).update(subtitle)
         self.query_one("#content", Static).update(self._view_content[self.current_view])
+        table = self.query_one("#positions-table", DataTable)
+        snapshot = self._portfolio_snapshot
+        positions = snapshot.value.get("positions") if snapshot and isinstance(snapshot.value, dict) else None
+        table.display = (
+            self.current_view == "portfolio"
+            and snapshot is not None
+            and snapshot.status == providers.SourceStatus.OK
+            and isinstance(snapshot.value, dict)
+            and snapshot.value.get("positions_status") == "OK"
+            and isinstance(positions, list)
+            and bool(positions)
+        )
+        nav_ids = {
+            "overview": "nav-overview",
+            "portfolio": "nav-portfolio",
+            "orders": "nav-orders",
+            "system": "nav-system",
+        }
+        for view, widget_id in nav_ids.items():
+            widget = self.query_one(f"#{widget_id}", Static)
+            widget.set_classes("nav-item active" if view == self.current_view else "nav-item")
 
     def _show_view(self, view: str) -> None:
         self.current_view = view

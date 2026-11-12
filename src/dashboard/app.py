@@ -118,7 +118,6 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
         lines.append("POSITIONS: INVALID — monitoring snapshot is invalid")
         return lines
     if result.status in {
-        providers.SourceStatus.MISSING,
         providers.SourceStatus.UNAVAILABLE,
         providers.SourceStatus.EMPTY,
     } or not value:
@@ -133,8 +132,6 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
         lines.append(f"  {label:<17} {_text(value.get(key))}")
 
     positions_status = value.get("positions_status", "UNKNOWN")
-    if result.status is providers.SourceStatus.STALE and positions_status == "OK":
-        positions_status = "STALE"
     if positions_status == "UNAVAILABLE":
         positions_status = "UNKNOWN"
     if positions_status not in {"OK", "STALE", "MISSING", "INVALID", "UNKNOWN"}:
@@ -452,7 +449,11 @@ class STMAADashboard(App):
             return
         value = snapshot.value
         positions = value.get("positions")
-        if snapshot.status != providers.SourceStatus.OK or value.get("positions_status") != "OK":
+        if snapshot.status in {
+            providers.SourceStatus.INVALID,
+            providers.SourceStatus.UNAVAILABLE,
+            providers.SourceStatus.EMPTY,
+        } or value.get("positions_status") != "OK":
             return
         if not isinstance(positions, list):
             return
@@ -564,7 +565,11 @@ class STMAADashboard(App):
         table.display = (
             self.current_view == "portfolio"
             and snapshot is not None
-            and snapshot.status == providers.SourceStatus.OK
+            and snapshot.status not in {
+                providers.SourceStatus.INVALID,
+                providers.SourceStatus.UNAVAILABLE,
+                providers.SourceStatus.EMPTY,
+            }
             and isinstance(snapshot.value, dict)
             and snapshot.value.get("positions_status") == "OK"
             and isinstance(positions, list)

@@ -393,7 +393,7 @@ class STMAADashboard(App):
         with Vertical(id="root"):
             yield Static("STMAA  |  STRUCTURAL TRADING MULTI-AGENT ARCHITECTURE", id="masthead", markup=False)
             yield Static(
-                "ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD  |  NO BROKER ACTIONS  |  REFRESH: NOT YET",
+                "ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD\nNO BROKER ACTIONS  |  REFRESH: NOT YET",
                 id="status-strip",
                 markup=False,
             )
@@ -433,7 +433,7 @@ class STMAADashboard(App):
     def _refresh_status_strip(self) -> None:
         refresh = self._last_refresh_at or "NOT YET"
         self.query_one("#status-strip", Static).update(
-            f"ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD  |  NO BROKER ACTIONS  |  REFRESH: {refresh}"
+            f"ENVIRONMENT: UNKNOWN  |  LOCAL READ-ONLY DASHBOARD\nNO BROKER ACTIONS  |  REFRESH: {refresh}"
         )
 
     def _populate_positions_table(self) -> None:

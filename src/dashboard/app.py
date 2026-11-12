@@ -152,7 +152,7 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
     source = value.get("positions_source") or "not specified"
     lines.extend([
         "",
-        f"POSITIONS: {result.status.value} — persisted broker observation",
+        f"POSITIONS: {positions_status} — persisted broker observation",
         f"  Source            {_text(source)}",
         f"  Observed          {_text(observed_at, limit=40)}",
         f"  Age               {_age(observed_at)}",

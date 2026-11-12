@@ -275,11 +275,30 @@ def test_dashboard_portfolio_distinguishes_empty_from_missing_positions(monkeypa
         async with app.run_test(size=(120, 36)) as pilot:
             await pilot.press("2")
             content = str(app.query_one("#content", Static).render())
-            assert "POSITIONS: UNAVAILABLE" in content
+            assert "POSITIONS: UNKNOWN" in content
             assert "NO POSITIONS IN THIS PERSISTED SNAPSHOT" not in content
 
     import asyncio
     asyncio.run(run())
+
+
+def test_dashboard_portfolio_renders_independent_position_freshness_states():
+    cases = (
+        ("STALE", "STALE"),
+        ("MISSING", "MISSING"),
+        ("INVALID", "INVALID"),
+        ("UNKNOWN", "UNKNOWN"),
+        ("UNAVAILABLE", "UNKNOWN"),
+    )
+    for stored_status, expected_status in cases:
+        result = _result(value={
+            "equity": 1000.0,
+            "positions_status": stored_status,
+            "positions": None,
+        })
+        content = "\n".join(dashboard_app._portfolio_lines(result))
+        assert f"POSITIONS: {expected_status}" in content
+        assert "NO POSITIONS IN THIS PERSISTED SNAPSHOT" not in content
 
 
 def test_dashboard_composes_terminal_regions_and_marks_active_navigation(monkeypatch):

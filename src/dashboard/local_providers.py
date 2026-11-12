@@ -236,9 +236,19 @@ def read_json_snapshot(
     if observed_at is not None and _parse_timestamp(observed_at) is None:
         return SourceResult(SourceStatus.INVALID, source, value=normalized, detail="invalid snapshot timestamp")
     status = _freshness_status(observed_at, max_age_seconds, now)
-    normalized["positions_status"] = _positions_freshness_status(
-        normalized, positions_max_age_seconds, now
-    ).value
+    # Preserve the legacy shape for snapshots that contain no position
+    # metadata at all; classify positions only when that contract is present.
+    position_fields = {
+        "positions",
+        "positions_status",
+        "positions_source",
+        "positions_snapshot_at",
+        "positions_json",
+    }
+    if position_fields.intersection(normalized):
+        normalized["positions_status"] = _positions_freshness_status(
+            normalized, positions_max_age_seconds, now
+        ).value
     detail = "snapshot timestamp is missing" if status is SourceStatus.MISSING else None
     return SourceResult(status, source, normalized, observed_at, detail)
 

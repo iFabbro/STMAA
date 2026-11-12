@@ -59,6 +59,7 @@ class SourceStatus(str, Enum):
     MISSING = "MISSING"
     INVALID = "INVALID"
     UNAVAILABLE = "UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
     EMPTY = "EMPTY"
 
 
@@ -132,21 +133,16 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
             return None, f"invalid numeric field: {key}"
     if "positions_status" in normalized and (
         not isinstance(normalized["positions_status"], str)
-        or normalized["positions_status"] not in {"OK", "UNAVAILABLE", "MISSING"}
+        or normalized["positions_status"] not in {"OK", "UNAVAILABLE", "MISSING", "UNKNOWN"}
     ):
         return None, "invalid text field: positions_status"
     if "positions_source" in normalized and normalized["positions_source"] is not None and not isinstance(normalized["positions_source"], str):
         return None, "invalid text field: positions_source"
-    if "positions_snapshot_at" in normalized and normalized["positions_snapshot_at"] is not None:
-        if _parse_timestamp(normalized["positions_snapshot_at"]) is None:
-            return None, "invalid positions snapshot timestamp"
-    if normalized.get("positions_status") == "OK" and not normalized.get("positions_snapshot_at"):
-        return None, "missing timestamp for verified positions snapshot"
     if "positions" in normalized:
         positions = normalized["positions"]
         if positions is not None and not isinstance(positions, list):
             return None, "invalid collection field: positions"
-        if positions is None and normalized.get("positions_status") not in {"UNAVAILABLE", "MISSING"}:
+        if positions is None and normalized.get("positions_status") not in {"UNAVAILABLE", "MISSING", "UNKNOWN"}:
             return None, "missing positions collection without unavailable or missing status"
         if positions is not None and normalized.get("positions_status") == "MISSING":
             return None, "missing positions status cannot contain a position collection"
@@ -188,13 +184,37 @@ def _validate_snapshot(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     return normalized, None
 
 
+def _positions_freshness_status(
+    snapshot: dict[str, Any],
+    max_age_seconds: float | None,
+    now: datetime | None,
+) -> SourceStatus:
+    """Classify the position observation independently from the outer snapshot."""
+    declared_status = snapshot.get("positions_status")
+    if declared_status == "MISSING":
+        return SourceStatus.MISSING
+    if declared_status in {"UNAVAILABLE", "UNKNOWN"} or declared_status is None:
+        return SourceStatus.UNKNOWN
+    if declared_status != "OK":
+        return SourceStatus.UNKNOWN
+    if not isinstance(snapshot.get("positions"), list):
+        return SourceStatus.INVALID
+    observed_at = snapshot.get("positions_snapshot_at")
+    if observed_at is None or (isinstance(observed_at, str) and not observed_at.strip()):
+        return SourceStatus.MISSING
+    if not isinstance(observed_at, str) or _parse_timestamp(observed_at) is None:
+        return SourceStatus.INVALID
+    return _freshness_status(observed_at, max_age_seconds, now)
+
+
 def read_json_snapshot(
     path: Path = HUB_STATE_PATH,
     *,
     max_age_seconds: float | None = None,
+    positions_max_age_seconds: float | None = None,
     now: datetime | None = None,
 ) -> SourceResult[dict[str, Any]]:
-    """Read and validate the allow-listed fields of the existing JSON snapshot."""
+    """Read the snapshot with independent portfolio and position freshness."""
     source = str(path)
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -216,6 +236,19 @@ def read_json_snapshot(
     if observed_at is not None and _parse_timestamp(observed_at) is None:
         return SourceResult(SourceStatus.INVALID, source, value=normalized, detail="invalid snapshot timestamp")
     status = _freshness_status(observed_at, max_age_seconds, now)
+    # Preserve the legacy shape for snapshots that contain no position
+    # metadata at all; classify positions only when that contract is present.
+    position_fields = {
+        "positions",
+        "positions_status",
+        "positions_source",
+        "positions_snapshot_at",
+        "positions_json",
+    }
+    if position_fields.intersection(normalized):
+        normalized["positions_status"] = _positions_freshness_status(
+            normalized, positions_max_age_seconds, now
+        ).value
     detail = "snapshot timestamp is missing" if status is SourceStatus.MISSING else None
     return SourceResult(status, source, normalized, observed_at, detail)
 

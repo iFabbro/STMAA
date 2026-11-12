@@ -114,8 +114,10 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
         _source_header("Monitoring JSON · hub_state.json", result),
     ]
     value = result.value if isinstance(result.value, dict) else {}
+    if result.status is providers.SourceStatus.INVALID:
+        lines.append("POSITIONS: INVALID — monitoring snapshot is invalid")
+        return lines
     if result.status in {
-        providers.SourceStatus.INVALID,
         providers.SourceStatus.UNAVAILABLE,
         providers.SourceStatus.EMPTY,
     } or not value:
@@ -129,13 +131,16 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
     ):
         lines.append(f"  {label:<17} {_text(value.get(key))}")
 
-    positions_status = value.get("positions_status")
+    positions_status = value.get("positions_status", "UNKNOWN")
+    if positions_status == "UNAVAILABLE":
+        positions_status = "UNKNOWN"
+    if positions_status not in {"OK", "STALE", "MISSING", "INVALID", "UNKNOWN"}:
+        positions_status = "UNKNOWN"
     positions = value.get("positions")
     if positions_status != "OK":
-        status = positions_status if positions_status in {"UNAVAILABLE", "MISSING"} else "MISSING"
         lines.extend([
             "",
-            f"POSITIONS: {status} — no verified position collection persisted",
+            f"POSITIONS: {positions_status} — no verified fresh position collection persisted",
         ])
         if value.get("positions_source"):
             lines.append(f"  Source            {_text(value.get('positions_source'))}")
@@ -147,7 +152,7 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
     source = value.get("positions_source") or "not specified"
     lines.extend([
         "",
-        f"POSITIONS: {result.status.value} — persisted broker observation",
+        f"POSITIONS: {positions_status} — persisted broker observation",
         f"  Source            {_text(source)}",
         f"  Observed          {_text(observed_at, limit=40)}",
         f"  Age               {_age(observed_at)}",
@@ -444,7 +449,11 @@ class STMAADashboard(App):
             return
         value = snapshot.value
         positions = value.get("positions")
-        if snapshot.status != providers.SourceStatus.OK or value.get("positions_status") != "OK":
+        if snapshot.status in {
+            providers.SourceStatus.INVALID,
+            providers.SourceStatus.UNAVAILABLE,
+            providers.SourceStatus.EMPTY,
+        } or value.get("positions_status") != "OK":
             return
         if not isinstance(positions, list):
             return
@@ -464,7 +473,10 @@ class STMAADashboard(App):
 
     def _refresh_local_data(self) -> None:
         json_snapshot = _safe_read(
-            lambda: providers.read_json_snapshot(max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS),
+            lambda: providers.read_json_snapshot(
+                max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS,
+                positions_max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS,
+            ),
             "hub_state.json",
         )
         sqlite_snapshot = _safe_read(
@@ -553,7 +565,11 @@ class STMAADashboard(App):
         table.display = (
             self.current_view == "portfolio"
             and snapshot is not None
-            and snapshot.status == providers.SourceStatus.OK
+            and snapshot.status not in {
+                providers.SourceStatus.INVALID,
+                providers.SourceStatus.UNAVAILABLE,
+                providers.SourceStatus.EMPTY,
+            }
             and isinstance(snapshot.value, dict)
             and snapshot.value.get("positions_status") == "OK"
             and isinstance(positions, list)

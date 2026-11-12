@@ -346,7 +346,7 @@ def test_dashboard_responsive_warning_boundary_and_navigation(monkeypatch):
 
 
 def test_portfolio_table_uses_only_verified_persisted_positions(monkeypatch):
-    snapshot = _result(value={
+    snapshot = _result(status=SourceStatus.STALE, value={
         "positions_status": "OK",
         "positions_source": "persisted-fixture",
         "positions": [{

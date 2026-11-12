@@ -69,7 +69,7 @@ Il repository contiene codice relativo a PPO, ma la presenza di un agente o di d
 ## Demo
 
 <p align="center">
-  <img src="./hub-screenshot.png" alt="Hub di monitoraggio STMAA da terminale" />
+  <img src="./docs/dashboard-screenshot-2026-11-12.png" alt="Dashboard terminale STMAA" />
 </p>
 
 ## Requisiti

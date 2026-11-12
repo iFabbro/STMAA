@@ -114,8 +114,11 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
         _source_header("Monitoring JSON · hub_state.json", result),
     ]
     value = result.value if isinstance(result.value, dict) else {}
+    if result.status is providers.SourceStatus.INVALID:
+        lines.append("POSITIONS: INVALID — monitoring snapshot is invalid")
+        return lines
     if result.status in {
-        providers.SourceStatus.INVALID,
+        providers.SourceStatus.MISSING,
         providers.SourceStatus.UNAVAILABLE,
         providers.SourceStatus.EMPTY,
     } or not value:
@@ -129,13 +132,18 @@ def _portfolio_lines(result: providers.SourceResult[dict[str, Any]]) -> list[str
     ):
         lines.append(f"  {label:<17} {_text(value.get(key))}")
 
-    positions_status = value.get("positions_status")
+    positions_status = value.get("positions_status", "UNKNOWN")
+    if result.status is providers.SourceStatus.STALE and positions_status == "OK":
+        positions_status = "STALE"
+    if positions_status == "UNAVAILABLE":
+        positions_status = "UNKNOWN"
+    if positions_status not in {"OK", "STALE", "MISSING", "INVALID", "UNKNOWN"}:
+        positions_status = "UNKNOWN"
     positions = value.get("positions")
     if positions_status != "OK":
-        status = positions_status if positions_status in {"UNAVAILABLE", "MISSING"} else "MISSING"
         lines.extend([
             "",
-            f"POSITIONS: {status} — no verified position collection persisted",
+            f"POSITIONS: {positions_status} — no verified fresh position collection persisted",
         ])
         if value.get("positions_source"):
             lines.append(f"  Source            {_text(value.get('positions_source'))}")
@@ -464,7 +472,10 @@ class STMAADashboard(App):
 
     def _refresh_local_data(self) -> None:
         json_snapshot = _safe_read(
-            lambda: providers.read_json_snapshot(max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS),
+            lambda: providers.read_json_snapshot(
+                max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS,
+                positions_max_age_seconds=SNAPSHOT_MAX_AGE_SECONDS,
+            ),
             "hub_state.json",
         )
         sqlite_snapshot = _safe_read(

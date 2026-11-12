@@ -99,7 +99,7 @@ def test_overview_does_not_replace_missing_sources_with_zero(monkeypatch):
                 rendered = _render(app, f"#overview-kpi-{metric}")
                 assert "MISSING" in rendered
                 assert "0.00" not in rendered
-                assert "UNKNOWN" in rendered or "None" in rendered
+                assert "NOT PERSISTED" in rendered
 
     import asyncio
     asyncio.run(run())

@@ -44,9 +44,9 @@ class OverviewView(Vertical):
         margin: 0 0 1 0;
     }
     .overview-kpi {
-        height: 6;
+        height: auto;
         min-height: 6;
-        padding: 0 1;
+        padding: 1 1;
         border: round #294052;
         background: #0E1721;
         color: #E6EDF3;
@@ -68,12 +68,12 @@ class OverviewView(Vertical):
     """
 
     KPI_SPECS = (
-        ("portfolio-value", "PORTFOLIO VALUE", "portfolio_value", "sqlite"),
-        ("equity", "EQUITY", "equity", "sqlite"),
-        ("cash", "CASH", "cash", "sqlite"),
-        ("drawdown", "DRAWDOWN", "drawdown", "sqlite"),
-        ("exposure", "EXPOSURE", "exposure", "sqlite"),
-        ("regime", "REGIME", "regime", "json"),
+        ("portfolio-value", "PORTFOLIO VALUE", "portfolio_value"),
+        ("equity", "EQUITY", "equity"),
+        ("cash", "CASH", "cash"),
+        ("drawdown", "DRAWDOWN", "drawdown"),
+        ("exposure", "EXPOSURE", "exposure"),
+        ("regime", "REGIME", "regime"),
     )
 
     def compose(self) -> ComposeResult:
@@ -88,7 +88,7 @@ class OverviewView(Vertical):
             markup=False,
         )
         with Grid(id="overview-kpis"):
-            for metric_id, label, _field, _source in self.KPI_SPECS:
+            for metric_id, label, _field in self.KPI_SPECS:
                 yield Static(
                     f"[b]{label}[/b]\nNOT PERSISTED\nSTATUS: UNKNOWN",
                     id=f"overview-kpi-{metric_id}",
@@ -220,29 +220,32 @@ class OverviewView(Vertical):
     ) -> None:
         """Update widgets from one provider refresh without performing I/O."""
         sources = {"json": json_snapshot, "sqlite": sqlite_snapshot}
-        source_labels = {"json": "Monitoring JSON", "sqlite": "SQLite snapshot"}
-        for metric_id, label, field, source_key in self.KPI_SPECS:
-            result = sources[source_key]
-            value: Any = None
-            if (
-                isinstance(result, providers.SourceResult)
-                and result.status not in {
-                    providers.SourceStatus.INVALID,
-                    providers.SourceStatus.UNAVAILABLE,
-                    providers.SourceStatus.EMPTY,
-                }
-                and isinstance(result.value, dict)
-            ):
-                value = result.value.get(field)
-            status = self._status(result)
-            observed = (
-                f" · {format_age(result.observed_at)}"
-                if isinstance(result, providers.SourceResult) and result.observed_at
-                else " · age unknown"
-            )
+        for metric_id, label, field in self.KPI_SPECS:
+            source_lines = []
+            for source_key in ("json", "sqlite"):
+                result = sources[source_key]
+                value: Any = None
+                if (
+                    isinstance(result, providers.SourceResult)
+                    and result.status not in {
+                        providers.SourceStatus.INVALID,
+                        providers.SourceStatus.UNAVAILABLE,
+                        providers.SourceStatus.EMPTY,
+                    }
+                    and isinstance(result.value, dict)
+                ):
+                    value = result.value.get(field)
+                status = self._status(result)
+                observed = (
+                    format_age(result.observed_at)
+                    if isinstance(result, providers.SourceResult) and result.observed_at
+                    else "age unknown"
+                )
+                source_lines.append(
+                    f"{source_key.upper()}: {format_value(value)} · {status} · {observed}"
+                )
             self.query_one(f"#overview-kpi-{metric_id}", Static).update(
-                f"[b]{label}[/b]\n[bold]{format_value(value)}[/bold]\n"
-                f"{status} · {source_labels[source_key]}{observed}"
+                f"[b]{label}[/b]\n" + "\n".join(source_lines)
             )
 
         quality = (

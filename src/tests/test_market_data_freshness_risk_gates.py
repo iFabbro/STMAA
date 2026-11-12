@@ -47,13 +47,10 @@ def executor_env(monkeypatch, tmp_path):
             },
             id="stale-quote",
         ),
-        pytest.param(
-            {
-                "price": 100.0,
-                "timestamp": (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat(),
-            },
-            id="future-quote",
-        ),
+        # Build this timestamp inside the test: parametrized values are
+        # evaluated during collection and can age before a slow platform suite
+        # reaches this case.
+        pytest.param("future-quote", id="future-quote"),
         pytest.param(
             {"price": float("nan"), "timestamp": datetime.now(timezone.utc).isoformat()},
             id="non-finite-price",
@@ -69,6 +66,11 @@ def test_bad_quote_blocks_entire_rebalance_before_any_order(
 ):
     executor = executor_env
     now = datetime.now(timezone.utc)
+    if bad_quote == "future-quote":
+        bad_quote = {
+            "price": 100.0,
+            "timestamp": (now + timedelta(minutes=2)).isoformat(),
+        }
     quotes = {
         "AAPL": {"price": 100.0, "timestamp": now.isoformat()},
         "MSFT": bad_quote,
@@ -83,7 +85,10 @@ def test_bad_quote_blocks_entire_rebalance_before_any_order(
         executor.trading_client,
         "submit_order",
         lambda request: submitted.append(request) or SimpleNamespace(
-            id=f"order-{request.symbol}", status="accepted"
+            id=f"order-{request.symbol}",
+            status="accepted",
+            type=request.type,
+            limit_price=getattr(request, "limit_price", None),
         ),
     )
 

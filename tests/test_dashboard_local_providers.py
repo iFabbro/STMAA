@@ -335,6 +335,32 @@ def test_positions_freshness_is_independent_from_outer_snapshot_age(
     assert result.status is SourceStatus.OK
     assert result.value["positions_status"] == expected_status
 
+def test_positions_freshness_uses_its_own_timestamp_when_outer_snapshot_is_stale(tmp_path):
+    now = datetime(2026, 11, 12, 10, 0, tzinfo=timezone.utc)
+    payload = {
+        "timestamp": (now - timedelta(hours=2)).isoformat(),
+        "positions_status": "OK",
+        "positions_source": "alpaca_positions",
+        "positions_snapshot_at": now.isoformat(),
+        "positions": [{
+            "symbol": "AAPL", "qty": 2.0, "market_value": 400.0,
+            "avg_entry_price": 190.0, "unrealized_pl": 20.0,
+        }],
+    }
+    path = tmp_path / "independent-position-time.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = read_json_snapshot(
+        path,
+        max_age_seconds=60,
+        positions_max_age_seconds=60,
+        now=now,
+    )
+
+    assert result.status is SourceStatus.STALE
+    assert result.value["positions_status"] == "OK"
+
+
 def test_json_provider_rejects_materially_future_timestamps(tmp_path):
     path = tmp_path / "future.json"
     path.write_text(

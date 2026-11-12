@@ -280,3 +280,95 @@ def test_dashboard_portfolio_distinguishes_empty_from_missing_positions(monkeypa
 
     import asyncio
     asyncio.run(run())
+
+
+def test_dashboard_composes_terminal_regions_and_marks_active_navigation(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            for widget_id in (
+                "#root", "#masthead", "#status-strip", "#navigation",
+                "#size-warning", "#view-container", "#view-heading",
+                "#view-subheading", "#content", "#positions-table",
+            ):
+                assert app.query_one(widget_id)
+            assert app.query_one("#nav-overview", Static).has_class("active")
+            await pilot.press("3")
+            assert app.query_one("#nav-orders", Static).has_class("active")
+            assert not app.query_one("#nav-overview", Static).has_class("active")
+            assert "NO BROKER ACTIONS" in str(app.query_one("#status-strip", Static).render())
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_dashboard_responsive_warning_boundary_and_navigation(monkeypatch):
+    _patch_empty_sources(monkeypatch)
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(79, 24)) as pilot:
+            assert app.query_one("#size-warning", Static).display is True
+            await pilot.resize_terminal(80, 24)
+            assert app.query_one("#size-warning", Static).display is False
+            await pilot.resize_terminal(100, 30)
+            assert app.query_one("#size-warning", Static).display is False
+            await pilot.resize_terminal(120, 36)
+            assert app.query_one("#size-warning", Static).display is False
+            await pilot.resize_terminal(160, 45)
+            assert app.query_one("#size-warning", Static).display is False
+            await pilot.press("4")
+            assert app.query_one("#nav-system", Static).has_class("active")
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_portfolio_table_uses_only_verified_persisted_positions(monkeypatch):
+    snapshot = _result(value={
+        "positions_status": "OK",
+        "positions_source": "persisted-fixture",
+        "positions": [{
+            "symbol": "AAPL", "qty": 2, "avg_entry_price": 190.0,
+            "market_value": 400.0, "unrealized_pl": 20.0,
+        }],
+    })
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: snapshot)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(140, 36)) as pilot:
+            await pilot.press("2")
+            table = app.query_one("#positions-table")
+            assert table.display is True
+            assert table.row_count == 1
+            assert "AAPL" in str(table.get_row_at(0))
+            await pilot.press("1")
+            assert table.display is False
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_positions_table_stays_hidden_for_missing_or_empty_positions(monkeypatch):
+    missing = _result(value={"positions_status": "UNAVAILABLE", "positions": None})
+    monkeypatch.setattr(dashboard_app.providers, "read_json_snapshot", lambda **kwargs: missing)
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_snapshot", lambda **kwargs: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_latest_run", lambda: _result(value={}))
+    monkeypatch.setattr(dashboard_app.providers, "read_recent_events", lambda **kwargs: _result(value=[]))
+    app = STMAADashboard()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.press("2")
+            table = app.query_one("#positions-table")
+            assert table.display is False
+            assert table.row_count == 0
+
+    import asyncio
+    asyncio.run(run())

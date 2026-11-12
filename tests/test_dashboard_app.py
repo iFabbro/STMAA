@@ -316,7 +316,7 @@ def test_dashboard_composes_terminal_regions_and_marks_active_navigation(monkeyp
             assert app.query_one("#nav-overview", Button).has_class("active")
             await pilot.press("3")
             assert app.query_one("#nav-orders", Button).has_class("active")
-            assert not app.query_one("#nav-overview", Static).has_class("active")
+            assert not app.query_one("#nav-overview", Button).has_class("active")
             assert "NO BROKER ACTIONS" in str(app.query_one("#status-strip", Static).render())
 
     import asyncio

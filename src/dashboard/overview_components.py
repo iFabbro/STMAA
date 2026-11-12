@@ -59,12 +59,6 @@ class OverviewView(Vertical):
         background: #0E1721;
         color: #E6EDF3;
     }
-    @media (max-width: 100) {
-        #overview-kpis {
-            grid-size: 2 3;
-            grid-columns: 1fr 1fr;
-        }
-    }
     """
 
     KPI_SPECS = (
@@ -109,6 +103,21 @@ class OverviewView(Vertical):
             id="overview-events-panel",
             classes="overview-panel",
         )
+
+    def on_mount(self) -> None:
+        """Apply the initial KPI grid width after the widget is mounted."""
+        self._update_kpi_grid(self.size.width)
+
+    def on_resize(self, event) -> None:
+        """Keep KPI cards readable without relying on unsupported CSS media rules."""
+        self._update_kpi_grid(event.size.width)
+
+    def _update_kpi_grid(self, width: int) -> None:
+        grid = self.query_one("#overview-kpis", Grid)
+        columns = 2 if width < 100 else 3
+        grid.styles.grid_size_columns = columns
+        grid.styles.grid_size_rows = 3 if columns == 2 else 2
+        grid.styles.grid_columns = "1fr 1fr" if columns == 2 else "1fr 1fr 1fr"
 
     @staticmethod
     def _status(result: Any) -> str:

@@ -1,6 +1,0 @@
-exclude_dirs:
-  - .venv
-  - venv
-  - src/tests
-  - tests
-skips: []

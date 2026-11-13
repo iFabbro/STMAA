@@ -569,7 +569,7 @@ class AlpacaFeed:
 
         # Publish a separate fail-closed execution decision for every quote.
         # Keep quality_status as the backward-compatible monitoring status.
-        for ticker, quote in result.items():
+        for _ticker, quote in result.items():
             age_seconds = quote.get("quote_age_seconds")
             spread_pct = quote.get("spread_pct")
             execution_status = "eligible"

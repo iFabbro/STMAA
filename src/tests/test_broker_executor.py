@@ -3534,7 +3534,11 @@ def test_execute_weights_revalidates_quote_after_broker_preflight(
             price = second_price
             timestamp = now - timedelta(minutes=second_age_minutes)
         return {
-            ticker: {"price": price, "timestamp": timestamp.isoformat()}
+            ticker: {
+                "price": price,
+                "timestamp": timestamp.isoformat(),
+                "spread_pct": 0.2,
+            }
             for ticker in tickers
         }
 

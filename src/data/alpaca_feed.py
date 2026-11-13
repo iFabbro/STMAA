@@ -475,10 +475,24 @@ class AlpacaFeed:
             quotes = self.client.get_stock_latest_quote(request)
         except Exception as e:
             logger.error(f"Errore get_latest_quotes: {e}")
-            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None,
-                        "quote_age_seconds": None, "spread": None, "spread_pct": None,
-                        "quality_status": "unavailable", "quality_flags": ["unavailable"]}
-                    for t in tickers}
+            return {
+                ticker: {
+                    "price": 0.0,
+                    "change_pct": 0.0,
+                    "timestamp": None,
+                    "quote_age_seconds": None,
+                    "spread": None,
+                    "spread_pct": None,
+                    "quality_status": "unavailable",
+                    "quality_flags": ["unavailable"],
+                    "monitoring_max_age_seconds": QUOTE_MAX_AGE_SECONDS,
+                    "execution_max_age_seconds": EXECUTION_MAX_AGE_SECONDS,
+                    "execution_max_spread_pct": QUOTE_WIDE_SPREAD_PCT,
+                    "execution_eligible": False,
+                    "execution_status": "quote_unavailable",
+                }
+                for ticker in tickers
+            }
 
         result = {}
         for ticker in tickers:

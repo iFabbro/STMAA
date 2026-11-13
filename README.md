@@ -451,6 +451,17 @@ La validazione end-to-end su Alpaca Paper è ancora in corso. Un precedente tent
 
 La raccolta shadow prospettica resta non avviata e subordinata ai gate del registro di freeze. Qualsiasi test che comporti mutazioni broker richiede un'autorizzazione separata ed esplicita. Nessun risultato di test, benchmark, dashboard o soak deve essere interpretato come autorizzazione al live trading.
 
+## Analisi statica di sicurezza
+
+Il workflow dedicato `Security Static Analysis` esegue Bandit e Semgrep su ogni pull request, sui push a `main` e con scansione settimanale. Le versioni CLI sono fissate nel workflow per rendere riproducibili i controlli.
+
+- **Bandit** analizza il codice Python del repository, escludendo le directory di test e gli ambienti virtuali; la CI blocca finding con severità e confidenza almeno medie.
+- **Semgrep** applica le regole locali in `.semgrep/stmaa-security.yml`, limitate a pattern ad alta confidenza: subprocess con `shell=True`, `os.system/os.popen`, esecuzione dinamica tramite `eval/exec` e deserializzazione pickle. I finding configurati come errori bloccano la CI.
+- Le regole non escludono indiscriminatamente interi moduli applicativi. I test sono esclusi da Bandit per evitare rumore da fixture e assert; Semgrep segue le regole di ignore del repository.
+- Un finding va verificato nel contesto prima di essere corretto o soppresso. Le eccezioni devono essere puntuali, motivate e accompagnate da test quando pertinenti.
+
+Queste scansioni statiche sono controlli euristici: un esito pulito non dimostra l'assenza di vulnerabilità e non sostituisce code review, test, audit delle dipendenze o verifica operativa. Nessuna scansione autorizza operazioni broker o modifica il confine Paper-only.
+
 ## Contribuire
 
 1. Creare un branch dedicato e circoscritto.

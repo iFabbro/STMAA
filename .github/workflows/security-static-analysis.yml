@@ -1,0 +1,64 @@
+name: Security Static Analysis
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-static-analysis-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bandit:
+    name: Bandit Python security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+
+      - name: Run Bandit
+        run: |
+          uvx --from "bandit==1.9.4" bandit \
+            --recursive . \
+            --exclude .venv,venv,./src/tests,./tests \
+            --severity-level medium \
+            --confidence-level medium
+
+  semgrep:
+    name: Semgrep STMAA security rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SEMGREP_SEND_METRICS: "off"
+      SEMGREP_ENABLE_VERSION_CHECK: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+
+      - name: Run Semgrep
+        run: |
+          uvx --from "semgrep==1.185.0" semgrep scan \
+            --config .semgrep/stmaa-security.yml \
+            --severity ERROR \
+            --error \
+            --metrics=off

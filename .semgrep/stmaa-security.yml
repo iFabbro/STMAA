@@ -1,0 +1,49 @@
+rules:
+  - id: stmaa.subprocess-shell-true
+    message: Avoid shell=True with subprocess; use an argument list and shell=False.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: "CWE-78"
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: subprocess.$FUNC(..., shell=True)
+
+  - id: stmaa.os-system
+    message: Avoid os.system; use subprocess with an argument list and explicit validation.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: "CWE-78"
+    pattern-either:
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+
+  - id: stmaa.dynamic-code-execution
+    message: Dynamic eval/exec can execute untrusted code; replace with explicit parsing or dispatch.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: "CWE-95"
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: stmaa.unsafe-pickle-load
+    message: Do not deserialize untrusted pickle data; use a constrained, validated format.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: "CWE-502"
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)

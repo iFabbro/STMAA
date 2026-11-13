@@ -34,7 +34,7 @@ jobs:
         run: |
           uvx --from "bandit==1.9.4" bandit \
             --recursive . \
-            --configfile .bandit \
+            --exclude .venv,venv,src/tests,tests \
             --severity-level medium \
             --confidence-level medium
 

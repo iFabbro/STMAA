@@ -3443,7 +3443,11 @@ def test_price_preflight_rejects_stale_future_or_untimestamped_quotes(
     executor = BrokerExecutor()
     now = datetime.now(timezone.utc)
     timestamp = quote_time(now)
-    quote = {"price": 100.0, "timestamp": timestamp.isoformat() if timestamp else None}
+    quote = {
+        "price": 100.0,
+        "timestamp": timestamp.isoformat() if timestamp else None,
+        "spread_pct": 0.2,
+    }
     monkeypatch.setattr(
         executor.alpaca_feed,
         "get_latest_quotes",
@@ -3471,7 +3475,7 @@ def test_execute_weights_blocks_new_position_when_quote_is_stale(
         executor.alpaca_feed,
         "get_latest_quotes",
         lambda tickers: {
-            ticker: {"price": 100.0, "timestamp": stale_timestamp}
+            ticker: {"price": 100.0, "timestamp": stale_timestamp, "spread_pct": 0.2}
             for ticker in tickers
         },
     )
@@ -3652,8 +3656,8 @@ def test_multisymbol_preflight_blocks_all_orders_if_one_required_quote_is_stale(
         executor.alpaca_feed,
         "get_latest_quotes",
         lambda tickers: {
-            "AAPL": {"price": 100.0, "timestamp": fresh_timestamp},
-            "MSFT": {"price": 200.0, "timestamp": stale_timestamp},
+            "AAPL": {"price": 100.0, "timestamp": fresh_timestamp, "spread_pct": 0.2},
+            "MSFT": {"price": 200.0, "timestamp": stale_timestamp, "spread_pct": 0.2},
         },
     )
     monkeypatch.setattr(
@@ -4645,3 +4649,66 @@ def test_unresolved_liquidation_keeps_intent_with_naive_or_malformed_intent_time
     assert unresolved == {"AAPL": intent}
     assert active_pending == {}
     assert fake.history_reads == 0
+
+
+@pytest.mark.parametrize(
+    ("age_seconds", "spread_pct", "expected"),
+    [
+        (299, 1.9, {"AAPL": 100.0}),
+        (301, 1.9, {}),
+        (10, 2.01, {}),
+        (10, None, {}),
+    ],
+)
+def test_execution_quote_contract_rejects_stale_wide_or_unknown_spread(
+    alpaca_env, monkeypatch, age_seconds, spread_pct, expected
+):
+    executor = BrokerExecutor()
+    timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).isoformat()
+    quote = {"price": 100.0, "timestamp": timestamp}
+    if spread_pct is not None:
+        quote["spread_pct"] = spread_pct
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {"AAPL": quote},
+    )
+
+    assert executor._get_prices_from_bars(["AAPL"]) == expected
+
+
+def test_execute_weights_blocks_anomalous_spread_without_submission(
+    alpaca_env, monkeypatch
+):
+    executor = BrokerExecutor()
+    monkeypatch.setattr(executor, "get_account_status", lambda: {
+        "cash": 10000.0,
+        "portfolio_value": 10000.0,
+        "buying_power": 10000.0,
+        "equity": 10000.0,
+        "account_data_fresh": True,
+    })
+    monkeypatch.setattr(executor, "get_positions", lambda: {})
+    monkeypatch.setattr(executor, "_get_open_orders", lambda: [])
+    timestamp = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(
+        executor.alpaca_feed,
+        "get_latest_quotes",
+        lambda tickers: {
+            ticker: {"price": 100.0, "timestamp": timestamp, "spread_pct": 2.5}
+            for ticker in tickers
+        },
+    )
+    submitted = []
+    monkeypatch.setattr(
+        executor.trading_client,
+        "submit_order",
+        lambda request: submitted.append(request),
+    )
+
+    with pytest.raises(RuntimeError, match="valid prices unavailable for: AAPL"):
+        executor.execute_weights(
+            PortfolioWeights(weights=np.array([0.1]), tickers=["AAPL"])
+        )
+
+    assert submitted == []

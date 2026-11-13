@@ -78,7 +78,11 @@ def test_bad_quote_blocks_entire_rebalance_before_any_order(
     monkeypatch.setattr(
         executor.alpaca_feed,
         "get_latest_quotes",
-        lambda tickers: {ticker: quotes[ticker] for ticker in tickers if ticker in quotes},
+        lambda tickers: {
+            ticker: {**quotes[ticker], "spread_pct": 0.2}
+            for ticker in tickers
+            if ticker in quotes
+        },
     )
     submitted = []
     monkeypatch.setattr(
@@ -121,6 +125,7 @@ def test_unestimable_pending_order_blocks_even_when_target_quotes_are_fresh(
             ticker: {
                 "price": 100.0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "spread_pct": 0.2,
             }
             for ticker in tickers
         },

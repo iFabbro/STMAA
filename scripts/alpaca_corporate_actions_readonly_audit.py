@@ -84,8 +84,7 @@ def _get_json(url: str, params: dict[str, str], api_key: str, api_secret: str) -
         },
     )
     def request_json() -> dict[str, Any]:
-        # nosec B310: request host is restricted to the two HTTPS Alpaca API constants above.
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=30) as response:  # nosec B310 - fixed HTTPS Alpaca API host constants only
             return json.loads(response.read().decode("utf-8"))
 
     return _call_with_rate_limit_retry(

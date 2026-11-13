@@ -479,3 +479,10 @@ hosts or filesystems. During the current single-host development phase, operate
 only one active STMAA executor per broker account. Multi-host execution requires
 a separately designed centralized execution service and is outside the scope of
 the current implementation.
+
+
+## Dependency security and macOS Intel compatibility
+
+The dependency set keeps a dedicated compatibility path for macOS Intel (x86_64): PyTorch 2.2.2 is retained on that platform because newer upstream PyTorch releases do not provide a supported macOS Intel wheel. This preserves local installation and validation on older Intel Macs, including macOS 12.7, but **does not remediate the known PyTorch 2.2.2 security advisories on that platform**. Treat the Intel environment as a local, experimental validation target; do not expose it to untrusted model artifacts or untrusted input, and do not use it as a production or live-trading deployment.
+
+Other supported platforms use PyTorch 2.13.0, while Soup Sieve is constrained to the patched 4.x line. Platform-specific dependency resolution must remain represented in the committed `uv.lock`; CI must verify the lock and exercise Linux, macOS Intel, and macOS ARM separately. The Intel exception is an explicit residual-risk acceptance, not a claim that the dependency is vulnerability-free.

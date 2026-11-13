@@ -62,8 +62,25 @@ jobs:
       - name: Verify installed dependency consistency
         run: uv pip check
 
-      - name: Run full cross-platform test suite
-        run: uv run --locked pytest src/tests tests -q
+      - name: Install pinned coverage tooling
+        run: uv pip install --python .venv/bin/python pytest-cov==6.2.1 coverage==7.10.6
+
+      - name: Run full cross-platform test suite with line and branch coverage
+        run: >-
+          uv run --locked --no-sync pytest src/tests tests -q
+          --cov-config=pyproject.toml
+          --cov
+          --cov-report=term-missing:skip-covered
+          --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   lint:
     name: Ruff

@@ -1,3 +1,6 @@
-[bandit]
-exclude_dirs = .venv,venv,src/tests,tests
-skips =
+exclude_dirs:
+  - .venv
+  - venv
+  - src/tests
+  - tests
+skips: []

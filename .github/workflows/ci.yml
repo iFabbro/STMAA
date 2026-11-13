@@ -67,7 +67,7 @@ jobs:
 
       - name: Run full cross-platform test suite with line and branch coverage
         run: >-
-          uv run --locked pytest src/tests tests -q
+          uv run --locked --no-sync pytest src/tests tests -q
           --cov-config=pyproject.toml
           --cov
           --cov-report=term-missing:skip-covered

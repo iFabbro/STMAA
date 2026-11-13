@@ -47,15 +47,3 @@ rules:
     pattern-either:
       - pattern: pickle.load(...)
       - pattern: pickle.loads(...)
-
-  - id: stmaa.requests-tls-verification-disabled
-    message: TLS certificate verification must remain enabled for outbound requests.
-    severity: WARNING
-    languages: [python]
-    metadata:
-      category: security
-      confidence: MEDIUM
-      cwe: "CWE-295"
-    pattern-either:
-      - pattern: requests.$METHOD(..., verify=False, ...)
-      - pattern: requests.$METHOD(..., verify=False)

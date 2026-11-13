@@ -16,11 +16,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.13"
       - name: Install Alpaca SDK
-        run: pip install alpaca-py
+        run: pip install alpaca-py==0.44.0
       - name: Compare raw Paper API response with SDK parsing
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}

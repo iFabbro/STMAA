@@ -145,10 +145,8 @@ def _reconcile_state(
             if client_id:
                 known_client_ids.add(client_id)
 
-    observed_ids: set[str] = set()
     for order in open_orders:
         order_id, client_id = _order_identity(order)
-        observed_ids.add(order_id)
         if order_id not in known_order_ids and client_id not in known_client_ids:
             raise ValueError(f"broker open order {order_id} has no matching persisted submission")
 

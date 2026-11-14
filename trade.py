@@ -85,6 +85,11 @@ class PaperTradingBot:
             paper_trading=True,
             initial_capital=initial_capital,
             configured_symbols=tickers,
+            risk_limits={
+                "max_portfolio_exposure": float(max_gross_exposure),
+                "max_position_pct": float(max_position_size),
+                "max_drawdown": float(max_drawdown_threshold),
+            },
         )
 
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)

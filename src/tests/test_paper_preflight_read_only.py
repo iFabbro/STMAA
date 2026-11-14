@@ -135,3 +135,18 @@ def test_confirmed_submission_requires_terminal_position_reconciliation():
     }
     with pytest.raises(ValueError, match="position-reconciled"):
         _reconcile_state(state, "paper-account-1", [])
+
+
+def test_short_position_is_counted_as_absolute_gross_exposure(tmp_path):
+    state_path = tmp_path / "logs" / "execution" / "broker_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps(_state()), encoding="utf-8")
+    short_position = type("Position", (), {
+        "symbol": "TSLA", "qty": "-2", "market_value": "-600",
+    })()
+    report = run_preflight(tmp_path, FakeClient([short_position]), env={
+        "STMAA_TRADING_MODE": "paper", "ALPACA_BASE_URL": "https://paper-api.alpaca.markets",
+        "ALPACA_API_KEY": "key", "ALPACA_API_SECRET": "secret",
+    })
+    assert report["exposure"]["position_gross_usd"] == 600
+    assert report["overall"] == "PASS"

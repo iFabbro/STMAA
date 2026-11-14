@@ -31,6 +31,18 @@ def _number(value: Any, field: str, *, positive: bool = False) -> float:
     return result
 
 
+def _signed_number(value: Any, field: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} is not numeric")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field} is not numeric") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{field} is not finite")
+    return result
+
+
 def _value(obj: Any, name: str, default: Any = None) -> Any:
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
@@ -170,7 +182,8 @@ def run_preflight(root: Path, client: Any, env: dict[str, str] | None = None) ->
     def record(name: str, action) -> Any:
         try:
             detail = action()
-            checks.append({"name": name, "status": "PASS", "detail": detail})
+            status = "BLOCKED" if isinstance(detail, dict) and detail.get("cap_compliant") is False else "PASS"
+            checks.append({"name": name, "status": status, "detail": detail})
             return detail
         except Exception as exc:
             checks.append({"name": name, "status": "BLOCKED", "detail": str(exc)})
@@ -190,15 +203,26 @@ def run_preflight(root: Path, client: Any, env: dict[str, str] | None = None) ->
         account_id = str(_value(account, "id", "") or "").strip()
         if not account_id:
             raise ValueError("Alpaca account response has no account ID")
+        nonlocal _account_response
+        _account_response = account
         return {"endpoint": PAPER_ENDPOINT, "account_id": account_id}
 
-    identity = record("1. Paper authentication and account identity", verify_endpoint)
+    account_object = None
+
+    def verify_and_capture_identity() -> dict[str, Any]:
+        nonlocal account_object
+        result = verify_endpoint()
+        account_object = _account_response
+        return result
+
+    _account_response = None
+    identity = record("1. Paper authentication and account identity", verify_and_capture_identity)
 
     account_snapshot = None
     if identity:
         account_snapshot = record(
             "2. Account availability and buying power",
-            lambda: _verify_account(client),
+            lambda: _verify_account(account_object),
         )
     else:
         checks.append({"name": "2. Account availability and buying power", "status": "BLOCKED",
@@ -241,8 +265,7 @@ def run_preflight(root: Path, client: Any, env: dict[str, str] | None = None) ->
     }
 
 
-def _verify_account(client: Any) -> dict[str, Any]:
-    account = client.get_account()
+def _verify_account(account: Any) -> dict[str, Any]:
     status = str(_value(account, "status", "") or "").strip().lower()
     if status not in {"active", "accountstatus.active"}:
         raise ValueError(f"Alpaca account is not active (status={status or 'unknown'})")
@@ -271,8 +294,8 @@ def _read_positions(client: Any) -> dict[str, dict[str, float]]:
         symbol = str(_value(item, "symbol", "") or "").strip().upper()
         if not symbol or symbol in positions:
             raise ValueError("Alpaca positions contain a missing or duplicate symbol")
-        qty = _number(_value(item, "qty"), f"{symbol} quantity")
-        market_value = _number(_value(item, "market_value"), f"{symbol} market value")
+        qty = _signed_number(_value(item, "qty"), f"{symbol} quantity")
+        market_value = _signed_number(_value(item, "market_value"), f"{symbol} market value")
         positions[symbol] = {"qty": qty, "market_value": market_value}
     return positions
 
@@ -309,9 +332,7 @@ def _read_orders_and_exposure(client: Any, positions: dict[str, dict[str, float]
         "cap_usd": CAP_USD,
         "cap_compliant": gross <= CAP_USD + 1e-8,
         "open_order_count": len(orders),
-    } if gross <= CAP_USD + 1e-8 else (_ for _ in ()).throw(
-        ValueError(f"gross notional {gross:.2f} USD exceeds hard cap {CAP_USD:.2f} USD")
-    )
+    }
 
 
 def _read_and_reconcile(root: Path, env: dict[str, str], account_id: str,

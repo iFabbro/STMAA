@@ -418,7 +418,11 @@ def test_risk_gate_caps_exposure(alpaca_env):
     ],
 )
 def test_account_risk_limits_reject_invalid_values(key, value):
-    limits = {"max_portfolio_exposure": 0.50, "max_drawdown": 0.15}
+    limits = {
+        "max_portfolio_exposure": 0.50,
+        "max_position_pct": 0.20,
+        "max_drawdown": 0.15,
+    }
     limits[key] = value
     with pytest.raises(ValueError):
         _validate_risk_limits(limits)

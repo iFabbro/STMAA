@@ -530,3 +530,18 @@ failure. Credential presence is checked locally, not authenticated.
 This setup change does not modify the trading engine, executor, PPO model, or any risk
 limits. A successful Doctor result is not a broker preflight and does not authorize
 Paper order submission or live trading.
+
+
+## Zero-write Alpaca Paper preflight
+
+After the dedicated diagnostic change is merged and pulled locally, run:
+
+```bash
+uv run python paper_preflight.py
+```
+
+The command is separate from `trade.py` and the normal trading lifecycle. It uses the effective local `.env`/process environment, authenticates only against the exact Alpaca Paper endpoint, and performs account, positions, and open-orders GET requests. It reads `logs/execution/broker_state.json` (or the path selected by `STMAA_BROKER_STATE_FILE`) without creating, updating, or recovering it. It does not open SQLite, initialize the PPO agent, start a trading session, or call order submission, cancellation, replacement, or close operations.
+
+The JSON report contains five independent controls: (1) Paper authentication and account identity; (2) account availability, currency, equity, cash and buying power; (3) positions snapshot integrity; (4) open orders and aggregate gross notional, including active BUY reserves, against the hard USD 1,000 cap; and (5) reconciliation of local unresolved/confirmed submissions, OPG batches, emergency-liquidation state and broker open orders. Any missing, malformed, unpriceable, mismatched, unresolved or over-cap state is reported as `BLOCKED`. An active broker open order also blocks the final reconciliation result.
+
+The diagnostic is read-only by design. It does not authorize order submission and does not make STMAA live-trading ready. Run it from the local checkout that contains the actual credentials and broker state; GitHub Actions cannot validate those local inputs.

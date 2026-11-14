@@ -20,7 +20,12 @@ from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, GetOr
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
-from src.data.alpaca_feed import AlpacaFeed
+from src.data.alpaca_feed import (
+    AlpacaFeed,
+    EXECUTION_MAX_AGE_SECONDS,
+    EXECUTION_FUTURE_TOLERANCE_SECONDS,
+    QUOTE_WIDE_SPREAD_PCT,
+)
 from src.execution.corporate_action_reconciler import CorporateActionReconciler
 from src.utils.metrics import PortfolioMetrics
 from src.execution.notional_cap import (
@@ -3828,8 +3833,8 @@ class BrokerExecutor:
         implausibly future-dated quotes are omitted; the execution preflight
         then blocks the rebalance before submitting any order.
         """
-        max_quote_age = timedelta(minutes=5)
-        future_tolerance = timedelta(seconds=30)
+        max_quote_age = EXECUTION_MAX_AGE_SECONDS
+        future_tolerance = EXECUTION_FUTURE_TOLERANCE_SECONDS
         now = datetime.now(timezone.utc)
         try:
             quotes = self.alpaca_feed.get_latest_quotes(tickers)
@@ -3855,15 +3860,20 @@ class BrokerExecutor:
                         continue
                     quote_timestamp = quote_timestamp.astimezone(timezone.utc)
                     age = now - quote_timestamp
+                    spread_pct = float(quote.get("spread_pct"))
                     if (
                         not np.isfinite(price)
                         or price <= 0
-                        or age > max_quote_age
-                        or age < -future_tolerance
+                        or not np.isfinite(spread_pct)
+                        or spread_pct < 0
+                        or spread_pct > QUOTE_WIDE_SPREAD_PCT
+                        or age.total_seconds() > max_quote_age
+                        or age.total_seconds() < -future_tolerance
                     ):
                         self.logger.warning(
-                            "Rejecting invalid or stale market quote for %s (age=%s)",
-                            ticker, age,
+                            "Rejecting execution-ineligible market quote for %s "
+                            "(age_seconds=%s, spread_pct=%s)",
+                            ticker, age.total_seconds(), spread_pct,
                         )
                         continue
                     prices[ticker] = price

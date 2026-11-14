@@ -42,10 +42,12 @@ def test_stale_quote_for_one_symbol_blocks_entire_multi_symbol_rebalance(
             "AAPL": {
                 "price": 100.0,
                 "timestamp": (now - timedelta(seconds=10)).isoformat(),
+                "spread_pct": 0.2,
             },
             "MSFT": {
                 "price": 200.0,
                 "timestamp": (now - timedelta(minutes=10)).isoformat(),
+                "spread_pct": 0.2,
             },
         },
     )

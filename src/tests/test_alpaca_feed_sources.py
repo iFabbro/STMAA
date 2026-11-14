@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from src.data.alpaca_feed import AlpacaFeed
+from src.data.alpaca_feed import (
+    AlpacaFeed,
+    EXECUTION_MAX_AGE_SECONDS,
+    QUOTE_MAX_AGE_SECONDS,
+)
 from src.data.market_data_contract import DATA_FEED, DATA_QUOTE_FEED
 
 
@@ -176,3 +180,45 @@ def test_quote_quality_rejects_non_finite_bid_or_ask():
         "2026-11-09T15:00:00Z")["AAPL"]
     assert result["quality_status"] == "invalid"
     assert result["price"] == 0.0
+
+
+def test_monitoring_and_execution_quote_contracts_are_separate():
+    result = _quote_feed(
+        {"AAPL": SimpleNamespace(
+            bid_price=99.9, ask_price=100.1,
+            timestamp=pd.Timestamp("2026-11-09T14:45:00Z"))},
+        "2026-11-09T15:00:00Z",
+    )["AAPL"]
+
+    assert QUOTE_MAX_AGE_SECONDS == 1200
+    assert EXECUTION_MAX_AGE_SECONDS == 300
+    assert result["quality_status"] == "ok"
+    assert result["monitoring_max_age_seconds"] == 1200
+    assert result["execution_max_age_seconds"] == 300
+    assert result["execution_eligible"] is False
+    assert result["execution_status"] == "stale"
+
+
+def test_execution_contract_accepts_quote_at_300_second_boundary():
+    result = _quote_feed(
+        {"AAPL": SimpleNamespace(
+            bid_price=99.9, ask_price=100.1,
+            timestamp=pd.Timestamp("2026-11-09T14:55:00Z"))},
+        "2026-11-09T15:00:00Z",
+    )["AAPL"]
+
+    assert result["execution_eligible"] is True
+    assert result["execution_status"] == "eligible"
+
+
+def test_execution_contract_rejects_spread_above_two_percent():
+    result = _quote_feed(
+        {"AAPL": SimpleNamespace(
+            bid_price=98.0, ask_price=102.0,
+            timestamp=pd.Timestamp("2026-11-09T14:59:00Z"))},
+        "2026-11-09T15:00:00Z",
+    )["AAPL"]
+
+    assert result["quality_status"] == "wide_spread"
+    assert result["execution_eligible"] is False
+    assert result["execution_status"] == "wide_spread"

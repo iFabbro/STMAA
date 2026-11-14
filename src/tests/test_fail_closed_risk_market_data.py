@@ -50,7 +50,11 @@ def test_partial_market_snapshot_blocks_all_new_orders_atomically(
     monkeypatch.setattr(
         executor.alpaca_feed,
         "get_latest_quotes",
-        lambda tickers: {ticker: quotes[ticker] for ticker in tickers if ticker in quotes},
+        lambda tickers: {
+            ticker: {**quotes[ticker], "spread_pct": 0.2}
+            for ticker in tickers
+            if ticker in quotes
+        },
     )
     submitted = []
     monkeypatch.setattr(

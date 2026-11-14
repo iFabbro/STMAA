@@ -35,6 +35,7 @@ def _quote(price, timestamp=None):
     return {
         "price": price,
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "spread_pct": 0.2,
     }
 
 

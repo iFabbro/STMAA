@@ -33,13 +33,22 @@ _DAILY_TIMEFRAME = TimeFrame(1, TimeFrameUnit.Day)
 
 logger = logging.getLogger(__name__)
 
-# Monitoring-only thresholds; they never gate order flow.
+# Monitoring and execution use separate, explicit quote-quality contracts.
+# Monitoring accommodates delayed SIP; execution remains capped at five minutes.
 QUOTE_MAX_AGE_SECONDS = float(os.getenv("STMAA_QUOTE_MAX_AGE_SECONDS", "1200"))
 QUOTE_FUTURE_TOLERANCE_SECONDS = float(os.getenv("STMAA_QUOTE_FUTURE_TOLERANCE_SECONDS", "5"))
+EXECUTION_MAX_AGE_SECONDS = 300.0
+EXECUTION_FUTURE_TOLERANCE_SECONDS = 30.0
 QUOTE_WIDE_SPREAD_PCT = float(os.getenv("STMAA_QUOTE_WIDE_SPREAD_PCT", "2.0"))
 
-if QUOTE_MAX_AGE_SECONDS <= 0 or QUOTE_FUTURE_TOLERANCE_SECONDS < 0 or QUOTE_WIDE_SPREAD_PCT <= 0:
-    raise ValueError("STMAA quote-quality thresholds must be positive (future tolerance may be zero)")
+if (
+    QUOTE_MAX_AGE_SECONDS <= 0
+    or QUOTE_FUTURE_TOLERANCE_SECONDS < 0
+    or EXECUTION_MAX_AGE_SECONDS <= 0
+    or EXECUTION_FUTURE_TOLERANCE_SECONDS < 0
+    or QUOTE_WIDE_SPREAD_PCT <= 0
+):
+    raise ValueError("STMAA quote-quality thresholds must be positive (future tolerances may be zero)")
 
 
 class AlpacaFeed:
@@ -453,10 +462,12 @@ class AlpacaFeed:
     # ------------------------------------------------------------------
 
     def get_latest_quotes(self, tickers: List[str], now=None) -> dict:
-        """Return snapshots with monitoring-only quote-quality telemetry.
+        """Return quote telemetry with separate monitoring and execution decisions.
 
-        Age uses a 20-minute default to accommodate delayed SIP. Spread and
-        timestamp anomalies are reported, not used to alter prices or gate trades.
+        Monitoring freshness accommodates delayed SIP (default 1,200 seconds).
+        Execution eligibility is stricter: age <= 300 seconds, timestamp no more
+        than 30 seconds in the future, and spread <= the configured 2% threshold.
+        Monitoring flags remain descriptive and never override execution eligibility.
         The optional now argument exists for deterministic tests.
         """
         request = StockLatestQuoteRequest(symbol_or_symbols=tickers, feed=DATA_QUOTE_FEED)
@@ -464,10 +475,24 @@ class AlpacaFeed:
             quotes = self.client.get_stock_latest_quote(request)
         except Exception as e:
             logger.error(f"Errore get_latest_quotes: {e}")
-            return {t: {"price": 0.0, "change_pct": 0.0, "timestamp": None,
-                        "quote_age_seconds": None, "spread": None, "spread_pct": None,
-                        "quality_status": "unavailable", "quality_flags": ["unavailable"]}
-                    for t in tickers}
+            return {
+                ticker: {
+                    "price": 0.0,
+                    "change_pct": 0.0,
+                    "timestamp": None,
+                    "quote_age_seconds": None,
+                    "spread": None,
+                    "spread_pct": None,
+                    "quality_status": "unavailable",
+                    "quality_flags": ["unavailable"],
+                    "monitoring_max_age_seconds": QUOTE_MAX_AGE_SECONDS,
+                    "execution_max_age_seconds": EXECUTION_MAX_AGE_SECONDS,
+                    "execution_max_spread_pct": QUOTE_WIDE_SPREAD_PCT,
+                    "execution_eligible": False,
+                    "execution_status": "quote_unavailable",
+                }
+                for ticker in tickers
+            }
 
         result = {}
         for ticker in tickers:
@@ -541,6 +566,30 @@ class AlpacaFeed:
                     "quote_age_seconds": None, "spread": None, "spread_pct": None,
                     "quality_status": "invalid", "quality_flags": ["invalid"],
                 }
+
+        # Publish a separate fail-closed execution decision for every quote.
+        # Keep quality_status as the backward-compatible monitoring status.
+        for _ticker, quote in result.items():
+            age_seconds = quote.get("quote_age_seconds")
+            spread_pct = quote.get("spread_pct")
+            execution_status = "eligible"
+            if quote.get("quality_status") in {"missing", "unavailable", "invalid"}:
+                execution_status = "quote_unavailable"
+            elif age_seconds is None or not np.isfinite(float(age_seconds)):
+                execution_status = "invalid_age"
+            elif float(age_seconds) > EXECUTION_MAX_AGE_SECONDS:
+                execution_status = "stale"
+            elif float(age_seconds) < -EXECUTION_FUTURE_TOLERANCE_SECONDS:
+                execution_status = "future_timestamp"
+            elif spread_pct is None or not np.isfinite(float(spread_pct)) or float(spread_pct) < 0:
+                execution_status = "invalid_spread"
+            elif float(spread_pct) > QUOTE_WIDE_SPREAD_PCT:
+                execution_status = "wide_spread"
+            quote["monitoring_max_age_seconds"] = QUOTE_MAX_AGE_SECONDS
+            quote["execution_max_age_seconds"] = EXECUTION_MAX_AGE_SECONDS
+            quote["execution_max_spread_pct"] = QUOTE_WIDE_SPREAD_PCT
+            quote["execution_eligible"] = execution_status == "eligible"
+            quote["execution_status"] = execution_status
 
         # Tenta di arricchire con variazione % usando barre intraday
         try:

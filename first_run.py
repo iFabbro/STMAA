@@ -40,8 +40,10 @@ def create_env_file(root: Path, api_key: str, api_secret: str) -> Path:
         # A hard link is an atomic create-if-absent operation on the same filesystem.
         try:
             os.link(temporary, target)
-        except FileExistsError:
-            raise FileExistsError(".env already exists; refusing to overwrite local configuration")
+        except FileExistsError as exc:
+            raise FileExistsError(
+                ".env already exists; refusing to overwrite local configuration"
+            ) from exc
         if os.name == "posix":
             os.chmod(target, 0o600)
     finally:

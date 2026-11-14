@@ -20,6 +20,11 @@ from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, GetOr
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 from src.strategy.weight_interface import PortfolioWeights
+from src.utils.startup_config import (
+    DEFAULT_MAX_DRAWDOWN,
+    DEFAULT_MAX_PORTFOLIO_EXPOSURE,
+    DEFAULT_MAX_POSITION_SIZE,
+)
 from src.data.alpaca_feed import (
     AlpacaFeed,
     EXECUTION_MAX_AGE_SECONDS,
@@ -38,8 +43,9 @@ from src.execution.notional_cap import (
 PAPER_API_BASE_URL = "https://paper-api.alpaca.markets"
 
 RISK_LIMITS = {
-    "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", "0.50")),
-    "max_drawdown": float(os.getenv("MAX_DRAWDOWN", "0.15")),
+    "max_portfolio_exposure": float(os.getenv("MAX_PORTFOLIO_EXPOSURE", DEFAULT_MAX_PORTFOLIO_EXPOSURE)),
+    "max_position_pct": float(os.getenv("MAX_POSITION_SIZE", DEFAULT_MAX_POSITION_SIZE)),
+    "max_drawdown": float(os.getenv("MAX_DRAWDOWN", DEFAULT_MAX_DRAWDOWN)),
 }
 
 
@@ -51,9 +57,12 @@ def _canonicalize_state_file_path(path):
 def _validate_risk_limits(limits):
     """Fail fast when account-level risk limits are missing or out of range."""
     exposure = float(limits["max_portfolio_exposure"])
+    position = float(limits["max_position_pct"])
     drawdown = float(limits["max_drawdown"])
     if not np.isfinite(exposure) or not 0 <= exposure <= 1:
         raise ValueError("MAX_PORTFOLIO_EXPOSURE must be finite and in [0, 1]")
+    if not np.isfinite(position) or not 0 < position <= exposure:
+        raise ValueError("MAX_POSITION_SIZE must be finite and in (0, MAX_PORTFOLIO_EXPOSURE]")
     if not np.isfinite(drawdown) or not 0 < drawdown < 1:
         raise ValueError("MAX_DRAWDOWN must be finite and in (0, 1)")
     return limits
@@ -79,8 +88,13 @@ logging.basicConfig(
 
 
 class PortfolioManager:
-    def __init__(self, max_total_exposure_pct=0.60, max_symbol_count=10):
-        self.max_total_exposure_pct = max_total_exposure_pct
+    def __init__(self, max_total_exposure_pct=None, max_symbol_count=10):
+        if max_total_exposure_pct is None:
+            max_total_exposure_pct = RISK_LIMITS["max_portfolio_exposure"]
+        value = float(max_total_exposure_pct)
+        if not np.isfinite(value) or not 0 <= value <= 1:
+            raise ValueError("max_total_exposure_pct must be finite and in [0, 1]")
+        self.max_total_exposure_pct = value
         self.max_symbol_count = max_symbol_count
 
     def allocate(self, weights, portfolio_value, positions, reserved_notional=0.0):
@@ -101,7 +115,9 @@ class PortfolioManager:
 
 
 class RiskEngine:
-    def __init__(self, max_position_pct=0.10, max_exposure_pct=0.50, max_symbol_concentration_pct=0.20):
+    def __init__(self, max_position_pct=None, max_exposure_pct=None, max_symbol_concentration_pct=0.20):
+        max_position_pct = RISK_LIMITS["max_position_pct"] if max_position_pct is None else max_position_pct
+        max_exposure_pct = RISK_LIMITS["max_portfolio_exposure"] if max_exposure_pct is None else max_exposure_pct
         limits = {
             "max_position_pct": max_position_pct,
             "max_exposure_pct": max_exposure_pct,
@@ -185,6 +201,7 @@ class BrokerExecutor:
         paper_trading: bool = True,
         initial_capital: float = 500000.0,
         configured_symbols: Optional[List[str]] = None,
+        risk_limits: Optional[Dict[str, float]] = None,
     ):
         # This executor is intentionally Paper-only. Reject unsafe configuration
         # before credentials, SDK clients, persistence, or any broker interaction.
@@ -218,6 +235,13 @@ class BrokerExecutor:
             if len(normalized_symbols) != len(set(normalized_symbols)):
                 raise ValueError("Configured corporate-action universe contains duplicate symbols")
             self.configured_symbols = tuple(normalized_symbols)
+
+        self.risk_limits = dict(RISK_LIMITS)
+        if risk_limits is not None:
+            if not isinstance(risk_limits, dict) or set(risk_limits) != set(RISK_LIMITS):
+                raise ValueError("risk_limits must define exactly the canonical exposure, position, and drawdown limits")
+            self.risk_limits.update(risk_limits)
+        _validate_risk_limits(self.risk_limits)
 
         self.api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self.api_secret = api_secret or os.getenv("ALPACA_API_SECRET", "")
@@ -1203,9 +1227,10 @@ class BrokerExecutor:
     def _risk_gate(self, portfolio_value: float, tradable_budget: float):
         peak = self._update_peak_equity(portfolio_value)
         dd = 0.0 if peak <= 0 else max(0.0, (peak - portfolio_value) / peak)
-        if dd >= RISK_LIMITS["max_drawdown"]:
+        risk_limits = getattr(self, "risk_limits", RISK_LIMITS)
+        if dd >= risk_limits["max_drawdown"]:
             return 0.0, f"max_drawdown:{dd:.2%}"
-        max_exposure = peak * RISK_LIMITS["max_portfolio_exposure"]
+        max_exposure = peak * risk_limits["max_portfolio_exposure"]
         capped = min(tradable_budget, max_exposure)
         if capped <= 0:
             return 0.0, "max_exposure:0.00%"
@@ -3464,10 +3489,14 @@ class BrokerExecutor:
             f"Budget esecuzione: portfolio_value={portfolio_value:.2f}, "
             f"buying_power={buying_power:.2f}, tradable_budget={tradable_budget:.2f}"
         )
+        risk_limits = getattr(self, "risk_limits", RISK_LIMITS)
         risk_engine = RiskEngine(
-            max_exposure_pct=RISK_LIMITS["max_portfolio_exposure"]
+            max_position_pct=risk_limits["max_position_pct"],
+            max_exposure_pct=risk_limits["max_portfolio_exposure"],
         )
-        portfolio_manager = PortfolioManager()
+        portfolio_manager = PortfolioManager(
+            max_total_exposure_pct=risk_limits["max_portfolio_exposure"]
+        )
         weights, pm_block = portfolio_manager.allocate(weights, portfolio_value, positions, reserved_notional=reserved_notional)
         if pm_block:
             self.logger.warning(f"Portfolio manager block: {pm_block}")

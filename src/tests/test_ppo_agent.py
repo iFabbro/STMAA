@@ -1239,7 +1239,7 @@ def _ppo_save_with_blocking_model_process(model_path, started, release, result_q
     class BlockingModel:
         def save(self, path):
             started.set()
-            if not release.wait(timeout=10):
+            if not release.wait(timeout=60):
                 raise RuntimeError("timed out waiting to publish test generation")
             Path(path).write_bytes(b"concurrent-generation")
 

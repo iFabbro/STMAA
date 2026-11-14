@@ -497,3 +497,36 @@ the current implementation.
 The dependency set keeps a dedicated compatibility path for macOS Intel (x86_64): PyTorch 2.2.2 is retained on that platform because newer upstream PyTorch releases do not provide a supported macOS Intel wheel. This preserves local installation and validation on older Intel Macs, including macOS 12.7, but **does not remediate the known PyTorch 2.2.2 security advisories on that platform**. Treat the Intel environment as a local, experimental validation target; do not expose it to untrusted model artifacts or untrusted input, and do not use it as a production or live-trading deployment.
 
 Other supported platforms use PyTorch 2.13.0, while Soup Sieve is constrained to the patched 4.x line. Platform-specific dependency resolution must remain represented in the committed `uv.lock`; CI must verify the lock and exercise Linux, macOS Intel, and macOS ARM separately. The Intel exception is an explicit residual-risk acceptance, not a claim that the dependency is vulnerability-free.
+
+
+## Guided First-Run Setup
+
+For a new local checkout, install the locked environment first:
+
+```bash
+uv sync --locked --group dev
+```
+
+Create the local Paper configuration with the offline wizard:
+
+```bash
+uv run python first_run.py
+uv run python doctor.py
+```
+
+The wizard requests the Alpaca Paper API key and secret through masked terminal prompts.
+It creates `.env` only when that file does not already exist, uses restrictive
+permissions (`0600` on POSIX), and refuses to overwrite an existing configuration.
+The credentials are never printed. If `.env` already exists, preserve it and edit it
+deliberately rather than rerunning the wizard.
+
+The wizard is **offline**: it does not authenticate credentials, contact Alpaca, inspect
+an account, or submit/cancel/replace/close orders. The Doctor is also offline. It resolves
+configuration using the same precedence as the runtime loader: process environment
+variables override values in `.env`; absent Paper mode and endpoint values use the
+runtime's Paper-only defaults. An exported non-Paper mode or custom endpoint remains a
+failure. Credential presence is checked locally, not authenticated.
+
+This setup change does not modify the trading engine, executor, PPO model, or any risk
+limits. A successful Doctor result is not a broker preflight and does not authorize
+Paper order submission or live trading.

@@ -68,7 +68,8 @@ def collect_checks(
     else:
         add("PASS", ".env", "effective configuration loaded")
 
-    mode = (effective_env.get("STMAA_TRADING_MODE") or "paper").strip().lower()
+    raw_mode = effective_env.get("STMAA_TRADING_MODE")
+    mode = "paper" if raw_mode is None else raw_mode.strip().lower()
     endpoint = (effective_env.get("ALPACA_BASE_URL") or PAPER_API_BASE_URL).strip().rstrip("/")
     add("PASS" if mode == "paper" else "FAIL", "Trading mode",
         "Paper mode effective (default or configured)" if mode == "paper"

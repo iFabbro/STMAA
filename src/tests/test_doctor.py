@@ -102,3 +102,14 @@ def test_doctor_fails_when_uv_is_unavailable(tmp_path):
         uv_available=False,
     ))
     assert statuses["uv"] == "FAIL"
+
+
+def test_doctor_rejects_explicitly_empty_trading_mode(tmp_path):
+    root = _root(tmp_path)
+    statuses = _statuses(collect_checks(
+        root, python_version=(3, 12), package_versions=_versions(),
+        env={"STMAA_TRADING_MODE": "", "ALPACA_API_KEY": "paper-key",
+             "ALPACA_API_SECRET": "paper-secret"},
+        uv_available=True,
+    ))
+    assert statuses["Trading mode"] == "FAIL"

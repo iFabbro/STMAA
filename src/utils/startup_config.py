@@ -13,6 +13,7 @@ DEFAULT_TICKERS = ("AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META")
 DEFAULT_INITIAL_CAPITAL = "100000"
 DEFAULT_MAX_PORTFOLIO_EXPOSURE = "0.50"
 DEFAULT_MAX_POSITION_SIZE = "0.20"
+DEFAULT_MAX_DRAWDOWN = "0.15"
 DEFAULT_TRANSACTION_COST = "0.001"
 DEFAULT_SLIPPAGE = "0.0005"
 DEFAULT_VIX_THRESHOLD_HIGH = "30"
@@ -200,7 +201,7 @@ def load_startup_config(environ: Mapping[str, str] | None = None) -> StartupConf
 
     strategy = load_strategy_config(env)
     exposure = strategy.max_gross_exposure
-    drawdown = _risk_float("MAX_DRAWDOWN", env.get("MAX_DRAWDOWN"), "0.15")
+    drawdown = _risk_float("MAX_DRAWDOWN", env.get("MAX_DRAWDOWN"), DEFAULT_MAX_DRAWDOWN)
     if not 0 < drawdown < 1:
         raise ValueError("MAX_DRAWDOWN must be in (0, 1)")
 

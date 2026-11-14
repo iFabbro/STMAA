@@ -130,6 +130,11 @@ def test_validated_limits_and_credentials_reach_real_bot_components(monkeypatch)
         "paper_trading": True,
         "initial_capital": 10000.0,
         "configured_symbols": ["AAPL"],
+        "risk_limits": {
+            "max_portfolio_exposure": 0.42,
+            "max_position_pct": 0.20,
+            "max_drawdown": 0.12,
+        },
     }
     assert observed["feed"] == {
         "api_key": "paper-key-example",

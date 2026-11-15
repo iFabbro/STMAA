@@ -22,7 +22,106 @@ def _load(path: Path) -> dict[str, Any]:
 def _select_ppo_folds(
     ppo: dict[str, Any], ppo_seed: int | None
 ) -> tuple[list[Any] | None, int | None, str, str | None]:
-    """Select folds without ever choosing a multi-seed run implicitly."""
+    """Select one seed explicitly and attach only its verified fold provenance."""
+    if "seed_results" in ppo:
+        seed_results = ppo.get("seed_results")
+        if not isinstance(seed_results, list) or not seed_results:
+            return None, None, "INCONCLUSIVE", (
+                "Multi-seed report has no valid seed_results list."
+            )
+        if ppo_seed is None:
+            return None, None, "INCONCLUSIVE", (
+                "Multi-seed report requires an explicit --ppo-seed selection."
+            )
+        matches = [
+            item for item in seed_results
+            if isinstance(item, dict) and item.get("seed") == ppo_seed
+        ]
+        if len(matches) != 1:
+            reason = (
+                f"Seed {ppo_seed} is not present in the multi-seed report."
+                if not matches else
+                f"Seed {ppo_seed} occurs more than once; selection is ambiguous."
+            )
+            return None, None, "INCONCLUSIVE", reason
+
+        selected_folds = matches[0].get("folds")
+        shared_folds = ppo.get("folds")
+        if not isinstance(selected_folds, list) or not selected_folds:
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} has no valid folds list."
+            )
+        if not isinstance(shared_folds, list) or not shared_folds:
+            return None, ppo_seed, "INCONCLUSIVE", (
+                "Multi-seed report has no valid top-level folds for provenance."
+            )
+
+        shared_by_id: dict[Any, dict[str, Any]] = {}
+        for shared in shared_folds:
+            if not isinstance(shared, dict) or "fold" not in shared:
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    "Top-level fold provenance is malformed or has no fold identifier."
+                )
+            fold_id = shared["fold"]
+            if fold_id in shared_by_id:
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Top-level fold identifier {fold_id!r} is duplicated."
+                )
+            shared_by_id[fold_id] = shared
+
+        normalized: list[dict[str, Any]] = []
+        selected_ids: set[Any] = set()
+        for selected in selected_folds:
+            if not isinstance(selected, dict) or "fold" not in selected:
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Selected seed {ppo_seed} contains a malformed fold."
+                )
+            fold_id = selected["fold"]
+            if fold_id in selected_ids:
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Selected seed {ppo_seed} contains duplicate fold {fold_id!r}."
+                )
+            selected_ids.add(fold_id)
+            shared = shared_by_id.get(fold_id)
+            metrics = selected.get("ppo")
+            if shared is None or not isinstance(metrics, dict):
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Selected seed {ppo_seed} fold {fold_id!r} lacks matching "
+                    "top-level provenance or PPO metrics."
+                )
+
+            # The top-level fold stores common provenance and a per-seed mirror.
+            # Require that mirror to agree before combining the two report layers.
+            per_seed = shared.get("ppo_by_seed")
+            if not isinstance(per_seed, list):
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Top-level fold {fold_id!r} has no ppo_by_seed evidence."
+                )
+            mirrors = [
+                item for item in per_seed
+                if isinstance(item, dict) and item.get("seed") == ppo_seed
+            ]
+            if len(mirrors) != 1 or mirrors[0].get("metrics") != metrics:
+                return None, ppo_seed, "INCONCLUSIVE", (
+                    f"Seed {ppo_seed} fold {fold_id!r} does not match its "
+                    "top-level ppo_by_seed evidence."
+                )
+
+            normalized.append({
+                **shared,
+                "metrics": metrics,
+                "observations": metrics.get(
+                    "observations", shared.get("observations")
+                ),
+            })
+
+        if len(selected_ids) != len(shared_by_id) or selected_ids != set(shared_by_id):
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} folds do not align one-to-one with "
+                "the top-level provenance folds."
+            )
+        return normalized, ppo_seed, "PASS", None
+
     if "runs" in ppo:
         runs = ppo.get("runs")
         if not isinstance(runs, list) or not runs:
@@ -53,14 +152,14 @@ def _select_ppo_folds(
     if ppo_seed is not None:
         return None, None, "INCONCLUSIVE", (
             "--ppo-seed was supplied, but the PPO report is legacy single-seed "
-            "and contains no runs[] seed metadata."
+            "and contains no seed metadata."
         )
     if not isinstance(folds, list):
         return None, None, "INCONCLUSIVE", (
-            "PPO report contains neither a valid legacy folds list nor a valid runs list."
+            "PPO report contains neither a valid legacy folds list nor a valid "
+            "multi-seed seed_results[]/runs[] structure."
         )
     return folds, None, "PASS", None
-
 
 def _inconclusive_result(reason: str, selected_seed: int | None) -> dict[str, Any]:
     names = (
@@ -103,7 +202,7 @@ def audit_reports(
         return _inconclusive_result(seed_reason or "PPO seed selection failed.", selected_seed)
 
     checks: dict[str, str] = {"seed_selection": seed_status}
-    ppo_parameters = ppo.get("training_parameters")
+    ppo_parameters = ppo.get("training_parameters", ppo.get("parameters"))
     benchmark_parameters = benchmark.get("parameters")
     if not isinstance(ppo_parameters, dict) or not isinstance(benchmark_parameters, dict):
         checks["cost_and_cap_parameters"] = "INCONCLUSIVE"
@@ -238,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--benchmark-report", type=Path, required=True)
     parser.add_argument(
         "--ppo-seed", type=int, default=None,
-        help="Required when --ppo-report uses the multi-seed runs[] schema.",
+        help="Required when --ppo-report uses a multi-seed runs[] or seed_results[] schema.",
     )
     parser.add_argument(
         "--output", type=Path,

@@ -184,3 +184,104 @@ def test_cli_without_seed_does_not_pass_multi_seed_report(tmp_path):
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert result["status"] == "INCONCLUSIVE"
     assert result["checks"]["seed_selection"] == "INCONCLUSIVE"
+
+
+
+def _seed_results_report():
+    ppo, _ = _reports()
+    legacy_fold = ppo.pop("folds")[0]
+    metrics = {
+        "observations": 3,
+        "total_transaction_costs": 1.5,
+        "timeseries": [{"gross_exposure_close": 0.3}],
+    }
+    provenance = {
+        **legacy_fold,
+        "observations": 3,
+        "ppo_by_seed": [{"seed": 42, "metrics": copy.deepcopy(metrics)}],
+    }
+    return {
+        "parameters": copy.deepcopy(ppo["training_parameters"]),
+        "folds": [provenance],
+        "seed_results": [{
+            "seed": 42,
+            "fold_count": 1,
+            "folds": [{"fold": 1, "ppo": copy.deepcopy(metrics), "comparison": {}}],
+        }],
+    }
+
+
+def test_seed_results_audit_uses_explicit_seed_and_top_level_provenance():
+    ppo = _seed_results_report()
+    _, benchmark = _reports()
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert result["status"] == "PASS"
+    assert result["selected_seed"] == 42
+    assert result["fold_count"] == 1
+    assert all(value == "PASS" for value in result["checks"].values())
+
+
+def test_seed_results_audit_requires_explicit_seed():
+    ppo = _seed_results_report()
+    _, benchmark = _reports()
+    result = audit_reports(ppo, benchmark)
+    assert result["status"] == "INCONCLUSIVE"
+    assert "explicit --ppo-seed" in result["reason"]
+
+
+def test_seed_results_audit_rejects_unknown_or_duplicate_seed():
+    ppo = _seed_results_report()
+    _, benchmark = _reports()
+    unknown = audit_reports(ppo, benchmark, ppo_seed=7)
+    assert unknown["status"] == "INCONCLUSIVE"
+    assert "not present" in unknown["reason"]
+
+    ppo["seed_results"].append(copy.deepcopy(ppo["seed_results"][0]))
+    duplicate = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert duplicate["status"] == "INCONCLUSIVE"
+    assert "more than once" in duplicate["reason"]
+
+
+def test_seed_results_audit_rejects_mismatched_per_seed_mirror():
+    ppo = _seed_results_report()
+    ppo["folds"][0]["ppo_by_seed"][0]["metrics"]["total_return"] = 0.99
+    _, benchmark = _reports()
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert result["status"] == "INCONCLUSIVE"
+    assert "does not match" in result["reason"]
+
+
+def test_seed_results_audit_rejects_missing_or_duplicate_fold_provenance():
+    ppo = _seed_results_report()
+    _, benchmark = _reports()
+    ppo["folds"][0]["fold"] = 2
+    missing = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert missing["status"] == "INCONCLUSIVE"
+    assert "lacks matching" in missing["reason"]
+
+    ppo = _seed_results_report()
+    ppo["folds"].append(copy.deepcopy(ppo["folds"][0]))
+    duplicate = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert duplicate["status"] == "INCONCLUSIVE"
+    assert "duplicated" in duplicate["reason"]
+
+
+def test_seed_results_cli_accepts_explicit_seed(tmp_path):
+    ppo = _seed_results_report()
+    _, benchmark = _reports()
+    ppo_path = tmp_path / "ppo.json"
+    benchmark_path = tmp_path / "benchmark.json"
+    output_path = tmp_path / "audit.json"
+    ppo_path.write_text(json.dumps(ppo), encoding="utf-8")
+    benchmark_path.write_text(json.dumps(benchmark), encoding="utf-8")
+
+    exit_code = main([
+        "--ppo-report", str(ppo_path),
+        "--benchmark-report", str(benchmark_path),
+        "--ppo-seed", "42",
+        "--output", str(output_path),
+    ])
+    assert exit_code == 0
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["status"] == "PASS"
+    assert result["selected_seed"] == 42

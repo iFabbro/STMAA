@@ -37,7 +37,9 @@ def test_doctor_accepts_locked_python312_paper_setup(tmp_path):
     assert set(_statuses(checks).values()) == {"PASS"}
 
 
-def test_doctor_fails_closed_for_non_paper_mode_or_endpoint(tmp_path):
+def test_doctor_fails_closed_for_non_paper_mode_or_endpoint(tmp_path, monkeypatch):
+    for name in ("STMAA_TRADING_MODE", "ALPACA_BASE_URL", "ALPACA_API_KEY", "ALPACA_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
     root = _root(
         tmp_path,
         env_text=(
@@ -74,7 +76,9 @@ def test_doctor_reports_missing_dependencies(tmp_path):
     assert statuses["Runtime dependencies"] == "FAIL"
 
 
-def test_doctor_warns_when_env_or_credentials_are_not_ready(tmp_path):
+def test_doctor_warns_when_env_or_credentials_are_not_ready(tmp_path, monkeypatch):
+    for name in ("STMAA_TRADING_MODE", "ALPACA_BASE_URL", "ALPACA_API_KEY", "ALPACA_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
     root = _root(tmp_path)
     checks = collect_checks(
         root, python_version=(3, 12), package_versions=_versions(),

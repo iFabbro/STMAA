@@ -14,10 +14,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict
 
+DOTENV_LOADED = False
+if __name__ == "__main__":
+    # The executable path loads .env before importing modules that read env at import time.
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=Path(__file__).absolute().parent / ".env", override=False)
+    DOTENV_LOADED = True
+
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=Path(__file__).absolute().parent / ".env", override=False)
 
 from src.utils.sqlite_logger import start_run, end_run, log_event, write_snapshot
 from src.utils.monitoring_state import (
@@ -849,6 +854,14 @@ def main(argv=None):
         help="validate configuration and read the paper account without starting the trading loop",
     )
     args = parser.parse_args(argv)
+
+    # Also support callers that invoke main() after importing this module.
+    # The direct-script path loads .env earlier, before env-sensitive imports.
+    global DOTENV_LOADED
+    if not DOTENV_LOADED:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=Path(__file__).absolute().parent / ".env", override=False)
+        DOTENV_LOADED = True
 
     RUN_ID = start_run(mode="paper", meta={"component": "trade"})
     status = "failed"

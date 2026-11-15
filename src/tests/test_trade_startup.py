@@ -1,3 +1,5 @@
+import importlib
+import dotenv
 import pytest
 import trade
 from src.utils.startup_config import (
@@ -15,6 +17,7 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
     monkeypatch.setenv("LIQUIDATE_ON_DRAWDOWN", "true")
 
     observed = {}
+
 
     class FakeExecutor:
         paper_trading = True
@@ -308,3 +311,12 @@ def test_normal_startup_blocks_missing_ppo_before_broker_preflight_or_loop(monke
 
     assert trade.main([]) == 1
     assert observed == {"account_requests": 0, "loop_started": False}
+
+
+
+def test_importing_trade_does_not_load_dotenv(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("importing trade must not load .env")
+
+    monkeypatch.setattr(dotenv, "load_dotenv", fail_if_called)
+    importlib.reload(trade)

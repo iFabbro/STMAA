@@ -16,6 +16,11 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
 
     observed = {}
 
+    def fake_load_dotenv(*, dotenv_path, override):
+        observed["dotenv"] = (str(dotenv_path), override)
+
+    monkeypatch.setattr("dotenv.load_dotenv", fake_load_dotenv)
+
     class FakeExecutor:
         paper_trading = True
 
@@ -56,6 +61,8 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
     monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
 
     assert trade.main(["--preflight-only"]) == 0
+    assert observed["dotenv"][0].endswith("/.env")
+    assert observed["dotenv"][1] is False
     assert observed["kwargs"]["max_drawdown_threshold"] == 0.12
     assert observed["kwargs"]["max_gross_exposure"] == 0.42
     assert observed["kwargs"]["liquidate_on_drawdown"] is True

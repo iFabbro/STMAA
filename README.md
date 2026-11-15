@@ -476,7 +476,7 @@ Il PASS indica che i controlli implementati dispongono di evidenza coerente nei 
 
 Intervento previsto, da realizzare in una PR dedicata:
 
-1. supportare sia il formato legacy single-seed (`folds`) sia il formato multi-seed (`runs[]`);
+1. supportare il formato legacy single-seed (`folds`) e i formati multi-seed effettivamente presenti (`seed_results[]` e `runs[]`);
 2. introdurre una selezione esplicita del seed (ad esempio `--ppo-seed 42`);
 3. se il report è multi-seed e il seed non è specificato, restituire INCONCLUSIVE/errore esplicito, mai scegliere un seed implicitamente;
 4. mantenere fail-closed su mismatch di fingerprint, date, parametri, costi e allineamento fold;

@@ -1,5 +1,8 @@
 """Tests for the fail-closed PPO benchmark methodology report auditor."""
-from benchmark_methodology_audit import audit_reports
+import copy
+import json
+
+from benchmark_methodology_audit import audit_reports, main
 
 
 def _reports():
@@ -13,7 +16,10 @@ def _reports():
             "fold": 1, "test_start": "2024-01-03", "test_end": "2024-01-05",
             "test_observations": 3, "entry_execution": "next_bar_open",
             "execution_data_fingerprint": "a" * 64,
-            "metrics": {"total_transaction_costs": 1.5, "timeseries": [{"gross_exposure_close": 0.3}]},
+            "metrics": {
+                "total_transaction_costs": 1.5,
+                "timeseries": [{"gross_exposure_close": 0.3}],
+            },
         }],
     }
     benchmark = {
@@ -35,10 +41,64 @@ def _reports():
     return ppo, benchmark
 
 
+def _multi_seed_report():
+    ppo, _ = _reports()
+    folds = ppo.pop("folds")
+    ppo["runs"] = [
+        {"seed": 42, "fold_count": len(folds), "folds": copy.deepcopy(folds)},
+        {"seed": 7, "fold_count": len(folds), "folds": copy.deepcopy(folds)},
+    ]
+    return ppo
+
+
 def test_methodology_audit_passes_when_all_required_report_evidence_matches():
     result = audit_reports(*_reports())
     assert result["status"] == "PASS"
+    assert result["checks"]["seed_selection"] == "PASS"
     assert all(value == "PASS" for value in result["checks"].values())
+    assert result["selected_seed"] is None
+
+
+def test_multi_seed_audit_passes_only_for_explicitly_selected_seed():
+    _, benchmark = _reports()
+    result = audit_reports(_multi_seed_report(), benchmark, ppo_seed=42)
+    assert result["status"] == "PASS"
+    assert result["selected_seed"] == 42
+    assert result["fold_count"] == 1
+    assert all(value == "PASS" for value in result["checks"].values())
+
+
+def test_multi_seed_audit_is_inconclusive_when_seed_is_not_selected():
+    _, benchmark = _reports()
+    result = audit_reports(_multi_seed_report(), benchmark)
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["seed_selection"] == "INCONCLUSIVE"
+    assert "explicit --ppo-seed" in result["reason"]
+
+
+def test_multi_seed_audit_is_inconclusive_for_unknown_seed():
+    _, benchmark = _reports()
+    result = audit_reports(_multi_seed_report(), benchmark, ppo_seed=999)
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["selected_seed"] is None
+    assert "not present" in result["reason"]
+
+
+def test_multi_seed_audit_is_inconclusive_for_duplicate_seed():
+    ppo = _multi_seed_report()
+    ppo["runs"].append(copy.deepcopy(ppo["runs"][0]))
+    _, benchmark = _reports()
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert result["status"] == "INCONCLUSIVE"
+    assert "more than once" in result["reason"]
+
+
+def test_seed_argument_is_not_silently_accepted_for_legacy_single_seed_report():
+    ppo, benchmark = _reports()
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["seed_selection"] == "INCONCLUSIVE"
+    assert "legacy single-seed" in result["reason"]
 
 
 def test_methodology_audit_marks_missing_fingerprint_and_traces_inconclusive():
@@ -67,3 +127,60 @@ def test_methodology_audit_fails_on_fold_date_mismatch():
     result = audit_reports(ppo, benchmark)
     assert result["checks"]["fold_alignment"] == "FAIL"
     assert result["status"] == "FAIL"
+
+
+def test_methodology_audit_marks_missing_parameters_inconclusive():
+    ppo, benchmark = _reports()
+    del ppo["training_parameters"]["slippage"]
+    result = audit_reports(ppo, benchmark)
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["cost_and_cap_parameters"] == "INCONCLUSIVE"
+
+
+def test_methodology_audit_marks_fold_count_mismatch_as_fail():
+    ppo, benchmark = _reports()
+    benchmark["folds"].append(copy.deepcopy(benchmark["folds"][0]))
+    result = audit_reports(ppo, benchmark)
+    assert result["status"] == "FAIL"
+    assert result["checks"]["fold_alignment"] == "FAIL"
+
+
+def test_cli_accepts_explicit_ppo_seed_for_multi_seed_report(tmp_path):
+    ppo, benchmark = _multi_seed_report(), _reports()[1]
+    ppo_path = tmp_path / "ppo.json"
+    benchmark_path = tmp_path / "benchmark.json"
+    output_path = tmp_path / "audit.json"
+    ppo_path.write_text(json.dumps(ppo), encoding="utf-8")
+    benchmark_path.write_text(json.dumps(benchmark), encoding="utf-8")
+
+    exit_code = main([
+        "--ppo-report", str(ppo_path),
+        "--benchmark-report", str(benchmark_path),
+        "--ppo-seed", "42",
+        "--output", str(output_path),
+    ])
+
+    assert exit_code == 0
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["status"] == "PASS"
+    assert result["selected_seed"] == 42
+
+
+def test_cli_without_seed_does_not_pass_multi_seed_report(tmp_path):
+    ppo, benchmark = _multi_seed_report(), _reports()[1]
+    ppo_path = tmp_path / "ppo.json"
+    benchmark_path = tmp_path / "benchmark.json"
+    output_path = tmp_path / "audit.json"
+    ppo_path.write_text(json.dumps(ppo), encoding="utf-8")
+    benchmark_path.write_text(json.dumps(benchmark), encoding="utf-8")
+
+    exit_code = main([
+        "--ppo-report", str(ppo_path),
+        "--benchmark-report", str(benchmark_path),
+        "--output", str(output_path),
+    ])
+
+    assert exit_code == 3
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["seed_selection"] == "INCONCLUSIVE"

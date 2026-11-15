@@ -160,7 +160,7 @@ Il manifest registra: versione del contratto modello, ticker e dimensione dello 
 
 Il caricamento verifica la compatibilità dei contratti, dei parametri, del nome content-addressed e dell'hash prima di deserializzare il modello. Gli artefatti PPO v6 o con semantica delle osservazioni precedente non sono compatibili con v7: devono essere rigenerati con un nuovo training controllato. La manutenzione degli artefatti è esplicita e il pruning è dry-run per impostazione predefinita.
 
-La validazione holdout è diagnostica e non applica una soglia automatica di redditività. Un risultato positivo non garantisce prestazioni future. Il training effettua richieste autenticate all'API di mercato Alpaca tramite `StockHistoricalDataClient` per scaricare lo storico SIP; richiede quindi credenziali Alpaca abilitate all'accesso ai dati richiesti. Non usa il client di trading, non legge né modifica lo stato dell'account, non invia, cancella o modifica ordini e non avvia il ciclo operativo Paper. Non viene eseguito automaticamente all'avvio di `trade.py`. Non è incluso nel repository alcun modello pre-addestrato: il download del codice non equivale al download di un artefatto PPO già addestrato. La generazione del modello richiede un training eseguito separatamente.
+La validazione holdout è diagnostica e non applica una soglia automatica di redditività. Un risultato positivo non garantisce prestazioni future. Il training effettua richieste autenticate all'API di mercato Alpaca tramite `StockHistoricalDataClient` per scaricare lo storico SIP; richiede quindi credenziali Alpaca abilitate all'accesso ai dati richiesti. Non usa il client di trading, non legge né modifica lo stato dell'account, non invia, cancella o modifica ordini e non avvia il ciclo operativo Paper. Non viene eseguito automaticamente all'avvio di `trade.py`. Alla data del 15 novembre 2026 il repository non distribuisce ancora un artefatto PPO pre-addestrato ai nuovi checkout. Il requisito di prodotto è fornire un modello già addestrato e verificato, senza richiedere training all'utente finale; packaging e distribuzione dell'artefatto restano da completare. La procedura di training descritta qui sotto è destinata a ricerca, manutenzione e riproducibilità del modello, non deve essere interpretata come passaggio ordinario richiesto a ogni utente.
 
 Il manifest registra inoltre i parametri PPO effettivi (`learning_rate`, `n_steps`, `batch_size`, `n_epochs`, `gamma`), il capitale iniziale, il seed, l'hash SHA-256 del dataset processato effettivamente passato al training e il commit Git sorgente quando il comando viene eseguito in un checkout Git. Registra anche se il working tree Git è pulito: un commit identificato con modifiche locali non committate non descrive da solo l'intero codice effettivamente eseguito. Se Git non è disponibile, i campi di provenienza Git sono `null`. L'hash identifica valori, colonne e timestamp della matrice di feature dopo pulizia e calcolo degli indicatori; non sostituisce l'archiviazione del dataset. Se il codice viene eseguito da un archivio privo di metadati Git, `git_commit` è `null`.
 
@@ -413,29 +413,100 @@ Il progetto usa un'unica base di codice e un unico lock file per le architetture
 
 Il workflow GitHub Actions esegue l'intera suite di test su Linux, macOS Intel (`macos-15-intel`) e Apple Silicon (`macos-15`). I test di identità dei processi e recupero delle sessioni orfane vengono eseguiti su tutte e tre le piattaforme, senza esclusioni specifiche per macOS. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
-## Stato dello sviluppo e verifiche (12 novembre 2026)
+## Stato dello sviluppo e handoff operativo (15 novembre 2026)
 
-STMAA rimane in stato **alpha / sperimentale**. L'hardening architetturale, i controlli di rischio/esecuzione e la riproducibilità dell'installazione sono completati a livello di codice e test. La verifica locale della dashboard sul Mac Intel è stata completata; la validazione operativa end-to-end contro Alpaca Paper resta invece in corso. Questi risultati non dimostrano redditività né idoneità alla produzione.
+Questa sezione è il punto di ripartenza per chiunque continui il lavoro su STMAA. Ha priorità sulle descrizioni storiche più sotto quando riportano uno stato precedente. **Prima di eseguire un test, benchmark, training o audit, leggere questa sezione e controllare gli artefatti già prodotti. Non ripetere attività già completate solo per ricostruire il contesto.**
 
-| Fase | Stato | Evidenza e limiti |
+### Repository e ambiente
+
+- Repository: `iFabbro/STMAA`.
+- Ultimo commit noto su `main`: `c5045592f495c0f183c269b253bbda3b24fa94a5` — `Fix dotenv import side effects and Doctor test isolation (#362)`.
+- Ultime modifiche integrate: PR #358–#362 (qualità quote vs idoneità all'esecuzione; consolidamento limiti di rischio; first-run setup offline; diagnostica Alpaca Paper zero-write; isolamento dotenv/Doctor).
+- Ambiente locale di riferimento: iMac Intel x86_64, macOS 12.7.6; checkout `~/Projects/STMAA`; Python di progetto 3.12.13 tramite `.venv`/uv. Il Python globale può essere 3.13 e non va usato per eseguire il progetto.
+- La configurazione locale resta Paper-only. `.env`, `logs/` e `models/` sono dati locali: non sovrascriverli o eliminarli durante prove di installazione.
+
+### Registro delle verifiche già eseguite
+
+| Area | Stato verificato | Evidenza / limite |
 |---|---|---|
-| 1 — Hardening architetturale e Paper-only | Completata a livello di codice/test | Guardie Paper-only, controlli di freschezza e qualità dei dati, telemetria SIP/IEX e raccolta shadow predisposta. Non equivale a una prova operativa prolungata. |
-| 2 — Rischio ed esecuzione | Completata a livello di codice/test | Controlli fail-closed, riconciliazione, protezioni dell'executor e test degli scenari di errore. I test mock/locali non sostituiscono una validazione end-to-end contro il broker. |
-| 3 — Installabilità e riproducibilità | Completata | Doctor offline, lock file e istruzioni clean-install. Su macOS 12.7.6 Intel, un clone pulito ha completato `uv sync --locked`; `doctor.py` ha riportato 5 PASS, 1 WARN atteso e 0 FAIL perché il clone isolato non conteneva `.env`; la suite ha superato **1.449 test** in 187,30 secondi. |
-| 4 — Verifica locale macOS e dashboard | Dashboard verificata; validazione complessiva in corso | Sul Mac Intel, con checkout aggiornato a `96ce163e2beccfa6b48a5b09a74acce867607428`, sono stati verificati l'avvio diretto e tramite `hub.py`, la navigazione e le quattro sezioni Overview, Portfolio, Orders & Executions e System. La dashboard usa provider locali read-only; Portfolio e Orders & Executions mostrano evidenze persistite, non uno stato live del broker. Restano da completare la ripetizione del soak read-only Alpaca Paper e la relativa verifica end-to-end. |
-| 5 — Raccolta shadow prospettica | Non avviata | Il collector resta separato e non attivato. L'avvio richiede la chiusura dei gate documentati nel registro di freeze e un'autorizzazione esplicita; nessun test con ordini è autorizzato da questa documentazione. |
+| Dashboard Textual su macOS Intel | Verificata localmente | Avvio diretto e tramite `hub.py`, navigazione e quattro sezioni Overview, Portfolio, Orders & Executions e System. Verifica eseguita sul checkout indicato nel registro precedente; non equivale a una verifica live del broker. |
+| PPO walk-forward multi-seed | Eseguito | 11 fold temporali, seed 42/7/21, 33 run seed/fold; 7 ticker, 2.206 osservazioni fino al 6 novembre 2026. Ogni fold è indipendente e parte da liquidità: non concatenare i fold in una curva composta. |
+| Benchmark PPO | Eseguito | Confronti equal-weight buy-and-hold, equal-weight exposure-matched (dove la traccia PPO è disponibile), SPY 50% e SPY 100%. Le simulazioni sono per fold indipendenti. |
+| Allineamento benchmark del seed 42 | Verificato | Confronto puntuale su 11 fold: date, `next_bar_open`, fingerprint dei dati, metriche PPO e timeseries embedded coincidono tra il report PPO seed 42 e il report benchmark matched. |
+| Audit metodologico benchmark, seed 42 | **PASS in memoria** | Chiamando `audit_reports()` con il report multi-seed normalizzato sul seed 42 e il benchmark matched, tutti i 7 controlli risultano PASS su 11 fold: parametri/costi/cap, allineamento fold, identità dati, entry execution, traccia esposizione PPO, traccia benchmark e valori costi. |
+| Audit nativo multi-seed | Da correggere | L'auditor attuale si aspetta `folds` al top-level; il report multi-seed usa `runs[]` con fold annidati per seed. La normalizzazione in memoria non ha modificato il report JSON né aggiunto il supporto multi-seed al codice. |
+| Soak read-only Alpaca Paper | Da ripetere | Un tentativo precedente si è interrotto dopo 22 cicli per il difetto temporale delle barre giornaliere, senza inviare ordini. La correzione è stata integrata (#342); il soak sul codice corretto non risulta ancora completato. |
+| Preflight Alpaca Paper zero-write | Implementato | PR #361 aggiunge un diagnostico read-only distinto dal preflight di `trade.py`; non è un soak, non avvia il ciclo e non invia ordini. Va eseguito localmente solo se serve una nuova fotografia dello stato Paper. |
+| Raccolta PPO shadow prospettica | Non avviata | Registro PRE-FREEZE; PR #333 resta aperta in Draft. Nessuna raccolta va attivata senza chiusura dei gate e autorizzazione esplicita. |
 
-### Interpretazione delle verifiche
+### Audit benchmark: dettaglio indispensabile per la ripresa
 
-Il comando `doctor.py` è una diagnostica **offline**: controlla la configurazione locale e la presenza dei campi credenziali, ma non autentica le chiavi, non contatta Alpaca e non verifica la raggiungibilità dell'account. Un esito positivo non sostituisce il preflight read-only del broker.
+Artefatti di riferimento generati localmente:
 
-Il warning `.env` nel clone pulito è atteso: il file contiene configurazione e credenziali locali e non deve essere copiato nel repository. Nel checkout operativo dell'utente il Doctor ha precedentemente rilevato la configurazione Paper completa. Non pubblicare mai il contenuto di `.env`, chiavi API, token o altri segreti.
+- `reports/benchmark_methodology_audit_20261110.json`
+- `reports/ppo_benchmark_comparison_matched_20261110.json`
+- `reports/ppo_benchmark_comparison_spy_20261110.json`
+- `reports/ppo_benchmark_multiseed_20261110_42_7_21.json`
+- `reports/ppo_benchmark_multiseed_audit.txt`
+- `reports/ppo_benchmark_multiseed_summary.txt`
+- `reports/ppo_walk_forward_multiseed_20261110_42_7_21.json`
+- `reports/ppo_walk_forward_timeseries_9fold_20261110.json`
 
-La suite automatizzata, la CI verde e l'installazione pulita verificano rispettivamente regressioni coperte dai test, compatibilità sulle piattaforme CI e riproducibilità dell'ambiente. Nessuno di questi risultati dimostra da solo il corretto comportamento di ogni flusso contro un account Alpaca, neppure in Paper. Analogamente, la verifica delle quattro sezioni della dashboard conferma il funzionamento dell'interfaccia e dei provider locali, non la freschezza o completezza dello stato corrente del broker.
+La verifica conclusiva già svolta per il seed 42 ha prodotto:
 
-La Fase 4 richiede ancora la ripetizione e la verifica del soak read-only Alpaca Paper dopo la correzione del confine temporale delle barre giornaliere. La Fase 5 resta non avviata: il collector prospettico deve superare i gate di freeze e attivazione descritti nel registro dedicato. Nessuna di queste attività autorizza ordini Paper o operatività live.
+```text
+Status: PASS
+Fold count: 11
+cost_and_cap_parameters: PASS
+fold_alignment: PASS
+execution_data_identity: PASS
+entry_execution: PASS
+ppo_daily_exposure_trace: PASS
+benchmark_daily_exposure_trace: PASS
+reported_cost_values: PASS
+```
 
-## Aggiornamenti recenti (9–12 novembre 2026)
+**Interpretazione corretta:** questo è un PASS dell'auditor ottenuto in memoria fornendo i fold del seed 42 nel formato single-seed atteso. Non è un PASS del report multi-seed nativo. Il file `reports/benchmark_methodology_audit_20261110.json` resta quello precedente e può ancora riportare INCONCLUSIVE. Inoltre, il campo `execution_data_identity` nei fold del report benchmark matched risulta ancora INCONCLUSIVE: non confondere tale campo con il controllo di fingerprint indipendente che ha verificato la corrispondenza 11/11.
+
+Il PASS indica che i controlli implementati dispongono di evidenza coerente nei report. Non dimostra fill equivalenti, market impact identico, redditività futura o validazione operativa Alpaca.
+
+### Prossimo lavoro effettivo
+
+**Priorità immediata: rendere permanente il supporto multi-seed nell'auditor metodologico benchmark.** Non riaddestrare PPO e non rigenerare i benchmark già confrontati per risolvere un problema di schema dell'auditor.
+
+Intervento previsto, da realizzare in una PR dedicata:
+
+1. supportare sia il formato legacy single-seed (`folds`) sia il formato multi-seed (`runs[]`);
+2. introdurre una selezione esplicita del seed (ad esempio `--ppo-seed 42`);
+3. se il report è multi-seed e il seed non è specificato, restituire INCONCLUSIVE/errore esplicito, mai scegliere un seed implicitamente;
+4. mantenere fail-closed su mismatch di fingerprint, date, parametri, costi e allineamento fold;
+5. aggiungere test per seed presente/assente/sconosciuto, mismatch, dati mancanti e compatibilità single-seed;
+6. rigenerare il report di audit solo dopo aver corretto e testato l'auditor, usando gli artefatti già esistenti.
+
+Non correggere il significato del campo `execution_data_identity` del benchmark generator senza prima ispezionare il codice che lo produce e i relativi test. Non assumere che sia un semplice problema di wiring.
+
+### Regole anti-duplicazione per l'assistente successivo
+
+- Prima di lanciare un comando, cercare nel README, in `reports/`, nei test e nella cronologia PR l'evidenza di un'esecuzione equivalente.
+- Non ripetere training PPO, walk-forward o benchmark se codice, dati, parametri e artefatti di input non sono cambiati e i report esistenti sono integri.
+- Non ripetere la suite completa per una modifica documentale o per un controllo già coperto da CI verde sullo stesso commit. Per modifiche di codice, partire dai test mirati e verificare poi i gate CI pertinenti.
+- Un risultato ottenuto in memoria non aggiorna automaticamente i report su disco: registrare sempre separatamente esito, file aggiornato e commit.
+- Per ogni nuova verifica annotare comando esatto, commit, piattaforma, data, risultato e percorso dell'artefatto.
+- Prima di affermare che una verifica è completata, controllare il risultato effettivo; non dedurlo dal fatto che una PR sia stata aperta o che il codice sia stato integrato.
+
+### Vincoli permanenti
+
+- Ogni modifica al codice o alla documentazione passa da branch e PR dedicati; nessuna modifica diretta a `main`.
+- Verificare lo stato CI della PR prima del merge; il merge richiede autorizzazione dell'utente.
+- Paper-only, fail-closed. Nessun ordine, cancellazione, sostituzione o chiusura broker senza autorizzazione esplicita per un test Alpaca Paper controllato. Nessun live trading.
+- La dashboard non deve chiamare il broker né eseguire operazioni di trading. Le fonti UI restano read-only; le scritture di audit di sessione restano in `hub.py`.
+- STMAA resta alpha/sperimentale: test e benchmark non certificano sicurezza, redditività o idoneità alla produzione.
+
+### Modello PPO pronto per l'utente: requisito e stato reale
+
+L'obiettivo di prodotto è distribuire STMAA con un modello PPO già addestrato e validato, senza richiedere all'utente finale di eseguire training. **Questo requisito non va confuso con lo stato attuale del repository:** il README e il repository non documentano ancora un artefatto pre-addestrato versionato e distribuito ai nuovi checkout. Il modello content-addressed presente nell'ambiente locale di sviluppo non equivale a un artefatto pubblicato e installabile da ogni utente. La strategia di packaging, distribuzione, verifica SHA-256/manifest e aggiornamento del modello resta da definire e validare prima di dichiarare il prodotto pronto all'uso.
+
+## Aggiornamenti recenti (9–15 novembre 2026)
 
 Le PR recenti hanno consolidato soprattutto cinque aree:
 
@@ -444,6 +515,8 @@ Le PR recenti hanno consolidato soprattutto cinque aree:
 - **PPO shadow e provenienza (#334–#336):** collector virtuale esplicitamente attivabile e read-only, benchmark SPY a capitale comparabile, ledger append-only con hash chain, snapshot immutabili degli input e valutatore prospettico basato su 252 sessioni NYSE di rendimento. L'attivazione resta separata dal normale ciclo di trading e subordinata ai gate di freeze.
 - **Hardening operativo (#337–#341):** confine broker executor Paper-only verificato prima delle mutazioni; Doctor locale offline e senza chiamate di rete; correzione della classificazione della storia del risk peak; distinzione esplicita tra accesso broker read-only e mutazioni broker disabilitate nei metadati del soak.
 - **Dashboard e documentazione (#342–#348):** correzione del limite temporale post-chiusura per le barre giornaliere Alpaca (#342); specifica e redesign visuale della dashboard (#344–#345); classificazione indipendente della freschezza dello snapshot posizioni (#347); aggiornamento dello screenshot nel README (#348). Le modifiche dashboard restano locali/read-only e non introducono chiamate o mutazioni broker.
+- **Dashboard, sicurezza e qualità del codice (#349–#357):** correzione della documentazione di stato, navigazione mouse e composizione Overview, copertura dei componenti dashboard, remediation dipendenze con compatibilità macOS Intel, workflow Bandit/Semgrep, coverage multipiattaforma e pin immutabili delle GitHub Actions.
+- **Qualità dati, rischio e onboarding (#358–#362):** separazione tra qualità di monitoraggio delle quote e idoneità all'esecuzione; consolidamento dei limiti di esposizione/posizione/drawdown; wizard First-Run Paper offline; diagnostica Alpaca Paper zero-write; caricamento dotenv differito al runtime e isolamento dei test Doctor dall'ambiente ereditato.
 
 ### Stato della validazione operativa
 

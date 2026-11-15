@@ -1,3 +1,5 @@
+import importlib
+import dotenv
 import pytest
 import trade
 from src.utils.startup_config import (
@@ -16,10 +18,6 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
 
     observed = {}
 
-    def fake_load_dotenv(*, dotenv_path, override):
-        observed["dotenv"] = (str(dotenv_path), override)
-
-    monkeypatch.setattr("dotenv.load_dotenv", fake_load_dotenv)
 
     class FakeExecutor:
         paper_trading = True
@@ -61,8 +59,6 @@ def test_preflight_only_passes_validated_config_and_never_starts_trading_loop(mo
     monkeypatch.setattr(trade, "PaperTradingBot", FakeBot)
 
     assert trade.main(["--preflight-only"]) == 0
-    assert observed["dotenv"][0].endswith("/.env")
-    assert observed["dotenv"][1] is False
     assert observed["kwargs"]["max_drawdown_threshold"] == 0.12
     assert observed["kwargs"]["max_gross_exposure"] == 0.42
     assert observed["kwargs"]["liquidate_on_drawdown"] is True
@@ -315,3 +311,12 @@ def test_normal_startup_blocks_missing_ppo_before_broker_preflight_or_loop(monke
 
     assert trade.main([]) == 1
     assert observed == {"account_requests": 0, "loop_started": False}
+
+
+
+def test_importing_trade_does_not_load_dotenv(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("importing trade must not load .env")
+
+    monkeypatch.setattr(dotenv, "load_dotenv", fail_if_called)
+    importlib.reload(trade)

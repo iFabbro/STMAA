@@ -57,6 +57,8 @@ def _attach_benchmark_seed_mirror(ppo, benchmark, seed):
     if "runs" in ppo:
         matches = [run for run in ppo["runs"] if run.get("seed") == seed]
         assert len(matches) == 1
+        for fold in matches[0]["folds"]:
+            fold["seed"] = seed
         metrics_by_fold = {
             fold["fold"]: fold["metrics"] for fold in matches[0]["folds"]
         }

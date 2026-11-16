@@ -1,0 +1,17 @@
+{
+  "exchange_branch": "assistant-exchange",
+  "files": [
+    {
+      "bytes": 184115,
+      "filename": "STMAA_REPORT_SCHEMA.txt",
+      "sha256": "3c3d1920d60f8142159128dfec56868d373737d83e81be72875d0914dcf45eeb"
+    }
+  ],
+  "label": "benchmark report schema inspection",
+  "published_at_utc": "2026-11-16T23:21:54.257922+00:00",
+  "schema_version": 1,
+  "security_note": "Explicit files only; pattern screening is not a guarantee.",
+  "source_branch": "main",
+  "source_commit": "a885c425e8442f539408dfb41bf2cd24f2e60e07",
+  "source_repository": "iFabbro/STMAA"
+}

@@ -1,0 +1,1993 @@
+STMAA LOCAL REPORT SCHEMA INSPECTION
+Repository: /Users/jumpman/Projects/STMAA
+Read-only inspection; no repository files modified.
+
+==============================================================================
+FILE: /Users/jumpman/Projects/STMAA/reports/ppo_benchmark_multiseed_20261110_42_7_21.json
+==============================================================================
+STATUS: FOUND
+SIZE_BYTES: 19042863
+SHA256: 1de9cf019d13f4572c63b64c48876c6a3a46e05b3ad808aa4bf92aab487833ce
+ROOT_TYPE: dict
+$: dict keys=['aggregation', 'benchmarks', 'data', 'execution_alignment', 'execution_data_identity', 'folds', 'method', 'parameters', 'seed_results', 'seeds', 'summary']
+  $.aggregation: str='Each benchmark is evaluated once per market fold and shared across seeds. PPO seed/fold runs remain '
+  $.benchmarks: list len=4 types={'str': 4}
+    first=str='equal_weight_buy_and_hold'
+    last=str='SPY_100pct_exposure'
+  $.data: dict keys=['benchmark_ticker', 'end_date', 'observations', 'start_date', 'tickers']
+    $.data.benchmark_ticker: str='SPY'
+    $.data.end_date: str='2026-11-09 05:00:00'
+    $.data.observations: int=2207
+    $.data.start_date: str='2018-01-30 05:00:00'
+    $.data.tickers: list len=7 types={'str': 7}
+      first=str='AAPL'
+      last=str='META'
+  $.execution_alignment: str='All simulations start all-cash at the first test observation and first execute at the next bar Open.'
+  $.execution_data_identity: str='Per-fold SHA-256 over ordered Open/Close prices and timestamps; a mismatch against the PPO report ab'
+  $.folds: list len=11 types={'dict': 11}
+    item_keys_union=['comparison', 'entry_execution', 'equal_weight_buy_and_hold', 'execution_data_fingerprint', 'execution_data_identity', 'fold', 'observations', 'ppo_by_seed', 'ppo_exposure_matched_equal_weight', 'ppo_exposure_matched_equal_weight_status', 'seed_comparisons', 'spy_100pct_exposure', 'spy_50pct_exposure', 'test_end', 'test_start']
+    $.folds[0]: dict keys=['comparison', 'entry_execution', 'equal_weight_buy_and_hold', 'execution_data_fingerprint', 'execution_data_identity', 'fold', 'observations', 'ppo_by_seed', 'ppo_exposure_matched_equal_weight', 'ppo_exposure_matched_equal_weight_status', 'seed_comparisons', 'spy_100pct_exposure', 'spy_50pct_exposure', 'test_end', 'test_start']
+      $.folds[0].comparison: dict keys=['benchmark_outperformed_ppo_return', 'exposure_matched_return_difference_percentage_points', 'return_difference_percentage_points', 'sharpe_difference', 'spy_100pct_outperformed_ppo_return', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo_return', 'spy_50pct_return_difference_percentage_points']
+        $.folds[0].comparison.benchmark_outperformed_ppo_return: bool=True
+        $.folds[0].comparison.exposure_matched_return_difference_percentage_points: null
+        $.folds[0].comparison.return_difference_percentage_points: float=3.6320273798363223
+        $.folds[0].comparison.sharpe_difference: float=0.4675714588223263
+        $.folds[0].comparison.spy_100pct_outperformed_ppo_return: bool=True
+        $.folds[0].comparison.spy_100pct_return_difference_percentage_points: float=10.683027016732805
+        $.folds[0].comparison.spy_50pct_outperformed_ppo_return: bool=True
+        $.folds[0].comparison.spy_50pct_return_difference_percentage_points: float=2.6456155330709885
+      $.folds[0].entry_execution: str='next_bar_open'
+      $.folds[0].equal_weight_buy_and_hold: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'entry_execution', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_weights', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[0].equal_weight_buy_and_hold.annualized_volatility: float=0.11910189517009023
+        $.folds[0].equal_weight_buy_and_hold.average_turnover: float=0.003999999999999999
+        $.folds[0].equal_weight_buy_and_hold.cagr: float=0.19053206309029003
+        $.folds[0].equal_weight_buy_and_hold.calmar_ratio: float=2.781263790481637
+        $.folds[0].equal_weight_buy_and_hold.entry_execution: str='next_bar_open'
+        $.folds[0].equal_weight_buy_and_hold.final_value: float=109036.01938878393
+        $.folds[0].equal_weight_buy_and_hold.gross_target_exposure: float=0.4999999999999999
+        $.folds[0].equal_weight_buy_and_hold.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[0].equal_weight_buy_and_hold.initial_value: float=100000.0
+        $.folds[0].equal_weight_buy_and_hold.max_drawdown: float=-0.06850557064826102
+        $.folds[0].equal_weight_buy_and_hold.observations: int=126
+        $.folds[0].equal_weight_buy_and_hold.periods: int=125
+        $.folds[0].equal_weight_buy_and_hold.periods_per_year: float=252.0
+        $.folds[0].equal_weight_buy_and_hold.risk_free_rate: float=0.0
+        $.folds[0].equal_weight_buy_and_hold.sharpe_ratio: float=1.5239194688678428
+        $.folds[0].equal_weight_buy_and_hold.sortino_ratio: float=2.221453825864514
+        $.folds[0].equal_weight_buy_and_hold.steps: int=125
+        $.folds[0].equal_weight_buy_and_hold.target_weights: list len=7 types={'float': 7}
+          first=float=0.07142857142857142
+          last=float=0.07142857142857142
+        $.folds[0].equal_weight_buy_and_hold.tickers: list len=7 types={'str': 7}
+          first=str='AAPL'
+          last=str='META'
+        $.folds[0].equal_weight_buy_and_hold.timeseries: list len=125 types={'dict': 125}
+          item_keys_union=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+          $.folds[0].equal_weight_buy_and_hold.timeseries[0]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].close_weights: list len=7 types={'float': 7}
+              first=float=0.07079950803461287
+              last=float=0.07201879212122923
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].equity: float=100261.99933760936
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].gross_exposure_close: float=0.5016805935440932
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].transaction_cost: float=74.99999999999999
+            $.folds[0].equal_weight_buy_and_hold.timeseries[0].turnover: float=0.4999999999999999
+          $.folds[0].equal_weight_buy_and_hold.timeseries[124]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].close_weights: list len=7 types={'float': 7}
+              first=float=0.07056686520520002
+              last=float=0.08834474273928652
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].equity: float=109036.01938878393
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].gross_exposure_close: float=0.5417798606362234
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].transaction_cost: float=0.0
+            $.folds[0].equal_weight_buy_and_hold.timeseries[124].turnover: float=0.0
+        $.folds[0].equal_weight_buy_and_hold.timeseries_contract: str='benchmark_daily_exposure_v1'
+        $.folds[0].equal_weight_buy_and_hold.total_return: float=0.09036019388783934
+        $.folds[0].equal_weight_buy_and_hold.total_transaction_costs: float=74.99999999999999
+        $.folds[0].equal_weight_buy_and_hold.total_turnover: float=0.4999999999999999
+      $.folds[0].execution_data_fingerprint: str='711c93d9e0bb0924a96e5734d96f684d1af77fe98cbb19f0407e1d5714c8076a'
+      $.folds[0].execution_data_identity: str='PASS'
+      $.folds[0].fold: int=1
+      $.folds[0].observations: int=126
+      $.folds[0].ppo_by_seed: list len=3 types={'dict': 3}
+        item_keys_union=['metrics', 'seed']
+        $.folds[0].ppo_by_seed[0]: dict keys=['metrics', 'seed']
+          $.folds[0].ppo_by_seed[0].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[0].ppo_by_seed[0].metrics.annualized_volatility: float=0.10571753601409069
+            $.folds[0].ppo_by_seed[0].metrics.average_turnover: float=0.09688727464313307
+            $.folds[0].ppo_by_seed[0].metrics.cagr: float=0.11193610393489162
+            $.folds[0].ppo_by_seed[0].metrics.calmar_ratio: float=2.392553590511218
+            $.folds[0].ppo_by_seed[0].metrics.cumulative_return: float=0.05403992008947611
+            $.folds[0].ppo_by_seed[0].metrics.final_value: float=105403.9920089476
+            $.folds[0].ppo_by_seed[0].metrics.initial_value: float=100000.0
+            $.folds[0].ppo_by_seed[0].metrics.max_drawdown: float=-0.04678520237909245
+            $.folds[0].ppo_by_seed[0].metrics.observations: int=126
+            $.folds[0].ppo_by_seed[0].metrics.periods: int=125
+            $.folds[0].ppo_by_seed[0].metrics.periods_per_year: float=252.0
+            $.folds[0].ppo_by_seed[0].metrics.risk_free_rate: float=0.0
+            $.folds[0].ppo_by_seed[0].metrics.sharpe_ratio: float=1.0563480100455165
+            $.folds[0].ppo_by_seed[0].metrics.sortino_ratio: float=1.4979864077105172
+            $.folds[0].ppo_by_seed[0].metrics.steps: int=125
+            $.folds[0].ppo_by_seed[0].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[0].ppo_by_seed[0].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[0].ppo_by_seed[0].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.09493971967639732
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].equity: float=100124.68803430109
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].gross_exposure_close: float=0.49866223559632705
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].transaction_cost: float=74.64932033866472
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[0].turnover: float=0.4976621355910981
+              $.folds[0].ppo_by_seed[0].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].equity: float=105403.9920089476
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].gross_exposure_close: float=0.4578936686250909
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].gross_exposure_open: float=0.49206790413731205
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].transaction_cost: float=15.307402678971446
+                $.folds[0].ppo_by_seed[0].metrics.timeseries[124].turnover: float=0.09674956505970947
+            $.folds[0].ppo_by_seed[0].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[0].ppo_by_seed[0].metrics.total_return: float=0.05403992008947611
+            $.folds[0].ppo_by_seed[0].metrics.total_transaction_costs: float=1854.9637409693262
+            $.folds[0].ppo_by_seed[0].metrics.total_turnover: float=12.110909330391634
+          $.folds[0].ppo_by_seed[0].seed: int=42
+        $.folds[0].ppo_by_seed[2]: dict keys=['metrics', 'seed']
+          $.folds[0].ppo_by_seed[2].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[0].ppo_by_seed[2].metrics.annualized_volatility: float=0.12414771206716776
+            $.folds[0].ppo_by_seed[2].metrics.average_turnover: float=0.10666882157928072
+            $.folds[0].ppo_by_seed[2].metrics.cagr: float=0.027077297116560484
+            $.folds[0].ppo_by_seed[2].metrics.calmar_ratio: float=0.3183899463511043
+            $.folds[0].ppo_by_seed[2].metrics.cumulative_return: float=0.013340780530672891
+            $.folds[0].ppo_by_seed[2].metrics.final_value: float=101334.0780530673
+            $.folds[0].ppo_by_seed[2].metrics.initial_value: float=100000.0
+            $.folds[0].ppo_by_seed[2].metrics.max_drawdown: float=-0.08504444762430097
+            $.folds[0].ppo_by_seed[2].metrics.observations: int=126
+            $.folds[0].ppo_by_seed[2].metrics.periods: int=125
+            $.folds[0].ppo_by_seed[2].metrics.periods_per_year: float=252.0
+            $.folds[0].ppo_by_seed[2].metrics.risk_free_rate: float=0.0
+            $.folds[0].ppo_by_seed[2].metrics.sharpe_ratio: float=0.2768999456917813
+            $.folds[0].ppo_by_seed[2].metrics.sortino_ratio: float=0.3779480599253957
+            $.folds[0].ppo_by_seed[2].metrics.steps: int=125
+            $.folds[0].ppo_by_seed[2].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[0].ppo_by_seed[2].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[0].ppo_by_seed[2].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.16695546623719687
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].equity: float=100507.07530657384
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].gross_exposure_close: float=0.44234295532329415
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].transaction_cost: float=65.87186535157696
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[0].turnover: float=0.43914576901051305
+              $.folds[0].ppo_by_seed[2].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].equity: float=101334.0780530673
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].gross_exposure_close: float=0.4034061620147834
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].gross_exposure_open: float=0.4075481144123456
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.034665397497238036
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].transaction_cost: float=12.286051134656226
+                $.folds[0].ppo_by_seed[2].metrics.timeseries[124].turnover: float=0.08079397443092515
+            $.folds[0].ppo_by_seed[2].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[0].ppo_by_seed[2].metrics.total_return: float=0.013340780530672891
+            $.folds[0].ppo_by_seed[2].metrics.total_transaction_costs: float=1979.3092085988308
+            $.folds[0].ppo_by_seed[2].metrics.total_turnover: float=13.33360269741009
+          $.folds[0].ppo_by_seed[2].seed: int=21
+      $.folds[0].ppo_exposure_matched_equal_weight: null
+      $.folds[0].ppo_exposure_matched_equal_weight_status: str='INCONCLUSIVE'
+      $.folds[0].seed_comparisons: list len=3 types={'dict': 3}
+        item_keys_union=['comparison', 'fold', 'ppo']
+        $.folds[0].seed_comparisons[0]: dict keys=['comparison', 'fold', 'ppo']
+          $.folds[0].seed_comparisons[0].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.folds[0].seed_comparisons[0].comparison.equal_weight_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[0].comparison.equal_weight_return_difference_percentage_points: float=3.6320273798363223
+            $.folds[0].seed_comparisons[0].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[0].comparison.spy_100pct_return_difference_percentage_points: float=10.683027016732805
+            $.folds[0].seed_comparisons[0].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[0].comparison.spy_50pct_return_difference_percentage_points: float=2.6456155330709885
+          $.folds[0].seed_comparisons[0].fold: int=1
+          $.folds[0].seed_comparisons[0].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[0].seed_comparisons[0].ppo.annualized_volatility: float=0.10571753601409069
+            $.folds[0].seed_comparisons[0].ppo.average_turnover: float=0.09688727464313307
+            $.folds[0].seed_comparisons[0].ppo.cagr: float=0.11193610393489162
+            $.folds[0].seed_comparisons[0].ppo.calmar_ratio: float=2.392553590511218
+            $.folds[0].seed_comparisons[0].ppo.cumulative_return: float=0.05403992008947611
+            $.folds[0].seed_comparisons[0].ppo.final_value: float=105403.9920089476
+            $.folds[0].seed_comparisons[0].ppo.initial_value: float=100000.0
+            $.folds[0].seed_comparisons[0].ppo.max_drawdown: float=-0.04678520237909245
+            $.folds[0].seed_comparisons[0].ppo.observations: int=126
+            $.folds[0].seed_comparisons[0].ppo.periods: int=125
+            $.folds[0].seed_comparisons[0].ppo.periods_per_year: float=252.0
+            $.folds[0].seed_comparisons[0].ppo.risk_free_rate: float=0.0
+            $.folds[0].seed_comparisons[0].ppo.sharpe_ratio: float=1.0563480100455165
+            $.folds[0].seed_comparisons[0].ppo.sortino_ratio: float=1.4979864077105172
+            $.folds[0].seed_comparisons[0].ppo.steps: int=125
+            $.folds[0].seed_comparisons[0].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[0].seed_comparisons[0].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[0].seed_comparisons[0].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.09493971967639732
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].equity: float=100124.68803430109
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].gross_exposure_close: float=0.49866223559632705
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].transaction_cost: float=74.64932033866472
+                $.folds[0].seed_comparisons[0].ppo.timeseries[0].turnover: float=0.4976621355910981
+              $.folds[0].seed_comparisons[0].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].equity: float=105403.9920089476
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].gross_exposure_close: float=0.4578936686250909
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].gross_exposure_open: float=0.49206790413731205
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].transaction_cost: float=15.307402678971446
+                $.folds[0].seed_comparisons[0].ppo.timeseries[124].turnover: float=0.09674956505970947
+            $.folds[0].seed_comparisons[0].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[0].seed_comparisons[0].ppo.total_return: float=0.05403992008947611
+            $.folds[0].seed_comparisons[0].ppo.total_transaction_costs: float=1854.9637409693262
+            $.folds[0].seed_comparisons[0].ppo.total_turnover: float=12.110909330391634
+        $.folds[0].seed_comparisons[2]: dict keys=['comparison', 'fold', 'ppo']
+          $.folds[0].seed_comparisons[2].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.folds[0].seed_comparisons[2].comparison.equal_weight_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[2].comparison.equal_weight_return_difference_percentage_points: float=7.701941335716644
+            $.folds[0].seed_comparisons[2].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[2].comparison.spy_100pct_return_difference_percentage_points: float=14.752940972613127
+            $.folds[0].seed_comparisons[2].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.folds[0].seed_comparisons[2].comparison.spy_50pct_return_difference_percentage_points: float=6.715529488951311
+          $.folds[0].seed_comparisons[2].fold: int=1
+          $.folds[0].seed_comparisons[2].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[0].seed_comparisons[2].ppo.annualized_volatility: float=0.12414771206716776
+            $.folds[0].seed_comparisons[2].ppo.average_turnover: float=0.10666882157928072
+            $.folds[0].seed_comparisons[2].ppo.cagr: float=0.027077297116560484
+            $.folds[0].seed_comparisons[2].ppo.calmar_ratio: float=0.3183899463511043
+            $.folds[0].seed_comparisons[2].ppo.cumulative_return: float=0.013340780530672891
+            $.folds[0].seed_comparisons[2].ppo.final_value: float=101334.0780530673
+            $.folds[0].seed_comparisons[2].ppo.initial_value: float=100000.0
+            $.folds[0].seed_comparisons[2].ppo.max_drawdown: float=-0.08504444762430097
+            $.folds[0].seed_comparisons[2].ppo.observations: int=126
+            $.folds[0].seed_comparisons[2].ppo.periods: int=125
+            $.folds[0].seed_comparisons[2].ppo.periods_per_year: float=252.0
+            $.folds[0].seed_comparisons[2].ppo.risk_free_rate: float=0.0
+            $.folds[0].seed_comparisons[2].ppo.sharpe_ratio: float=0.2768999456917813
+            $.folds[0].seed_comparisons[2].ppo.sortino_ratio: float=0.3779480599253957
+            $.folds[0].seed_comparisons[2].ppo.steps: int=125
+            $.folds[0].seed_comparisons[2].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[0].seed_comparisons[2].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[0].seed_comparisons[2].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.16695546623719687
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].equity: float=100507.07530657384
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].gross_exposure_close: float=0.44234295532329415
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].transaction_cost: float=65.87186535157696
+                $.folds[0].seed_comparisons[2].ppo.timeseries[0].turnover: float=0.43914576901051305
+              $.folds[0].seed_comparisons[2].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].equity: float=101334.0780530673
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].gross_exposure_close: float=0.4034061620147834
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].gross_exposure_open: float=0.4075481144123456
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.034665397497238036
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].transaction_cost: float=12.286051134656226
+                $.folds[0].seed_comparisons[2].ppo.timeseries[124].turnover: float=0.08079397443092515
+            $.folds[0].seed_comparisons[2].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[0].seed_comparisons[2].ppo.total_return: float=0.013340780530672891
+            $.folds[0].seed_comparisons[2].ppo.total_transaction_costs: float=1979.3092085988308
+            $.folds[0].seed_comparisons[2].ppo.total_turnover: float=13.33360269741009
+      $.folds[0].spy_100pct_exposure: dict keys=['annualized_volatility', 'average_turnover', 'benchmark_ticker', 'cagr', 'calmar_ratio', 'entry_execution', 'exposure_policy', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_exposure', 'target_weights', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[0].spy_100pct_exposure.annualized_volatility: float=0.12305793602959167
+        $.folds[0].spy_100pct_exposure.average_turnover: float=0.008
+        $.folds[0].spy_100pct_exposure.benchmark_ticker: str='SPY'
+        $.folds[0].spy_100pct_exposure.cagr: float=0.35083982821987103
+        $.folds[0].spy_100pct_exposure.calmar_ratio: float=8.587784597355036
+        $.folds[0].spy_100pct_exposure.entry_execution: str='next_bar_open'
+        $.folds[0].spy_100pct_exposure.exposure_policy: str='fixed_single_asset_exposure_no_ppo_per_position_cap'
+        $.folds[0].spy_100pct_exposure.final_value: float=116087.0190256804
+        $.folds[0].spy_100pct_exposure.gross_target_exposure: float=1.0
+        $.folds[0].spy_100pct_exposure.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[0].spy_100pct_exposure.initial_value: float=100000.0
+        $.folds[0].spy_100pct_exposure.max_drawdown: float=-0.04085335679331392
+        $.folds[0].spy_100pct_exposure.observations: int=126
+        $.folds[0].spy_100pct_exposure.periods: int=125
+        $.folds[0].spy_100pct_exposure.periods_per_year: float=252.0
+        $.folds[0].spy_100pct_exposure.risk_free_rate: float=0.0
+        $.folds[0].spy_100pct_exposure.sharpe_ratio: float=2.506262096363555
+        $.folds[0].spy_100pct_exposure.sortino_ratio: float=3.9424150328944587
+        $.folds[0].spy_100pct_exposure.steps: int=125
+        $.folds[0].spy_100pct_exposure.target_exposure: float=1.0
+        $.folds[0].spy_100pct_exposure.target_weights: list len=1 types={'float': 1}
+          first=float=1.0
+          last=float=1.0
+        $.folds[0].spy_100pct_exposure.total_return: float=0.16087019025680416
+        $.folds[0].spy_100pct_exposure.total_transaction_costs: float=150.0
+        $.folds[0].spy_100pct_exposure.total_turnover: float=1.0
+      $.folds[0].spy_50pct_exposure: dict keys=['annualized_volatility', 'average_turnover', 'benchmark_ticker', 'cagr', 'calmar_ratio', 'entry_execution', 'exposure_policy', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_exposure', 'target_weights', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[0].spy_50pct_exposure.annualized_volatility: float=0.06347054573576173
+        $.folds[0].spy_50pct_exposure.average_turnover: float=0.004
+        $.folds[0].spy_50pct_exposure.benchmark_ticker: str='SPY'
+        $.folds[0].spy_50pct_exposure.cagr: float=0.16891884065022067
+        $.folds[0].spy_50pct_exposure.calmar_ratio: float=8.096240850159786
+        $.folds[0].spy_50pct_exposure.entry_execution: str='next_bar_open'
+        $.folds[0].spy_50pct_exposure.exposure_policy: str='fixed_single_asset_exposure_no_ppo_per_position_cap'
+        $.folds[0].spy_50pct_exposure.final_value: float=108049.60754201861
+        $.folds[0].spy_50pct_exposure.gross_target_exposure: float=0.5
+        $.folds[0].spy_50pct_exposure.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[0].spy_50pct_exposure.initial_value: float=100000.0
+        $.folds[0].spy_50pct_exposure.max_drawdown: float=-0.020863860620807362
+        $.folds[0].spy_50pct_exposure.observations: int=126
+        $.folds[0].spy_50pct_exposure.periods: int=125
+        $.folds[0].spy_50pct_exposure.periods_per_year: float=252.0
+        $.folds[0].spy_50pct_exposure.risk_free_rate: float=0.0
+        $.folds[0].spy_50pct_exposure.sharpe_ratio: float=2.4913227822799104
+        $.folds[0].spy_50pct_exposure.sortino_ratio: float=3.9032568714224674
+        $.folds[0].spy_50pct_exposure.steps: int=125
+        $.folds[0].spy_50pct_exposure.target_exposure: float=0.5
+        $.folds[0].spy_50pct_exposure.target_weights: list len=1 types={'float': 1}
+          first=float=0.5
+          last=float=0.5
+        $.folds[0].spy_50pct_exposure.tickers: list len=1 types={'str': 1}
+          first=str='SPY'
+          last=str='SPY'
+        $.folds[0].spy_50pct_exposure.timeseries: list len=125 types={'dict': 125}
+          item_keys_union=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+          $.folds[0].spy_50pct_exposure.timeseries[0]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[0].spy_50pct_exposure.timeseries[0].close_weights: list len=1 types={'float': 1}
+              first=float=0.5010500326361496
+              last=float=0.5010500326361496
+            $.folds[0].spy_50pct_exposure.timeseries[0].equity: float=100135.29064641811
+            $.folds[0].spy_50pct_exposure.timeseries[0].gross_exposure_close: float=0.5010500326361496
+            $.folds[0].spy_50pct_exposure.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+            $.folds[0].spy_50pct_exposure.timeseries[0].transaction_cost: float=75.0
+            $.folds[0].spy_50pct_exposure.timeseries[0].turnover: float=0.5
+          $.folds[0].spy_50pct_exposure.timeseries[124]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[0].spy_50pct_exposure.timeseries[124].close_weights: list len=1 types={'float': 1}
+              first=float=0.5375966545684078
+              last=float=0.5375966545684078
+            $.folds[0].spy_50pct_exposure.timeseries[124].equity: float=108049.60754201861
+            $.folds[0].spy_50pct_exposure.timeseries[124].gross_exposure_close: float=0.5375966545684078
+            $.folds[0].spy_50pct_exposure.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+            $.folds[0].spy_50pct_exposure.timeseries[124].transaction_cost: float=0.0
+            $.folds[0].spy_50pct_exposure.timeseries[124].turnover: float=0.0
+        $.folds[0].spy_50pct_exposure.timeseries_contract: str='benchmark_daily_exposure_v1'
+        $.folds[0].spy_50pct_exposure.total_return: float=0.080496075420186
+        $.folds[0].spy_50pct_exposure.total_transaction_costs: float=75.0
+        $.folds[0].spy_50pct_exposure.total_turnover: float=0.5
+      $.folds[0].test_end: str='2021-07-30 04:00:00'
+      $.folds[0].test_start: str='2021-02-01 05:00:00'
+    $.folds[10]: dict keys=['comparison', 'entry_execution', 'equal_weight_buy_and_hold', 'execution_data_fingerprint', 'execution_data_identity', 'fold', 'observations', 'ppo_by_seed', 'ppo_exposure_matched_equal_weight', 'ppo_exposure_matched_equal_weight_status', 'seed_comparisons', 'spy_100pct_exposure', 'spy_50pct_exposure', 'test_end', 'test_start']
+      $.folds[10].comparison: dict keys=['benchmark_outperformed_ppo_return', 'exposure_matched_return_difference_percentage_points', 'return_difference_percentage_points', 'sharpe_difference', 'spy_100pct_outperformed_ppo_return', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo_return', 'spy_50pct_return_difference_percentage_points']
+        $.folds[10].comparison.benchmark_outperformed_ppo_return: bool=False
+        $.folds[10].comparison.exposure_matched_return_difference_percentage_points: null
+        $.folds[10].comparison.return_difference_percentage_points: float=-3.4385915810990486
+        $.folds[10].comparison.sharpe_difference: float=-0.42457434876870026
+        $.folds[10].comparison.spy_100pct_outperformed_ppo_return: bool=True
+        $.folds[10].comparison.spy_100pct_return_difference_percentage_points: float=4.2258306895541775
+        $.folds[10].comparison.spy_50pct_outperformed_ppo_return: bool=False
+        $.folds[10].comparison.spy_50pct_return_difference_percentage_points: float=-2.0651950030121657
+      $.folds[10].entry_execution: str='next_bar_open'
+      $.folds[10].equal_weight_buy_and_hold: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'entry_execution', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_weights', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[10].equal_weight_buy_and_hold.annualized_volatility: float=0.12336821641937419
+        $.folds[10].equal_weight_buy_and_hold.average_turnover: float=0.003999999999999999
+        $.folds[10].equal_weight_buy_and_hold.cagr: float=0.10181929721616667
+        $.folds[10].equal_weight_buy_and_hold.calmar_ratio: float=1.3944651185774102
+        $.folds[10].equal_weight_buy_and_hold.entry_execution: str='next_bar_open'
+        $.folds[10].equal_weight_buy_and_hold.final_value: float=104927.19968680604
+        $.folds[10].equal_weight_buy_and_hold.gross_target_exposure: float=0.4999999999999999
+        $.folds[10].equal_weight_buy_and_hold.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[10].equal_weight_buy_and_hold.initial_value: float=100000.0
+        $.folds[10].equal_weight_buy_and_hold.max_drawdown: float=-0.0730167401534142
+        $.folds[10].equal_weight_buy_and_hold.observations: int=126
+        $.folds[10].equal_weight_buy_and_hold.periods: int=125
+        $.folds[10].equal_weight_buy_and_hold.periods_per_year: float=252.0
+        $.folds[10].equal_weight_buy_and_hold.risk_free_rate: float=0.0
+        $.folds[10].equal_weight_buy_and_hold.sharpe_ratio: float=0.8473206445990221
+        $.folds[10].equal_weight_buy_and_hold.sortino_ratio: float=1.2401642002970643
+        $.folds[10].equal_weight_buy_and_hold.steps: int=125
+        $.folds[10].equal_weight_buy_and_hold.target_weights: list len=7 types={'float': 7}
+          first=float=0.07142857142857142
+          last=float=0.07142857142857142
+        $.folds[10].equal_weight_buy_and_hold.tickers: list len=7 types={'str': 7}
+          first=str='AAPL'
+          last=str='META'
+        $.folds[10].equal_weight_buy_and_hold.timeseries: list len=125 types={'dict': 125}
+          item_keys_union=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+          $.folds[10].equal_weight_buy_and_hold.timeseries[0]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].close_weights: list len=7 types={'float': 7}
+              first=float=0.07013428861179263
+              last=float=0.07247558331733776
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].equity: float=100565.76897662693
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].gross_exposure_close: float=0.5031858204990995
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].transaction_cost: float=74.99999999999999
+            $.folds[10].equal_weight_buy_and_hold.timeseries[0].turnover: float=0.4999999999999999
+          $.folds[10].equal_weight_buy_and_hold.timeseries[124]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].close_weights: list len=7 types={'float': 7}
+              first=float=0.0767650447296899
+              last=float=0.06084032269065835
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].equity: float=104927.19968680604
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].gross_exposure_close: float=0.5238365252371973
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].transaction_cost: float=0.0
+            $.folds[10].equal_weight_buy_and_hold.timeseries[124].turnover: float=0.0
+        $.folds[10].equal_weight_buy_and_hold.timeseries_contract: str='benchmark_daily_exposure_v1'
+        $.folds[10].equal_weight_buy_and_hold.total_return: float=0.049271996868060386
+        $.folds[10].equal_weight_buy_and_hold.total_transaction_costs: float=74.99999999999999
+        $.folds[10].equal_weight_buy_and_hold.total_turnover: float=0.4999999999999999
+      $.folds[10].execution_data_fingerprint: str='1e37257f4bc2eeb88271827a9eee7d807bada4ae35e7fdb3a5e5964e0469bcb8'
+      $.folds[10].execution_data_identity: str='PASS'
+      $.folds[10].fold: int=11
+      $.folds[10].observations: int=126
+      $.folds[10].ppo_by_seed: list len=3 types={'dict': 3}
+        item_keys_union=['metrics', 'seed']
+        $.folds[10].ppo_by_seed[0]: dict keys=['metrics', 'seed']
+          $.folds[10].ppo_by_seed[0].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[10].ppo_by_seed[0].metrics.annualized_volatility: float=0.13440904407187793
+            $.folds[10].ppo_by_seed[0].metrics.average_turnover: float=0.10842875432128175
+            $.folds[10].ppo_by_seed[0].metrics.cagr: float=0.17582499590572676
+            $.folds[10].ppo_by_seed[0].metrics.calmar_ratio: float=2.1572019116931345
+            $.folds[10].ppo_by_seed[0].metrics.cumulative_return: float=0.08365791267905087
+            $.folds[10].ppo_by_seed[0].metrics.final_value: float=108365.7912679051
+            $.folds[10].ppo_by_seed[0].metrics.initial_value: float=100000.0
+            $.folds[10].ppo_by_seed[0].metrics.max_drawdown: float=-0.08150604491525137
+            $.folds[10].ppo_by_seed[0].metrics.observations: int=126
+            $.folds[10].ppo_by_seed[0].metrics.periods: int=125
+            $.folds[10].ppo_by_seed[0].metrics.periods_per_year: float=252.0
+            $.folds[10].ppo_by_seed[0].metrics.risk_free_rate: float=0.0
+            $.folds[10].ppo_by_seed[0].metrics.sharpe_ratio: float=1.2718949933677224
+            $.folds[10].ppo_by_seed[0].metrics.sortino_ratio: float=2.0301109960705483
+            $.folds[10].ppo_by_seed[0].metrics.steps: int=125
+            $.folds[10].ppo_by_seed[0].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[10].ppo_by_seed[0].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[10].ppo_by_seed[0].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].equity: float=100671.50553255307
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].gross_exposure_close: float=0.5037076307173715
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].transaction_cost: float=75.0
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[0].turnover: float=0.5
+              $.folds[10].ppo_by_seed[0].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20147950933916317
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].equity: float=108365.7912679051
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].gross_exposure_close: float=0.29940504289004827
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].gross_exposure_open: float=0.3099285798443859
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.19925263009914143
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].transaction_cost: float=2.3548864250070873
+                $.folds[10].ppo_by_seed[0].metrics.timeseries[124].turnover: float=0.01453907756499747
+            $.folds[10].ppo_by_seed[0].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[10].ppo_by_seed[0].metrics.total_return: float=0.08365791267905087
+            $.folds[10].ppo_by_seed[0].metrics.total_transaction_costs: float=2102.933975035054
+            $.folds[10].ppo_by_seed[0].metrics.total_turnover: float=13.55359429016022
+          $.folds[10].ppo_by_seed[0].seed: int=42
+        $.folds[10].ppo_by_seed[2]: dict keys=['metrics', 'seed']
+          $.folds[10].ppo_by_seed[2].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[10].ppo_by_seed[2].metrics.annualized_volatility: float=0.15648590649718586
+            $.folds[10].ppo_by_seed[2].metrics.average_turnover: float=0.0821344315520699
+            $.folds[10].ppo_by_seed[2].metrics.cagr: float=-0.08414833884747386
+            $.folds[10].ppo_by_seed[2].metrics.calmar_ratio: float=-0.8573857565023303
+            $.folds[10].ppo_by_seed[2].metrics.cumulative_return: float=-0.04266473691211081
+            $.folds[10].ppo_by_seed[2].metrics.final_value: float=95733.52630878892
+            $.folds[10].ppo_by_seed[2].metrics.initial_value: float=100000.0
+            $.folds[10].ppo_by_seed[2].metrics.max_drawdown: float=-0.09814524933415447
+            $.folds[10].ppo_by_seed[2].metrics.observations: int=126
+            $.folds[10].ppo_by_seed[2].metrics.periods: int=125
+            $.folds[10].ppo_by_seed[2].metrics.periods_per_year: float=252.0
+            $.folds[10].ppo_by_seed[2].metrics.risk_free_rate: float=0.0
+            $.folds[10].ppo_by_seed[2].metrics.sharpe_ratio: float=-0.48383375414996266
+            $.folds[10].ppo_by_seed[2].metrics.sortino_ratio: float=-0.6539514392603925
+            $.folds[10].ppo_by_seed[2].metrics.steps: int=125
+            $.folds[10].ppo_by_seed[2].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[10].ppo_by_seed[2].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[10].ppo_by_seed[2].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.03955163719913866
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].equity: float=100831.71032193355
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].gross_exposure_close: float=0.47017962069935126
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].transaction_cost: float=69.8099768509529
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[0].turnover: float=0.4653998456730194
+              $.folds[10].ppo_by_seed[2].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20098324792412237
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].equity: float=95733.52630878892
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].gross_exposure_close: float=0.4036236650259223
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].gross_exposure_open: float=0.40172917478051096
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.1989781704160574
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].transaction_cost: float=0.5385110456414031
+                $.folds[10].ppo_by_seed[2].metrics.timeseries[124].turnover: float=0.003772833948396198
+            $.folds[10].ppo_by_seed[2].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[10].ppo_by_seed[2].metrics.total_return: float=-0.04266473691211081
+            $.folds[10].ppo_by_seed[2].metrics.total_transaction_costs: float=1503.5794939946957
+            $.folds[10].ppo_by_seed[2].metrics.total_turnover: float=10.266803944008737
+          $.folds[10].ppo_by_seed[2].seed: int=21
+      $.folds[10].ppo_exposure_matched_equal_weight: null
+      $.folds[10].ppo_exposure_matched_equal_weight_status: str='INCONCLUSIVE'
+      $.folds[10].seed_comparisons: list len=3 types={'dict': 3}
+        item_keys_union=['comparison', 'fold', 'ppo']
+        $.folds[10].seed_comparisons[0]: dict keys=['comparison', 'fold', 'ppo']
+          $.folds[10].seed_comparisons[0].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.folds[10].seed_comparisons[0].comparison.equal_weight_outperformed_ppo: bool=False
+            $.folds[10].seed_comparisons[0].comparison.equal_weight_return_difference_percentage_points: float=-3.4385915810990486
+            $.folds[10].seed_comparisons[0].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.folds[10].seed_comparisons[0].comparison.spy_100pct_return_difference_percentage_points: float=4.2258306895541775
+            $.folds[10].seed_comparisons[0].comparison.spy_50pct_outperformed_ppo: bool=False
+            $.folds[10].seed_comparisons[0].comparison.spy_50pct_return_difference_percentage_points: float=-2.0651950030121657
+          $.folds[10].seed_comparisons[0].fold: int=11
+          $.folds[10].seed_comparisons[0].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[10].seed_comparisons[0].ppo.annualized_volatility: float=0.13440904407187793
+            $.folds[10].seed_comparisons[0].ppo.average_turnover: float=0.10842875432128175
+            $.folds[10].seed_comparisons[0].ppo.cagr: float=0.17582499590572676
+            $.folds[10].seed_comparisons[0].ppo.calmar_ratio: float=2.1572019116931345
+            $.folds[10].seed_comparisons[0].ppo.cumulative_return: float=0.08365791267905087
+            $.folds[10].seed_comparisons[0].ppo.final_value: float=108365.7912679051
+            $.folds[10].seed_comparisons[0].ppo.initial_value: float=100000.0
+            $.folds[10].seed_comparisons[0].ppo.max_drawdown: float=-0.08150604491525137
+            $.folds[10].seed_comparisons[0].ppo.observations: int=126
+            $.folds[10].seed_comparisons[0].ppo.periods: int=125
+            $.folds[10].seed_comparisons[0].ppo.periods_per_year: float=252.0
+            $.folds[10].seed_comparisons[0].ppo.risk_free_rate: float=0.0
+            $.folds[10].seed_comparisons[0].ppo.sharpe_ratio: float=1.2718949933677224
+            $.folds[10].seed_comparisons[0].ppo.sortino_ratio: float=2.0301109960705483
+            $.folds[10].seed_comparisons[0].ppo.steps: int=125
+            $.folds[10].seed_comparisons[0].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[10].seed_comparisons[0].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[10].seed_comparisons[0].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].equity: float=100671.50553255307
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].gross_exposure_close: float=0.5037076307173715
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].transaction_cost: float=75.0
+                $.folds[10].seed_comparisons[0].ppo.timeseries[0].turnover: float=0.5
+              $.folds[10].seed_comparisons[0].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20147950933916317
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].equity: float=108365.7912679051
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].gross_exposure_close: float=0.29940504289004827
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].gross_exposure_open: float=0.3099285798443859
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.19925263009914143
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].transaction_cost: float=2.3548864250070873
+                $.folds[10].seed_comparisons[0].ppo.timeseries[124].turnover: float=0.01453907756499747
+            $.folds[10].seed_comparisons[0].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[10].seed_comparisons[0].ppo.total_return: float=0.08365791267905087
+            $.folds[10].seed_comparisons[0].ppo.total_transaction_costs: float=2102.933975035054
+            $.folds[10].seed_comparisons[0].ppo.total_turnover: float=13.55359429016022
+        $.folds[10].seed_comparisons[2]: dict keys=['comparison', 'fold', 'ppo']
+          $.folds[10].seed_comparisons[2].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.folds[10].seed_comparisons[2].comparison.equal_weight_outperformed_ppo: bool=True
+            $.folds[10].seed_comparisons[2].comparison.equal_weight_return_difference_percentage_points: float=9.19367337801712
+            $.folds[10].seed_comparisons[2].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.folds[10].seed_comparisons[2].comparison.spy_100pct_return_difference_percentage_points: float=16.858095648670346
+            $.folds[10].seed_comparisons[2].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.folds[10].seed_comparisons[2].comparison.spy_50pct_return_difference_percentage_points: float=10.567069956104003
+          $.folds[10].seed_comparisons[2].fold: int=11
+          $.folds[10].seed_comparisons[2].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.folds[10].seed_comparisons[2].ppo.annualized_volatility: float=0.15648590649718586
+            $.folds[10].seed_comparisons[2].ppo.average_turnover: float=0.0821344315520699
+            $.folds[10].seed_comparisons[2].ppo.cagr: float=-0.08414833884747386
+            $.folds[10].seed_comparisons[2].ppo.calmar_ratio: float=-0.8573857565023303
+            $.folds[10].seed_comparisons[2].ppo.cumulative_return: float=-0.04266473691211081
+            $.folds[10].seed_comparisons[2].ppo.final_value: float=95733.52630878892
+            $.folds[10].seed_comparisons[2].ppo.initial_value: float=100000.0
+            $.folds[10].seed_comparisons[2].ppo.max_drawdown: float=-0.09814524933415447
+            $.folds[10].seed_comparisons[2].ppo.observations: int=126
+            $.folds[10].seed_comparisons[2].ppo.periods: int=125
+            $.folds[10].seed_comparisons[2].ppo.periods_per_year: float=252.0
+            $.folds[10].seed_comparisons[2].ppo.risk_free_rate: float=0.0
+            $.folds[10].seed_comparisons[2].ppo.sharpe_ratio: float=-0.48383375414996266
+            $.folds[10].seed_comparisons[2].ppo.sortino_ratio: float=-0.6539514392603925
+            $.folds[10].seed_comparisons[2].ppo.steps: int=125
+            $.folds[10].seed_comparisons[2].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.folds[10].seed_comparisons[2].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.folds[10].seed_comparisons[2].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.03955163719913866
+                  last=float=0.0
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].equity: float=100831.71032193355
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].gross_exposure_close: float=0.47017962069935126
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].transaction_cost: float=69.8099768509529
+                $.folds[10].seed_comparisons[2].ppo.timeseries[0].turnover: float=0.4653998456730194
+              $.folds[10].seed_comparisons[2].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20098324792412237
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].equity: float=95733.52630878892
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].gross_exposure_close: float=0.4036236650259223
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].gross_exposure_open: float=0.40172917478051096
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.1989781704160574
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].transaction_cost: float=0.5385110456414031
+                $.folds[10].seed_comparisons[2].ppo.timeseries[124].turnover: float=0.003772833948396198
+            $.folds[10].seed_comparisons[2].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.folds[10].seed_comparisons[2].ppo.total_return: float=-0.04266473691211081
+            $.folds[10].seed_comparisons[2].ppo.total_transaction_costs: float=1503.5794939946957
+            $.folds[10].seed_comparisons[2].ppo.total_turnover: float=10.266803944008737
+      $.folds[10].spy_100pct_exposure: dict keys=['annualized_volatility', 'average_turnover', 'benchmark_ticker', 'cagr', 'calmar_ratio', 'entry_execution', 'exposure_policy', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_exposure', 'target_weights', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[10].spy_100pct_exposure.annualized_volatility: float=0.14312546863866393
+        $.folds[10].spy_100pct_exposure.average_turnover: float=0.008
+        $.folds[10].spy_100pct_exposure.benchmark_ticker: str='SPY'
+        $.folds[10].spy_100pct_exposure.cagr: float=0.2700951223346979
+        $.folds[10].spy_100pct_exposure.calmar_ratio: float=3.1124903017963623
+        $.folds[10].spy_100pct_exposure.entry_execution: str='next_bar_open'
+        $.folds[10].spy_100pct_exposure.exposure_policy: str='fixed_single_asset_exposure_no_ppo_per_position_cap'
+        $.folds[10].spy_100pct_exposure.final_value: float=112591.62195745925
+        $.folds[10].spy_100pct_exposure.gross_target_exposure: float=1.0
+        $.folds[10].spy_100pct_exposure.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[10].spy_100pct_exposure.initial_value: float=100000.0
+        $.folds[10].spy_100pct_exposure.max_drawdown: float=-0.08677781973451082
+        $.folds[10].spy_100pct_exposure.observations: int=126
+        $.folds[10].spy_100pct_exposure.periods: int=125
+        $.folds[10].spy_100pct_exposure.periods_per_year: float=252.0
+        $.folds[10].spy_100pct_exposure.risk_free_rate: float=0.0
+        $.folds[10].spy_100pct_exposure.sharpe_ratio: float=1.7422360430003971
+        $.folds[10].spy_100pct_exposure.sortino_ratio: float=2.6606742432019477
+        $.folds[10].spy_100pct_exposure.steps: int=125
+        $.folds[10].spy_100pct_exposure.target_exposure: float=1.0
+        $.folds[10].spy_100pct_exposure.target_weights: list len=1 types={'float': 1}
+          first=float=1.0
+          last=float=1.0
+        $.folds[10].spy_100pct_exposure.total_return: float=0.12591621957459265
+        $.folds[10].spy_100pct_exposure.total_transaction_costs: float=150.0
+        $.folds[10].spy_100pct_exposure.total_turnover: float=1.0
+      $.folds[10].spy_50pct_exposure: dict keys=['annualized_volatility', 'average_turnover', 'benchmark_ticker', 'cagr', 'calmar_ratio', 'entry_execution', 'exposure_policy', 'final_value', 'gross_target_exposure', 'holding_policy', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'target_exposure', 'target_weights', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+        $.folds[10].spy_50pct_exposure.annualized_volatility: float=0.07245425076906521
+        $.folds[10].spy_50pct_exposure.average_turnover: float=0.004
+        $.folds[10].spy_50pct_exposure.benchmark_ticker: str='SPY'
+        $.folds[10].spy_50pct_exposure.cagr: float=0.13108689967696385
+        $.folds[10].spy_50pct_exposure.calmar_ratio: float=3.011356780378298
+        $.folds[10].spy_50pct_exposure.entry_execution: str='next_bar_open'
+        $.folds[10].spy_50pct_exposure.exposure_policy: str='fixed_single_asset_exposure_no_ppo_per_position_cap'
+        $.folds[10].spy_50pct_exposure.final_value: float=106300.59626489293
+        $.folds[10].spy_50pct_exposure.gross_target_exposure: float=0.5
+        $.folds[10].spy_50pct_exposure.holding_policy: str='buy_and_hold_no_rebalancing'
+        $.folds[10].spy_50pct_exposure.initial_value: float=100000.0
+        $.folds[10].spy_50pct_exposure.max_drawdown: float=-0.043530843150540344
+        $.folds[10].spy_50pct_exposure.observations: int=126
+        $.folds[10].spy_50pct_exposure.periods: int=125
+        $.folds[10].spy_50pct_exposure.periods_per_year: float=252.0
+        $.folds[10].spy_50pct_exposure.risk_free_rate: float=0.0
+        $.folds[10].spy_50pct_exposure.sharpe_ratio: float=1.7364375758030874
+        $.folds[10].spy_50pct_exposure.sortino_ratio: float=2.6406116465243636
+        $.folds[10].spy_50pct_exposure.steps: int=125
+        $.folds[10].spy_50pct_exposure.target_exposure: float=0.5
+        $.folds[10].spy_50pct_exposure.target_weights: list len=1 types={'float': 1}
+          first=float=0.5
+          last=float=0.5
+        $.folds[10].spy_50pct_exposure.tickers: list len=1 types={'str': 1}
+          first=str='SPY'
+          last=str='SPY'
+        $.folds[10].spy_50pct_exposure.timeseries: list len=125 types={'dict': 125}
+          item_keys_union=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+          $.folds[10].spy_50pct_exposure.timeseries[0]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[10].spy_50pct_exposure.timeseries[0].close_weights: list len=1 types={'float': 1}
+              first=float=0.5016355940229784
+              last=float=0.5016355940229784
+            $.folds[10].spy_50pct_exposure.timeseries[0].equity: float=100252.94623931
+            $.folds[10].spy_50pct_exposure.timeseries[0].gross_exposure_close: float=0.5016355940229784
+            $.folds[10].spy_50pct_exposure.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+            $.folds[10].spy_50pct_exposure.timeseries[0].transaction_cost: float=75.0
+            $.folds[10].spy_50pct_exposure.timeseries[0].turnover: float=0.5
+          $.folds[10].spy_50pct_exposure.timeseries[124]: dict keys=['close_weights', 'equity', 'gross_exposure_close', 'timestamp', 'transaction_cost', 'turnover']
+            $.folds[10].spy_50pct_exposure.timeseries[124].close_weights: list len=1 types={'float': 1}
+              first=float=0.5299885254124324
+              last=float=0.5299885254124324
+            $.folds[10].spy_50pct_exposure.timeseries[124].equity: float=106300.59626489293
+            $.folds[10].spy_50pct_exposure.timeseries[124].gross_exposure_close: float=0.5299885254124324
+            $.folds[10].spy_50pct_exposure.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+            $.folds[10].spy_50pct_exposure.timeseries[124].transaction_cost: float=0.0
+            $.folds[10].spy_50pct_exposure.timeseries[124].turnover: float=0.0
+        $.folds[10].spy_50pct_exposure.timeseries_contract: str='benchmark_daily_exposure_v1'
+        $.folds[10].spy_50pct_exposure.total_return: float=0.06300596264892921
+        $.folds[10].spy_50pct_exposure.total_transaction_costs: float=75.0
+        $.folds[10].spy_50pct_exposure.total_turnover: float=0.5
+      $.folds[10].test_end: str='2026-08-07 04:00:00'
+      $.folds[10].test_start: str='2026-02-06 05:00:00'
+  $.method: str='independent_fold_multi_seed_ppo_vs_equal_weight_and_spy'
+  $.parameters: dict keys=['initial_capital', 'max_gross_exposure', 'max_position_size', 'slippage', 'transaction_cost']
+    $.parameters.initial_capital: float=100000.0
+    $.parameters.max_gross_exposure: float=0.5
+    $.parameters.max_position_size: float=0.2
+    $.parameters.slippage: float=0.0005
+    $.parameters.transaction_cost: float=0.001
+  $.seed_results: list len=3 types={'dict': 3}
+    item_keys_union=['equal_weight_return_wins', 'fold_count', 'folds', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+    $.seed_results[0]: dict keys=['equal_weight_return_wins', 'fold_count', 'folds', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+      $.seed_results[0].equal_weight_return_wins: int=5
+      $.seed_results[0].fold_count: int=11
+      $.seed_results[0].folds: list len=11 types={'dict': 11}
+        item_keys_union=['comparison', 'fold', 'ppo']
+        $.seed_results[0].folds[0]: dict keys=['comparison', 'fold', 'ppo']
+          $.seed_results[0].folds[0].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.seed_results[0].folds[0].comparison.equal_weight_outperformed_ppo: bool=True
+            $.seed_results[0].folds[0].comparison.equal_weight_return_difference_percentage_points: float=3.6320273798363223
+            $.seed_results[0].folds[0].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.seed_results[0].folds[0].comparison.spy_100pct_return_difference_percentage_points: float=10.683027016732805
+            $.seed_results[0].folds[0].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.seed_results[0].folds[0].comparison.spy_50pct_return_difference_percentage_points: float=2.6456155330709885
+          $.seed_results[0].folds[0].fold: int=1
+          $.seed_results[0].folds[0].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.seed_results[0].folds[0].ppo.annualized_volatility: float=0.10571753601409069
+            $.seed_results[0].folds[0].ppo.average_turnover: float=0.09688727464313307
+            $.seed_results[0].folds[0].ppo.cagr: float=0.11193610393489162
+            $.seed_results[0].folds[0].ppo.calmar_ratio: float=2.392553590511218
+            $.seed_results[0].folds[0].ppo.cumulative_return: float=0.05403992008947611
+            $.seed_results[0].folds[0].ppo.final_value: float=105403.9920089476
+            $.seed_results[0].folds[0].ppo.initial_value: float=100000.0
+            $.seed_results[0].folds[0].ppo.max_drawdown: float=-0.04678520237909245
+            $.seed_results[0].folds[0].ppo.observations: int=126
+            $.seed_results[0].folds[0].ppo.periods: int=125
+            $.seed_results[0].folds[0].ppo.periods_per_year: float=252.0
+            $.seed_results[0].folds[0].ppo.risk_free_rate: float=0.0
+            $.seed_results[0].folds[0].ppo.sharpe_ratio: float=1.0563480100455165
+            $.seed_results[0].folds[0].ppo.sortino_ratio: float=1.4979864077105172
+            $.seed_results[0].folds[0].ppo.steps: int=125
+            $.seed_results[0].folds[0].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.seed_results[0].folds[0].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.seed_results[0].folds[0].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[0].folds[0].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.09493971967639732
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[0].equity: float=100124.68803430109
+                $.seed_results[0].folds[0].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[0].gross_exposure_close: float=0.49866223559632705
+                $.seed_results[0].folds[0].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.seed_results[0].folds[0].ppo.timeseries[0].transaction_cost: float=74.64932033866472
+                $.seed_results[0].folds[0].ppo.timeseries[0].turnover: float=0.4976621355910981
+              $.seed_results[0].folds[0].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[0].folds[0].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[124].equity: float=105403.9920089476
+                $.seed_results[0].folds[0].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[124].gross_exposure_close: float=0.4578936686250909
+                $.seed_results[0].folds[0].ppo.timeseries[124].gross_exposure_open: float=0.49206790413731205
+                $.seed_results[0].folds[0].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[0].ppo.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.seed_results[0].folds[0].ppo.timeseries[124].transaction_cost: float=15.307402678971446
+                $.seed_results[0].folds[0].ppo.timeseries[124].turnover: float=0.09674956505970947
+            $.seed_results[0].folds[0].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.seed_results[0].folds[0].ppo.total_return: float=0.05403992008947611
+            $.seed_results[0].folds[0].ppo.total_transaction_costs: float=1854.9637409693262
+            $.seed_results[0].folds[0].ppo.total_turnover: float=12.110909330391634
+        $.seed_results[0].folds[10]: dict keys=['comparison', 'fold', 'ppo']
+          $.seed_results[0].folds[10].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.seed_results[0].folds[10].comparison.equal_weight_outperformed_ppo: bool=False
+            $.seed_results[0].folds[10].comparison.equal_weight_return_difference_percentage_points: float=-3.4385915810990486
+            $.seed_results[0].folds[10].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.seed_results[0].folds[10].comparison.spy_100pct_return_difference_percentage_points: float=4.2258306895541775
+            $.seed_results[0].folds[10].comparison.spy_50pct_outperformed_ppo: bool=False
+            $.seed_results[0].folds[10].comparison.spy_50pct_return_difference_percentage_points: float=-2.0651950030121657
+          $.seed_results[0].folds[10].fold: int=11
+          $.seed_results[0].folds[10].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.seed_results[0].folds[10].ppo.annualized_volatility: float=0.13440904407187793
+            $.seed_results[0].folds[10].ppo.average_turnover: float=0.10842875432128175
+            $.seed_results[0].folds[10].ppo.cagr: float=0.17582499590572676
+            $.seed_results[0].folds[10].ppo.calmar_ratio: float=2.1572019116931345
+            $.seed_results[0].folds[10].ppo.cumulative_return: float=0.08365791267905087
+            $.seed_results[0].folds[10].ppo.final_value: float=108365.7912679051
+            $.seed_results[0].folds[10].ppo.initial_value: float=100000.0
+            $.seed_results[0].folds[10].ppo.max_drawdown: float=-0.08150604491525137
+            $.seed_results[0].folds[10].ppo.observations: int=126
+            $.seed_results[0].folds[10].ppo.periods: int=125
+            $.seed_results[0].folds[10].ppo.periods_per_year: float=252.0
+            $.seed_results[0].folds[10].ppo.risk_free_rate: float=0.0
+            $.seed_results[0].folds[10].ppo.sharpe_ratio: float=1.2718949933677224
+            $.seed_results[0].folds[10].ppo.sortino_ratio: float=2.0301109960705483
+            $.seed_results[0].folds[10].ppo.steps: int=125
+            $.seed_results[0].folds[10].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.seed_results[0].folds[10].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.seed_results[0].folds[10].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[0].folds[10].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].equity: float=100671.50553255307
+                $.seed_results[0].folds[10].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].gross_exposure_close: float=0.5037076307173715
+                $.seed_results[0].folds[10].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.seed_results[0].folds[10].ppo.timeseries[0].transaction_cost: float=75.0
+                $.seed_results[0].folds[10].ppo.timeseries[0].turnover: float=0.5
+              $.seed_results[0].folds[10].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[0].folds[10].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20147950933916317
+                $.seed_results[0].folds[10].ppo.timeseries[124].equity: float=108365.7912679051
+                $.seed_results[0].folds[10].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.seed_results[0].folds[10].ppo.timeseries[124].gross_exposure_close: float=0.29940504289004827
+                $.seed_results[0].folds[10].ppo.timeseries[124].gross_exposure_open: float=0.3099285798443859
+                $.seed_results[0].folds[10].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.19925263009914143
+                $.seed_results[0].folds[10].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.seed_results[0].folds[10].ppo.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.seed_results[0].folds[10].ppo.timeseries[124].transaction_cost: float=2.3548864250070873
+                $.seed_results[0].folds[10].ppo.timeseries[124].turnover: float=0.01453907756499747
+            $.seed_results[0].folds[10].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.seed_results[0].folds[10].ppo.total_return: float=0.08365791267905087
+            $.seed_results[0].folds[10].ppo.total_transaction_costs: float=2102.933975035054
+            $.seed_results[0].folds[10].ppo.total_turnover: float=13.55359429016022
+      $.seed_results[0].mean_ppo_fold_return: float=0.05643570512392176
+      $.seed_results[0].median_ppo_fold_return: float=0.05858578734020292
+      $.seed_results[0].seed: int=42
+      $.seed_results[0].spy_100pct_return_wins: int=7
+      $.seed_results[0].spy_50pct_return_wins: int=3
+    $.seed_results[2]: dict keys=['equal_weight_return_wins', 'fold_count', 'folds', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+      $.seed_results[2].equal_weight_return_wins: int=8
+      $.seed_results[2].fold_count: int=11
+      $.seed_results[2].folds: list len=11 types={'dict': 11}
+        item_keys_union=['comparison', 'fold', 'ppo']
+        $.seed_results[2].folds[0]: dict keys=['comparison', 'fold', 'ppo']
+          $.seed_results[2].folds[0].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.seed_results[2].folds[0].comparison.equal_weight_outperformed_ppo: bool=True
+            $.seed_results[2].folds[0].comparison.equal_weight_return_difference_percentage_points: float=7.701941335716644
+            $.seed_results[2].folds[0].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.seed_results[2].folds[0].comparison.spy_100pct_return_difference_percentage_points: float=14.752940972613127
+            $.seed_results[2].folds[0].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.seed_results[2].folds[0].comparison.spy_50pct_return_difference_percentage_points: float=6.715529488951311
+          $.seed_results[2].folds[0].fold: int=1
+          $.seed_results[2].folds[0].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.seed_results[2].folds[0].ppo.annualized_volatility: float=0.12414771206716776
+            $.seed_results[2].folds[0].ppo.average_turnover: float=0.10666882157928072
+            $.seed_results[2].folds[0].ppo.cagr: float=0.027077297116560484
+            $.seed_results[2].folds[0].ppo.calmar_ratio: float=0.3183899463511043
+            $.seed_results[2].folds[0].ppo.cumulative_return: float=0.013340780530672891
+            $.seed_results[2].folds[0].ppo.final_value: float=101334.0780530673
+            $.seed_results[2].folds[0].ppo.initial_value: float=100000.0
+            $.seed_results[2].folds[0].ppo.max_drawdown: float=-0.08504444762430097
+            $.seed_results[2].folds[0].ppo.observations: int=126
+            $.seed_results[2].folds[0].ppo.periods: int=125
+            $.seed_results[2].folds[0].ppo.periods_per_year: float=252.0
+            $.seed_results[2].folds[0].ppo.risk_free_rate: float=0.0
+            $.seed_results[2].folds[0].ppo.sharpe_ratio: float=0.2768999456917813
+            $.seed_results[2].folds[0].ppo.sortino_ratio: float=0.3779480599253957
+            $.seed_results[2].folds[0].ppo.steps: int=125
+            $.seed_results[2].folds[0].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.seed_results[2].folds[0].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.seed_results[2].folds[0].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[2].folds[0].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.16695546623719687
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[0].equity: float=100507.07530657384
+                $.seed_results[2].folds[0].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[0].gross_exposure_close: float=0.44234295532329415
+                $.seed_results[2].folds[0].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.seed_results[2].folds[0].ppo.timeseries[0].transaction_cost: float=65.87186535157696
+                $.seed_results[2].folds[0].ppo.timeseries[0].turnover: float=0.43914576901051305
+              $.seed_results[2].folds[0].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[2].folds[0].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[124].equity: float=101334.0780530673
+                $.seed_results[2].folds[0].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[124].gross_exposure_close: float=0.4034061620147834
+                $.seed_results[2].folds[0].ppo.timeseries[124].gross_exposure_open: float=0.4075481144123456
+                $.seed_results[2].folds[0].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.034665397497238036
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[2].folds[0].ppo.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.seed_results[2].folds[0].ppo.timeseries[124].transaction_cost: float=12.286051134656226
+                $.seed_results[2].folds[0].ppo.timeseries[124].turnover: float=0.08079397443092515
+            $.seed_results[2].folds[0].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.seed_results[2].folds[0].ppo.total_return: float=0.013340780530672891
+            $.seed_results[2].folds[0].ppo.total_transaction_costs: float=1979.3092085988308
+            $.seed_results[2].folds[0].ppo.total_turnover: float=13.33360269741009
+        $.seed_results[2].folds[10]: dict keys=['comparison', 'fold', 'ppo']
+          $.seed_results[2].folds[10].comparison: dict keys=['equal_weight_outperformed_ppo', 'equal_weight_return_difference_percentage_points', 'spy_100pct_outperformed_ppo', 'spy_100pct_return_difference_percentage_points', 'spy_50pct_outperformed_ppo', 'spy_50pct_return_difference_percentage_points']
+            $.seed_results[2].folds[10].comparison.equal_weight_outperformed_ppo: bool=True
+            $.seed_results[2].folds[10].comparison.equal_weight_return_difference_percentage_points: float=9.19367337801712
+            $.seed_results[2].folds[10].comparison.spy_100pct_outperformed_ppo: bool=True
+            $.seed_results[2].folds[10].comparison.spy_100pct_return_difference_percentage_points: float=16.858095648670346
+            $.seed_results[2].folds[10].comparison.spy_50pct_outperformed_ppo: bool=True
+            $.seed_results[2].folds[10].comparison.spy_50pct_return_difference_percentage_points: float=10.567069956104003
+          $.seed_results[2].folds[10].fold: int=11
+          $.seed_results[2].folds[10].ppo: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.seed_results[2].folds[10].ppo.annualized_volatility: float=0.15648590649718586
+            $.seed_results[2].folds[10].ppo.average_turnover: float=0.0821344315520699
+            $.seed_results[2].folds[10].ppo.cagr: float=-0.08414833884747386
+            $.seed_results[2].folds[10].ppo.calmar_ratio: float=-0.8573857565023303
+            $.seed_results[2].folds[10].ppo.cumulative_return: float=-0.04266473691211081
+            $.seed_results[2].folds[10].ppo.final_value: float=95733.52630878892
+            $.seed_results[2].folds[10].ppo.initial_value: float=100000.0
+            $.seed_results[2].folds[10].ppo.max_drawdown: float=-0.09814524933415447
+            $.seed_results[2].folds[10].ppo.observations: int=126
+            $.seed_results[2].folds[10].ppo.periods: int=125
+            $.seed_results[2].folds[10].ppo.periods_per_year: float=252.0
+            $.seed_results[2].folds[10].ppo.risk_free_rate: float=0.0
+            $.seed_results[2].folds[10].ppo.sharpe_ratio: float=-0.48383375414996266
+            $.seed_results[2].folds[10].ppo.sortino_ratio: float=-0.6539514392603925
+            $.seed_results[2].folds[10].ppo.steps: int=125
+            $.seed_results[2].folds[10].ppo.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.seed_results[2].folds[10].ppo.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.seed_results[2].folds[10].ppo.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[2].folds[10].ppo.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.03955163719913866
+                  last=float=0.0
+                $.seed_results[2].folds[10].ppo.timeseries[0].equity: float=100831.71032193355
+                $.seed_results[2].folds[10].ppo.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.seed_results[2].folds[10].ppo.timeseries[0].gross_exposure_close: float=0.47017962069935126
+                $.seed_results[2].folds[10].ppo.timeseries[0].gross_exposure_open: float=0.0
+                $.seed_results[2].folds[10].ppo.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.seed_results[2].folds[10].ppo.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.seed_results[2].folds[10].ppo.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.seed_results[2].folds[10].ppo.timeseries[0].transaction_cost: float=69.8099768509529
+                $.seed_results[2].folds[10].ppo.timeseries[0].turnover: float=0.4653998456730194
+              $.seed_results[2].folds[10].ppo.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.seed_results[2].folds[10].ppo.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20098324792412237
+                $.seed_results[2].folds[10].ppo.timeseries[124].equity: float=95733.52630878892
+                $.seed_results[2].folds[10].ppo.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.seed_results[2].folds[10].ppo.timeseries[124].gross_exposure_close: float=0.4036236650259223
+                $.seed_results[2].folds[10].ppo.timeseries[124].gross_exposure_open: float=0.40172917478051096
+                $.seed_results[2].folds[10].ppo.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.1989781704160574
+                $.seed_results[2].folds[10].ppo.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.seed_results[2].folds[10].ppo.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.seed_results[2].folds[10].ppo.timeseries[124].transaction_cost: float=0.5385110456414031
+                $.seed_results[2].folds[10].ppo.timeseries[124].turnover: float=0.003772833948396198
+            $.seed_results[2].folds[10].ppo.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.seed_results[2].folds[10].ppo.total_return: float=-0.04266473691211081
+            $.seed_results[2].folds[10].ppo.total_transaction_costs: float=1503.5794939946957
+            $.seed_results[2].folds[10].ppo.total_turnover: float=10.266803944008737
+      $.seed_results[2].mean_ppo_fold_return: float=0.020193417451697924
+      $.seed_results[2].median_ppo_fold_return: float=0.013340780530672891
+      $.seed_results[2].seed: int=21
+      $.seed_results[2].spy_100pct_return_wins: int=9
+      $.seed_results[2].spy_50pct_return_wins: int=6
+  $.seeds: list len=3 types={'int': 3}
+    first=int=42
+    last=int=21
+  $.summary: dict keys=['fold_count', 'mean_benchmark_fold_return', 'mean_spy_100pct_exposure_fold_return', 'mean_spy_50pct_exposure_fold_return', 'median_benchmark_fold_return', 'median_spy_100pct_exposure_fold_return', 'median_spy_50pct_exposure_fold_return', 'per_seed', 'ppo_run_count', 'seed_count', 'spy_100pct_exposure_return_wins', 'spy_50pct_exposure_return_wins']
+    $.summary.fold_count: int=11
+    $.summary.mean_benchmark_fold_return: float=0.05663565924426442
+    $.summary.mean_spy_100pct_exposure_fold_return: float=0.0699761065403798
+    $.summary.mean_spy_50pct_exposure_fold_return: float=0.035014897075851044
+    $.summary.median_benchmark_fold_return: float=0.052836987305542316
+    $.summary.median_spy_100pct_exposure_fold_return: float=0.08462044223165921
+    $.summary.median_spy_50pct_exposure_fold_return: float=0.04234256479718845
+    $.summary.per_seed: list len=3 types={'dict': 3}
+      item_keys_union=['equal_weight_return_wins', 'fold_count', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+      $.summary.per_seed[0]: dict keys=['equal_weight_return_wins', 'fold_count', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+        $.summary.per_seed[0].equal_weight_return_wins: int=5
+        $.summary.per_seed[0].fold_count: int=11
+        $.summary.per_seed[0].mean_ppo_fold_return: float=0.05643570512392176
+        $.summary.per_seed[0].median_ppo_fold_return: float=0.05858578734020292
+        $.summary.per_seed[0].seed: int=42
+        $.summary.per_seed[0].spy_100pct_return_wins: int=7
+        $.summary.per_seed[0].spy_50pct_return_wins: int=3
+      $.summary.per_seed[2]: dict keys=['equal_weight_return_wins', 'fold_count', 'mean_ppo_fold_return', 'median_ppo_fold_return', 'seed', 'spy_100pct_return_wins', 'spy_50pct_return_wins']
+        $.summary.per_seed[2].equal_weight_return_wins: int=8
+        $.summary.per_seed[2].fold_count: int=11
+        $.summary.per_seed[2].mean_ppo_fold_return: float=0.020193417451697924
+        $.summary.per_seed[2].median_ppo_fold_return: float=0.013340780530672891
+        $.summary.per_seed[2].seed: int=21
+        $.summary.per_seed[2].spy_100pct_return_wins: int=9
+        $.summary.per_seed[2].spy_50pct_return_wins: int=6
+    $.summary.ppo_run_count: int=33
+    $.summary.seed_count: int=3
+    $.summary.spy_100pct_exposure_return_wins: int=7
+    $.summary.spy_50pct_exposure_return_wins: int=3
+
+==============================================================================
+FILE: /Users/jumpman/Projects/STMAA/reports/ppo_walk_forward_multiseed_20261110_42_7_21.json
+==============================================================================
+STATUS: FOUND
+SIZE_BYTES: 6009264
+SHA256: ab5de9bb36c53f9c27f1c720864bbd5de30bfdce5d44527c8099515b6881f9e7
+ROOT_TYPE: dict
+$: dict keys=['aggregation', 'data', 'fold_count', 'fold_layout', 'method', 'min_train_size', 'run_count', 'runs', 'seed_count', 'seeds', 'step_size', 'test_size', 'total_timesteps_per_fold_per_seed', 'training_parameters']
+  $.aggregation: dict keys=['all_seed_fold_metrics', 'method', 'per_fold_metrics_across_seeds', 'scope']
+    $.aggregation.all_seed_fold_metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'total_return', 'total_transaction_costs', 'total_turnover']
+      $.aggregation.all_seed_fold_metrics.annualized_volatility: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.max: float=0.22028229360933793
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.mean: float=0.14143871359346463
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.median: float=0.13282166571255608
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.min: float=0.09794890352225985
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.n: int=33
+        $.aggregation.all_seed_fold_metrics.annualized_volatility.std: float=0.036414291350155295
+      $.aggregation.all_seed_fold_metrics.average_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.average_turnover.max: float=0.182573023284331
+        $.aggregation.all_seed_fold_metrics.average_turnover.mean: float=0.12412929217172967
+        $.aggregation.all_seed_fold_metrics.average_turnover.median: float=0.12483862401303507
+        $.aggregation.all_seed_fold_metrics.average_turnover.min: float=0.07172129053388851
+        $.aggregation.all_seed_fold_metrics.average_turnover.n: int=33
+        $.aggregation.all_seed_fold_metrics.average_turnover.std: float=0.024415938371222048
+      $.aggregation.all_seed_fold_metrics.cagr: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.cagr.max: float=0.4200545022112918
+        $.aggregation.all_seed_fold_metrics.cagr.mean: float=0.07924515748193701
+        $.aggregation.all_seed_fold_metrics.cagr.median: float=0.09471862486927685
+        $.aggregation.all_seed_fold_metrics.cagr.min: float=-0.2904813385877054
+        $.aggregation.all_seed_fold_metrics.cagr.n: int=33
+        $.aggregation.all_seed_fold_metrics.cagr.std: float=0.16542237835935292
+      $.aggregation.all_seed_fold_metrics.calmar_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.max: float=12.73687022212105
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.mean: float=2.0157252347776478
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.median: float=1.0328864375892801
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.min: float=-1.0697179486089563
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.n: int=33
+        $.aggregation.all_seed_fold_metrics.calmar_ratio.std: float=3.2318801596603297
+      $.aggregation.all_seed_fold_metrics.cumulative_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.cumulative_return.max: float=0.19000317897750207
+        $.aggregation.all_seed_fold_metrics.cumulative_return.mean: float=0.03553515975003982
+        $.aggregation.all_seed_fold_metrics.cumulative_return.median: float=0.04591235007741279
+        $.aggregation.all_seed_fold_metrics.cumulative_return.min: float=-0.15652284469226385
+        $.aggregation.all_seed_fold_metrics.cumulative_return.n: int=33
+        $.aggregation.all_seed_fold_metrics.cumulative_return.std: float=0.07971091169495728
+      $.aggregation.all_seed_fold_metrics.final_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.final_value.max: float=119000.31789775021
+        $.aggregation.all_seed_fold_metrics.final_value.mean: float=103553.51597500397
+        $.aggregation.all_seed_fold_metrics.final_value.median: float=104591.23500774128
+        $.aggregation.all_seed_fold_metrics.final_value.min: float=84347.71553077361
+        $.aggregation.all_seed_fold_metrics.final_value.n: int=33
+        $.aggregation.all_seed_fold_metrics.final_value.std: float=7971.091169495729
+      $.aggregation.all_seed_fold_metrics.initial_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.initial_value.max: float=100000.0
+        $.aggregation.all_seed_fold_metrics.initial_value.mean: float=100000.0
+        $.aggregation.all_seed_fold_metrics.initial_value.median: float=100000.0
+        $.aggregation.all_seed_fold_metrics.initial_value.min: float=100000.0
+        $.aggregation.all_seed_fold_metrics.initial_value.n: int=33
+        $.aggregation.all_seed_fold_metrics.initial_value.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.max_drawdown: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.max_drawdown.max: float=-0.03297941290802764
+        $.aggregation.all_seed_fold_metrics.max_drawdown.mean: float=-0.09478639707981201
+        $.aggregation.all_seed_fold_metrics.max_drawdown.median: float=-0.0715341215211922
+        $.aggregation.all_seed_fold_metrics.max_drawdown.min: float=-0.27154946681547465
+        $.aggregation.all_seed_fold_metrics.max_drawdown.n: int=33
+        $.aggregation.all_seed_fold_metrics.max_drawdown.std: float=0.05640184796053299
+      $.aggregation.all_seed_fold_metrics.observations: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.observations.max: float=126.0
+        $.aggregation.all_seed_fold_metrics.observations.mean: float=126.0
+        $.aggregation.all_seed_fold_metrics.observations.median: float=126.0
+        $.aggregation.all_seed_fold_metrics.observations.min: float=126.0
+        $.aggregation.all_seed_fold_metrics.observations.n: int=33
+        $.aggregation.all_seed_fold_metrics.observations.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.periods: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.periods.max: float=125.0
+        $.aggregation.all_seed_fold_metrics.periods.mean: float=125.0
+        $.aggregation.all_seed_fold_metrics.periods.median: float=125.0
+        $.aggregation.all_seed_fold_metrics.periods.min: float=125.0
+        $.aggregation.all_seed_fold_metrics.periods.n: int=33
+        $.aggregation.all_seed_fold_metrics.periods.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.periods_per_year: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.periods_per_year.max: float=252.0
+        $.aggregation.all_seed_fold_metrics.periods_per_year.mean: float=252.0
+        $.aggregation.all_seed_fold_metrics.periods_per_year.median: float=252.0
+        $.aggregation.all_seed_fold_metrics.periods_per_year.min: float=252.0
+        $.aggregation.all_seed_fold_metrics.periods_per_year.n: int=33
+        $.aggregation.all_seed_fold_metrics.periods_per_year.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.risk_free_rate: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.max: float=0.0
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.mean: float=0.0
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.median: float=0.0
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.min: float=0.0
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.n: int=33
+        $.aggregation.all_seed_fold_metrics.risk_free_rate.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.sharpe_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.max: float=3.0487654014444687
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.mean: float=0.689973749930303
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.median: float=0.6216070696907102
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.min: float=-1.7349537997862496
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.n: int=33
+        $.aggregation.all_seed_fold_metrics.sharpe_ratio.std: float=1.1021069364398501
+      $.aggregation.all_seed_fold_metrics.sortino_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.max: float=5.065720942762416
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.mean: float=1.0985949426384378
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.median: float=0.8787968535475547
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.min: float=-2.29379373107763
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.n: int=33
+        $.aggregation.all_seed_fold_metrics.sortino_ratio.std: float=1.7055572082924129
+      $.aggregation.all_seed_fold_metrics.steps: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.steps.max: float=125.0
+        $.aggregation.all_seed_fold_metrics.steps.mean: float=125.0
+        $.aggregation.all_seed_fold_metrics.steps.median: float=125.0
+        $.aggregation.all_seed_fold_metrics.steps.min: float=125.0
+        $.aggregation.all_seed_fold_metrics.steps.n: int=33
+        $.aggregation.all_seed_fold_metrics.steps.std: float=0.0
+      $.aggregation.all_seed_fold_metrics.total_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.total_return.max: float=0.19000317897750207
+        $.aggregation.all_seed_fold_metrics.total_return.mean: float=0.03553515975003982
+        $.aggregation.all_seed_fold_metrics.total_return.median: float=0.04591235007741279
+        $.aggregation.all_seed_fold_metrics.total_return.min: float=-0.15652284469226385
+        $.aggregation.all_seed_fold_metrics.total_return.n: int=33
+        $.aggregation.all_seed_fold_metrics.total_return.std: float=0.07971091169495728
+      $.aggregation.all_seed_fold_metrics.total_transaction_costs: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.max: float=3636.3086081804586
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.mean: float=2350.283519161815
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.median: float=2352.756586493455
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.min: float=1257.8987838008748
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.n: int=33
+        $.aggregation.all_seed_fold_metrics.total_transaction_costs.std: float=491.51794878422976
+      $.aggregation.all_seed_fold_metrics.total_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+        $.aggregation.all_seed_fold_metrics.total_turnover.max: float=22.821627910541377
+        $.aggregation.all_seed_fold_metrics.total_turnover.mean: float=15.516161521466213
+        $.aggregation.all_seed_fold_metrics.total_turnover.median: float=15.604828001629384
+        $.aggregation.all_seed_fold_metrics.total_turnover.min: float=8.965161316736063
+        $.aggregation.all_seed_fold_metrics.total_turnover.n: int=33
+        $.aggregation.all_seed_fold_metrics.total_turnover.std: float=3.0519922964027555
+    $.aggregation.method: str='descriptive_dispersion_over_independent_seed_fold_runs'
+    $.aggregation.per_fold_metrics_across_seeds: list len=11 types={'dict': 11}
+      item_keys_union=['fold', 'metrics_across_seeds', 'seed_count', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+      $.aggregation.per_fold_metrics_across_seeds[0]: dict keys=['fold', 'metrics_across_seeds', 'seed_count', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+        $.aggregation.per_fold_metrics_across_seeds[0].fold: int=1
+        $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'total_return', 'total_transaction_costs', 'total_turnover']
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.max: float=0.12414771206716776
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.mean: float=0.11353393435483479
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.median: float=0.11073655498324593
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.min: float=0.10571753601409069
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.annualized_volatility.std: float=0.009528213150863971
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.max: float=0.1445987184095239
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.mean: float=0.11605160487731257
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.median: float=0.10666882157928072
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.min: float=0.09688727464313307
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.average_turnover.std: float=0.02520164544988556
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.max: float=0.22559742537143168
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.mean: float=0.12153694214096127
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.median: float=0.11193610393489162
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.min: float=0.027077297116560484
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cagr.std: float=0.09960769248043533
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.max: float=4.644323673278213
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.mean: float=2.4517557367135114
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.median: float=2.392553590511218
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.min: float=0.3183899463511043
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.calmar_ratio.std: float=2.1635744320516417
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.max: float=0.10617371195176672
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.mean: float=0.05785147085730524
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.median: float=0.05403992008947611
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.min: float=0.013340780530672891
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.cumulative_return.std: float=0.04653368917784385
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.max: float=110617.37119517667
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.mean: float=105785.14708573052
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.median: float=105403.9920089476
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.min: float=101334.0780530673
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.final_value.std: float=4653.368917784384
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.max: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.mean: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.median: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.min: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.initial_value.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.max: float=-0.04678520237909245
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.mean: float=-0.060134840482293415
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.median: float=-0.04857487144348682
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.min: float=-0.08504444762430097
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.max_drawdown.std: float=0.021590903751739478
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.max: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.mean: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.median: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.min: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.observations.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.max: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.mean: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.median: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.min: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.max: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.mean: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.median: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.min: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.periods_per_year.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.max: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.mean: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.median: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.min: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.risk_free_rate.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.max: float=1.892606576040724
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.mean: float=1.0752848439260072
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.median: float=1.0563480100455165
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.min: float=0.2768999456917813
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sharpe_ratio.std: float=0.8080197594096611
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.max: float=2.9668469423118857
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.mean: float=1.6142604699825995
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.median: float=1.4979864077105172
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.min: float=0.3779480599253957
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.sortino_ratio.std: float=1.2983601576501966
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.max: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.mean: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.median: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.min: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.steps.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.max: float=0.10617371195176672
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.mean: float=0.05785147085730524
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.median: float=0.05403992008947611
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.min: float=0.013340780530672891
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_return.std: float=0.04653368917784385
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.max: float=2847.012937972928
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.mean: float=2227.0952958470284
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.median: float=1979.3092085988308
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.min: float=1854.9637409693262
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_transaction_costs.std: float=540.4524596060241
+          $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.max: float=18.07483980119049
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.mean: float=14.506450609664071
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.median: float=13.33360269741009
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.min: float=12.110909330391634
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[0].metrics_across_seeds.total_turnover.std: float=3.150205681235696
+        $.aggregation.per_fold_metrics_across_seeds[0].seed_count: int=3
+        $.aggregation.per_fold_metrics_across_seeds[0].test_end: str='2021-07-30 04:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[0].test_observations: int=126
+        $.aggregation.per_fold_metrics_across_seeds[0].test_start: str='2021-02-01 05:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[0].training_end: str='2021-01-29 05:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[0].training_observations: int=756
+        $.aggregation.per_fold_metrics_across_seeds[0].training_start: str='2018-01-30 05:00:00'
+      $.aggregation.per_fold_metrics_across_seeds[10]: dict keys=['fold', 'metrics_across_seeds', 'seed_count', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+        $.aggregation.per_fold_metrics_across_seeds[10].fold: int=11
+        $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'total_return', 'total_transaction_costs', 'total_turnover']
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.max: float=0.15648590649718586
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.mean: float=0.14123887209387329
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.median: float=0.13440904407187793
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.min: float=0.13282166571255608
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.annualized_volatility.std: float=0.013228151272409863
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.max: float=0.14000322231719178
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.mean: float=0.11018880273018115
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.median: float=0.10842875432128175
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.min: float=0.0821344315520699
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.average_turnover.std: float=0.02897451576740526
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.max: float=0.17582499590572676
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.mean: float=0.0028986190560825373
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.median: float=-0.08298079989000529
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.min: float=-0.08414833884747386
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cagr.std: float=0.1497597731186956
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.max: float=2.1572019116931345
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.mean: float=0.18322143248894018
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.median: float=-0.7501518577239835
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.min: float=-0.8573857565023303
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.calmar_ratio.std: float=1.7103578504135375
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.max: float=0.08365791267905087
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.mean: float=-0.0003554623502800558
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.median: float=-0.04205956281778023
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.min: float=-0.04266473691211081
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.cumulative_return.std: float=0.07275834623454114
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.max: float=108365.7912679051
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.mean: float=99964.453764972
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.median: float=95794.04371822198
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.min: float=95733.52630878892
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.final_value.std: float=7275.834623454118
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.max: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.mean: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.median: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.min: float=100000.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.initial_value.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.max: float=-0.08150604491525137
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.mean: float=-0.09675665434568333
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.median: float=-0.09814524933415447
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.min: float=-0.11061866878764415
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.max_drawdown.std: float=0.01460590169128078
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.max: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.mean: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.median: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.min: float=126.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.observations.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.max: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.mean: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.median: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.min: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.max: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.mean: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.median: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.min: float=252.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.periods_per_year.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.max: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.mean: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.median: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.min: float=0.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.risk_free_rate.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.max: float=1.2718949933677224
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.mean: float=0.06735240810103016
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.median: float=-0.48383375414996266
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.min: float=-0.5860040149146692
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sharpe_ratio.std: float=1.0444145825949134
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.max: float=2.0301109960705483
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.mean: float=0.19991373733272125
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.median: float=-0.6539514392603925
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.min: float=-0.7764183448119921
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.sortino_ratio.std: float=1.5861796998314657
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.max: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.mean: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.median: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.min: float=125.0
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.steps.std: float=0.0
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.max: float=0.08365791267905087
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.mean: float=-0.0003554623502800558
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.median: float=-0.04205956281778023
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.min: float=-0.04266473691211081
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_return.std: float=0.07275834623454114
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.max: float=2558.857207031216
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.mean: float=2055.1235586869884
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.median: float=2102.933975035054
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.min: float=1503.5794939946957
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_transaction_costs.std: float=529.260937384792
+          $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover: dict keys=['max', 'mean', 'median', 'min', 'n', 'std']
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.max: float=17.500402789648973
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.mean: float=13.773600341272642
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.median: float=13.55359429016022
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.min: float=10.266803944008737
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.n: int=3
+            $.aggregation.per_fold_metrics_across_seeds[10].metrics_across_seeds.total_turnover.std: float=3.6218144709256577
+        $.aggregation.per_fold_metrics_across_seeds[10].seed_count: int=3
+        $.aggregation.per_fold_metrics_across_seeds[10].test_end: str='2026-08-07 04:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[10].test_observations: int=126
+        $.aggregation.per_fold_metrics_across_seeds[10].test_start: str='2026-02-06 05:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[10].training_end: str='2026-02-05 05:00:00'
+        $.aggregation.per_fold_metrics_across_seeds[10].training_observations: int=2016
+        $.aggregation.per_fold_metrics_across_seeds[10].training_start: str='2018-01-30 05:00:00'
+    $.aggregation.scope: str='metrics are summarized across independent seed/fold evaluations; returns are not concatenated or com'
+  $.data: dict keys=['end_date', 'observations', 'start_date', 'tickers']
+    $.data.end_date: str='2026-11-09 05:00:00'
+    $.data.observations: int=2207
+    $.data.start_date: str='2018-01-30 05:00:00'
+    $.data.tickers: list len=7 types={'str': 7}
+      first=str='AAPL'
+      last=str='META'
+  $.fold_count: int=11
+  $.fold_layout: list len=11 types={'dict': 11}
+    item_keys_union=['fold', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+    $.fold_layout[0]: dict keys=['fold', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+      $.fold_layout[0].fold: int=1
+      $.fold_layout[0].test_end: str='2021-07-30 04:00:00'
+      $.fold_layout[0].test_observations: int=126
+      $.fold_layout[0].test_start: str='2021-02-01 05:00:00'
+      $.fold_layout[0].training_end: str='2021-01-29 05:00:00'
+      $.fold_layout[0].training_observations: int=756
+      $.fold_layout[0].training_start: str='2018-01-30 05:00:00'
+    $.fold_layout[10]: dict keys=['fold', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+      $.fold_layout[10].fold: int=11
+      $.fold_layout[10].test_end: str='2026-08-07 04:00:00'
+      $.fold_layout[10].test_observations: int=126
+      $.fold_layout[10].test_start: str='2026-02-06 05:00:00'
+      $.fold_layout[10].training_end: str='2026-02-05 05:00:00'
+      $.fold_layout[10].training_observations: int=2016
+      $.fold_layout[10].training_start: str='2018-01-30 05:00:00'
+  $.method: str='expanding_window_multi_seed'
+  $.min_train_size: int=756
+  $.run_count: int=33
+  $.runs: list len=3 types={'dict': 3}
+    item_keys_union=['fold_count', 'folds', 'seed']
+    $.runs[0]: dict keys=['fold_count', 'folds', 'seed']
+      $.runs[0].fold_count: int=11
+      $.runs[0].folds: list len=11 types={'dict': 11}
+        item_keys_union=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+        $.runs[0].folds[0]: dict keys=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+          $.runs[0].folds[0].entry_execution: str='next_bar_open'
+          $.runs[0].folds[0].execution_data_fingerprint: str='711c93d9e0bb0924a96e5734d96f684d1af77fe98cbb19f0407e1d5714c8076a'
+          $.runs[0].folds[0].fold: int=1
+          $.runs[0].folds[0].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.runs[0].folds[0].metrics.annualized_volatility: float=0.10571753601409069
+            $.runs[0].folds[0].metrics.average_turnover: float=0.09688727464313307
+            $.runs[0].folds[0].metrics.cagr: float=0.11193610393489162
+            $.runs[0].folds[0].metrics.calmar_ratio: float=2.392553590511218
+            $.runs[0].folds[0].metrics.cumulative_return: float=0.05403992008947611
+            $.runs[0].folds[0].metrics.final_value: float=105403.9920089476
+            $.runs[0].folds[0].metrics.initial_value: float=100000.0
+            $.runs[0].folds[0].metrics.max_drawdown: float=-0.04678520237909245
+            $.runs[0].folds[0].metrics.observations: int=126
+            $.runs[0].folds[0].metrics.periods: int=125
+            $.runs[0].folds[0].metrics.periods_per_year: float=252.0
+            $.runs[0].folds[0].metrics.risk_free_rate: float=0.0
+            $.runs[0].folds[0].metrics.sharpe_ratio: float=1.0563480100455165
+            $.runs[0].folds[0].metrics.sortino_ratio: float=1.4979864077105172
+            $.runs[0].folds[0].metrics.steps: int=125
+            $.runs[0].folds[0].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.runs[0].folds[0].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.runs[0].folds[0].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[0].folds[0].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.09493971967639732
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[0].equity: float=100124.68803430109
+                $.runs[0].folds[0].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[0].gross_exposure_close: float=0.49866223559632705
+                $.runs[0].folds[0].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.runs[0].folds[0].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.09565175892231742
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.runs[0].folds[0].metrics.timeseries[0].transaction_cost: float=74.64932033866472
+                $.runs[0].folds[0].metrics.timeseries[0].turnover: float=0.4976621355910981
+              $.runs[0].folds[0].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[0].folds[0].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[124].equity: float=105403.9920089476
+                $.runs[0].folds[0].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[124].gross_exposure_close: float=0.4578936686250909
+                $.runs[0].folds[0].metrics.timeseries[124].gross_exposure_open: float=0.49206790413731205
+                $.runs[0].folds[0].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[0].metrics.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.runs[0].folds[0].metrics.timeseries[124].transaction_cost: float=15.307402678971446
+                $.runs[0].folds[0].metrics.timeseries[124].turnover: float=0.09674956505970947
+            $.runs[0].folds[0].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.runs[0].folds[0].metrics.total_return: float=0.05403992008947611
+            $.runs[0].folds[0].metrics.total_transaction_costs: float=1854.9637409693262
+            $.runs[0].folds[0].metrics.total_turnover: float=12.110909330391634
+          $.runs[0].folds[0].seed: int=42
+          $.runs[0].folds[0].test_end: str='2021-07-30 04:00:00'
+          $.runs[0].folds[0].test_observations: int=126
+          $.runs[0].folds[0].test_start: str='2021-02-01 05:00:00'
+          $.runs[0].folds[0].training_end: str='2021-01-29 05:00:00'
+          $.runs[0].folds[0].training_observations: int=756
+          $.runs[0].folds[0].training_start: str='2018-01-30 05:00:00'
+        $.runs[0].folds[10]: dict keys=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+          $.runs[0].folds[10].entry_execution: str='next_bar_open'
+          $.runs[0].folds[10].execution_data_fingerprint: str='1e37257f4bc2eeb88271827a9eee7d807bada4ae35e7fdb3a5e5964e0469bcb8'
+          $.runs[0].folds[10].fold: int=11
+          $.runs[0].folds[10].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.runs[0].folds[10].metrics.annualized_volatility: float=0.13440904407187793
+            $.runs[0].folds[10].metrics.average_turnover: float=0.10842875432128175
+            $.runs[0].folds[10].metrics.cagr: float=0.17582499590572676
+            $.runs[0].folds[10].metrics.calmar_ratio: float=2.1572019116931345
+            $.runs[0].folds[10].metrics.cumulative_return: float=0.08365791267905087
+            $.runs[0].folds[10].metrics.final_value: float=108365.7912679051
+            $.runs[0].folds[10].metrics.initial_value: float=100000.0
+            $.runs[0].folds[10].metrics.max_drawdown: float=-0.08150604491525137
+            $.runs[0].folds[10].metrics.observations: int=126
+            $.runs[0].folds[10].metrics.periods: int=125
+            $.runs[0].folds[10].metrics.periods_per_year: float=252.0
+            $.runs[0].folds[10].metrics.risk_free_rate: float=0.0
+            $.runs[0].folds[10].metrics.sharpe_ratio: float=1.2718949933677224
+            $.runs[0].folds[10].metrics.sortino_ratio: float=2.0301109960705483
+            $.runs[0].folds[10].metrics.steps: int=125
+            $.runs[0].folds[10].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.runs[0].folds[10].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.runs[0].folds[10].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[0].folds[10].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[10].metrics.timeseries[0].equity: float=100671.50553255307
+                $.runs[0].folds[10].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[10].metrics.timeseries[0].gross_exposure_close: float=0.5037076307173715
+                $.runs[0].folds[10].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.runs[0].folds[10].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[10].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[0].folds[10].metrics.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.runs[0].folds[10].metrics.timeseries[0].transaction_cost: float=75.0
+                $.runs[0].folds[10].metrics.timeseries[0].turnover: float=0.5
+              $.runs[0].folds[10].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[0].folds[10].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20147950933916317
+                $.runs[0].folds[10].metrics.timeseries[124].equity: float=108365.7912679051
+                $.runs[0].folds[10].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.runs[0].folds[10].metrics.timeseries[124].gross_exposure_close: float=0.29940504289004827
+                $.runs[0].folds[10].metrics.timeseries[124].gross_exposure_open: float=0.3099285798443859
+                $.runs[0].folds[10].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.19925263009914143
+                $.runs[0].folds[10].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.runs[0].folds[10].metrics.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.runs[0].folds[10].metrics.timeseries[124].transaction_cost: float=2.3548864250070873
+                $.runs[0].folds[10].metrics.timeseries[124].turnover: float=0.01453907756499747
+            $.runs[0].folds[10].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.runs[0].folds[10].metrics.total_return: float=0.08365791267905087
+            $.runs[0].folds[10].metrics.total_transaction_costs: float=2102.933975035054
+            $.runs[0].folds[10].metrics.total_turnover: float=13.55359429016022
+          $.runs[0].folds[10].seed: int=42
+          $.runs[0].folds[10].test_end: str='2026-08-07 04:00:00'
+          $.runs[0].folds[10].test_observations: int=126
+          $.runs[0].folds[10].test_start: str='2026-02-06 05:00:00'
+          $.runs[0].folds[10].training_end: str='2026-02-05 05:00:00'
+          $.runs[0].folds[10].training_observations: int=2016
+          $.runs[0].folds[10].training_start: str='2018-01-30 05:00:00'
+      $.runs[0].seed: int=42
+    $.runs[2]: dict keys=['fold_count', 'folds', 'seed']
+      $.runs[2].fold_count: int=11
+      $.runs[2].folds: list len=11 types={'dict': 11}
+        item_keys_union=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+        $.runs[2].folds[0]: dict keys=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+          $.runs[2].folds[0].entry_execution: str='next_bar_open'
+          $.runs[2].folds[0].execution_data_fingerprint: str='711c93d9e0bb0924a96e5734d96f684d1af77fe98cbb19f0407e1d5714c8076a'
+          $.runs[2].folds[0].fold: int=1
+          $.runs[2].folds[0].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.runs[2].folds[0].metrics.annualized_volatility: float=0.12414771206716776
+            $.runs[2].folds[0].metrics.average_turnover: float=0.10666882157928072
+            $.runs[2].folds[0].metrics.cagr: float=0.027077297116560484
+            $.runs[2].folds[0].metrics.calmar_ratio: float=0.3183899463511043
+            $.runs[2].folds[0].metrics.cumulative_return: float=0.013340780530672891
+            $.runs[2].folds[0].metrics.final_value: float=101334.0780530673
+            $.runs[2].folds[0].metrics.initial_value: float=100000.0
+            $.runs[2].folds[0].metrics.max_drawdown: float=-0.08504444762430097
+            $.runs[2].folds[0].metrics.observations: int=126
+            $.runs[2].folds[0].metrics.periods: int=125
+            $.runs[2].folds[0].metrics.periods_per_year: float=252.0
+            $.runs[2].folds[0].metrics.risk_free_rate: float=0.0
+            $.runs[2].folds[0].metrics.sharpe_ratio: float=0.2768999456917813
+            $.runs[2].folds[0].metrics.sortino_ratio: float=0.3779480599253957
+            $.runs[2].folds[0].metrics.steps: int=125
+            $.runs[2].folds[0].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.runs[2].folds[0].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.runs[2].folds[0].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[2].folds[0].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.16695546623719687
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[0].equity: float=100507.07530657384
+                $.runs[2].folds[0].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[0].gross_exposure_close: float=0.44234295532329415
+                $.runs[2].folds[0].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.runs[2].folds[0].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.16883519003416225
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[0].timestamp: str='2021-02-02 05:00:00'
+                $.runs[2].folds[0].metrics.timeseries[0].transaction_cost: float=65.87186535157696
+                $.runs[2].folds[0].metrics.timeseries[0].turnover: float=0.43914576901051305
+              $.runs[2].folds[0].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[2].folds[0].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[124].equity: float=101334.0780530673
+                $.runs[2].folds[0].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[124].gross_exposure_close: float=0.4034061620147834
+                $.runs[2].folds[0].metrics.timeseries[124].gross_exposure_open: float=0.4075481144123456
+                $.runs[2].folds[0].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.034665397497238036
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[2].folds[0].metrics.timeseries[124].timestamp: str='2021-07-30 04:00:00'
+                $.runs[2].folds[0].metrics.timeseries[124].transaction_cost: float=12.286051134656226
+                $.runs[2].folds[0].metrics.timeseries[124].turnover: float=0.08079397443092515
+            $.runs[2].folds[0].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.runs[2].folds[0].metrics.total_return: float=0.013340780530672891
+            $.runs[2].folds[0].metrics.total_transaction_costs: float=1979.3092085988308
+            $.runs[2].folds[0].metrics.total_turnover: float=13.33360269741009
+          $.runs[2].folds[0].seed: int=21
+          $.runs[2].folds[0].test_end: str='2021-07-30 04:00:00'
+          $.runs[2].folds[0].test_observations: int=126
+          $.runs[2].folds[0].test_start: str='2021-02-01 05:00:00'
+          $.runs[2].folds[0].training_end: str='2021-01-29 05:00:00'
+          $.runs[2].folds[0].training_observations: int=756
+          $.runs[2].folds[0].training_start: str='2018-01-30 05:00:00'
+        $.runs[2].folds[10]: dict keys=['entry_execution', 'execution_data_fingerprint', 'fold', 'metrics', 'seed', 'test_end', 'test_observations', 'test_start', 'training_end', 'training_observations', 'training_start']
+          $.runs[2].folds[10].entry_execution: str='next_bar_open'
+          $.runs[2].folds[10].execution_data_fingerprint: str='1e37257f4bc2eeb88271827a9eee7d807bada4ae35e7fdb3a5e5964e0469bcb8'
+          $.runs[2].folds[10].fold: int=11
+          $.runs[2].folds[10].metrics: dict keys=['annualized_volatility', 'average_turnover', 'cagr', 'calmar_ratio', 'cumulative_return', 'final_value', 'initial_value', 'max_drawdown', 'observations', 'periods', 'periods_per_year', 'risk_free_rate', 'sharpe_ratio', 'sortino_ratio', 'steps', 'tickers', 'timeseries', 'timeseries_contract', 'total_return', 'total_transaction_costs', 'total_turnover']
+            $.runs[2].folds[10].metrics.annualized_volatility: float=0.15648590649718586
+            $.runs[2].folds[10].metrics.average_turnover: float=0.0821344315520699
+            $.runs[2].folds[10].metrics.cagr: float=-0.08414833884747386
+            $.runs[2].folds[10].metrics.calmar_ratio: float=-0.8573857565023303
+            $.runs[2].folds[10].metrics.cumulative_return: float=-0.04266473691211081
+            $.runs[2].folds[10].metrics.final_value: float=95733.52630878892
+            $.runs[2].folds[10].metrics.initial_value: float=100000.0
+            $.runs[2].folds[10].metrics.max_drawdown: float=-0.09814524933415447
+            $.runs[2].folds[10].metrics.observations: int=126
+            $.runs[2].folds[10].metrics.periods: int=125
+            $.runs[2].folds[10].metrics.periods_per_year: float=252.0
+            $.runs[2].folds[10].metrics.risk_free_rate: float=0.0
+            $.runs[2].folds[10].metrics.sharpe_ratio: float=-0.48383375414996266
+            $.runs[2].folds[10].metrics.sortino_ratio: float=-0.6539514392603925
+            $.runs[2].folds[10].metrics.steps: int=125
+            $.runs[2].folds[10].metrics.tickers: list len=7 types={'str': 7}
+              first=str='AAPL'
+              last=str='META'
+            $.runs[2].folds[10].metrics.timeseries: list len=125 types={'dict': 125}
+              item_keys_union=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+              $.runs[2].folds[10].metrics.timeseries[0]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[2].folds[10].metrics.timeseries[0].close_weights: list len=7 types={'float': 7}
+                  first=float=0.03955163719913866
+                  last=float=0.0
+                $.runs[2].folds[10].metrics.timeseries[0].equity: float=100831.71032193355
+                $.runs[2].folds[10].metrics.timeseries[0].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.runs[2].folds[10].metrics.timeseries[0].gross_exposure_close: float=0.47017962069935126
+                $.runs[2].folds[10].metrics.timeseries[0].gross_exposure_open: float=0.0
+                $.runs[2].folds[10].metrics.timeseries[0].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.0
+                $.runs[2].folds[10].metrics.timeseries[0].target_weights: list len=7 types={'float': 7}
+                  first=float=0.04038596199153901
+                  last=float=0.0
+                $.runs[2].folds[10].metrics.timeseries[0].timestamp: str='2026-02-09 05:00:00'
+                $.runs[2].folds[10].metrics.timeseries[0].transaction_cost: float=69.8099768509529
+                $.runs[2].folds[10].metrics.timeseries[0].turnover: float=0.4653998456730194
+              $.runs[2].folds[10].metrics.timeseries[124]: dict keys=['close_weights', 'equity', 'executed_weights', 'gross_exposure_close', 'gross_exposure_open', 'open_weights', 'target_weights', 'timestamp', 'transaction_cost', 'turnover']
+                $.runs[2].folds[10].metrics.timeseries[124].close_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.20098324792412237
+                $.runs[2].folds[10].metrics.timeseries[124].equity: float=95733.52630878892
+                $.runs[2].folds[10].metrics.timeseries[124].executed_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.runs[2].folds[10].metrics.timeseries[124].gross_exposure_close: float=0.4036236650259223
+                $.runs[2].folds[10].metrics.timeseries[124].gross_exposure_open: float=0.40172917478051096
+                $.runs[2].folds[10].metrics.timeseries[124].open_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.1989781704160574
+                $.runs[2].folds[10].metrics.timeseries[124].target_weights: list len=7 types={'float': 7}
+                  first=float=0.0
+                  last=float=0.2
+                $.runs[2].folds[10].metrics.timeseries[124].timestamp: str='2026-08-07 04:00:00'
+                $.runs[2].folds[10].metrics.timeseries[124].transaction_cost: float=0.5385110456414031
+                $.runs[2].folds[10].metrics.timeseries[124].turnover: float=0.003772833948396198
+            $.runs[2].folds[10].metrics.timeseries_contract: str='ppo_daily_exposure_v1'
+            $.runs[2].folds[10].metrics.total_return: float=-0.04266473691211081
+            $.runs[2].folds[10].metrics.total_transaction_costs: float=1503.5794939946957
+            $.runs[2].folds[10].metrics.total_turnover: float=10.266803944008737
+          $.runs[2].folds[10].seed: int=21
+          $.runs[2].folds[10].test_end: str='2026-08-07 04:00:00'
+          $.runs[2].folds[10].test_observations: int=126
+          $.runs[2].folds[10].test_start: str='2026-02-06 05:00:00'
+          $.runs[2].folds[10].training_end: str='2026-02-05 05:00:00'
+          $.runs[2].folds[10].training_observations: int=2016
+          $.runs[2].folds[10].training_start: str='2018-01-30 05:00:00'
+      $.runs[2].seed: int=21
+  $.seed_count: int=3
+  $.seeds: list len=3 types={'int': 3}
+    first=int=42
+    last=int=21
+  $.step_size: int=126
+  $.test_size: int=126
+  $.total_timesteps_per_fold_per_seed: int=50000
+  $.training_parameters: dict keys=['batch_size', 'gamma', 'initial_capital', 'learning_rate', 'max_gross_exposure', 'max_position_size', 'n_epochs', 'n_steps', 'slippage', 'transaction_cost']
+    $.training_parameters.batch_size: int=64
+    $.training_parameters.gamma: float=0.99
+    $.training_parameters.initial_capital: float=100000.0
+    $.training_parameters.learning_rate: float=0.0003
+    $.training_parameters.max_gross_exposure: float=0.5
+    $.training_parameters.max_position_size: float=0.2
+    $.training_parameters.n_epochs: int=10
+    $.training_parameters.n_steps: int=2048
+    $.training_parameters.slippage: float=0.0005
+    $.training_parameters.transaction_cost: float=0.001
+

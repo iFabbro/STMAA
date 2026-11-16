@@ -33,7 +33,7 @@ Example:
 
 ```bash
 cd ~/Projects/STMAA-assistant-exchange
-.venv/bin/python tools/assistant_exchange/publish.py \
+python3 tools/assistant_exchange/publish.py \
   --repo-path ~/Projects/STMAA \
   --label "benchmark report schema inspection" \
   ~/Desktop/STMAA_REPORT_SCHEMA.txt

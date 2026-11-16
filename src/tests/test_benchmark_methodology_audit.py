@@ -316,3 +316,46 @@ def test_seed_results_cli_accepts_explicit_seed(tmp_path):
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
+
+
+def test_multi_seed_audit_fails_when_benchmark_seed_mirror_metrics_differ():
+    ppo = _multi_seed_report()
+    _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
+    benchmark["folds"][0]["ppo_by_seed"][0]["metrics"]["total_return"] = 0.99
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["multi_seed_ppo_mirror"] == "FAIL"
+
+
+def test_multi_seed_audit_is_inconclusive_when_benchmark_seed_mirror_is_missing():
+    ppo = _multi_seed_report()
+    _, benchmark = _reports()
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["multi_seed_ppo_mirror"] == "INCONCLUSIVE"
+
+
+def test_multi_seed_audit_rejects_walk_forward_fold_count_mismatch():
+    ppo = _multi_seed_report()
+    ppo["runs"][0]["fold_count"] = 99
+    _, benchmark = _reports()
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert "fold_count does not match" in result["reason"]
+
+
+def test_methodology_audit_fails_when_fold_ids_differ_even_if_dates_match():
+    ppo, benchmark = _reports()
+    benchmark["folds"][0]["fold"] = 2
+
+    result = audit_reports(ppo, benchmark)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["fold_alignment"] == "FAIL"

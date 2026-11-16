@@ -100,7 +100,11 @@ def main() -> int:
 
     source_commit = git(source_repo, "rev-parse", "HEAD")
     source_branch = git(source_repo, "branch", "--show-current") or "detached"
-    sources = [p.expanduser().resolve() for p in args.files]
+    sources = [p.expanduser().absolute() for p in args.files]
+    for source in sources:
+        if source.is_symlink():
+            raise ValueError(f"Symlink source rejected: {source}")
+    sources = [p.resolve(strict=True) for p in sources]
     names = [p.name for p in sources]
     if len(names) != len(set(names)):
         raise ValueError("Input files must have unique basenames.")
@@ -143,7 +147,9 @@ def main() -> int:
     (history / "manifest.json").write_text(manifest_text, encoding="utf-8")
     (latest / "manifest.json").write_text(manifest_text, encoding="utf-8")
 
-    git(exchange_repo, "add", str(EXCHANGE_DIR))
+    # reports/ is ignored by the main repository policy; force-add only this
+    # dedicated exchange subtree. The staged-path boundary check below remains mandatory.
+    git(exchange_repo, "add", "-f", str(EXCHANGE_DIR))
     staged = git(exchange_repo, "diff", "--cached", "--name-only").splitlines()
     if not staged or any(
         not (name == str(EXCHANGE_DIR) or name.startswith(str(EXCHANGE_DIR) + "/"))

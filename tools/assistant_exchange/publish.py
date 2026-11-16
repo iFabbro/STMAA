@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -77,6 +76,10 @@ def main() -> int:
     parser.add_argument("files", nargs="+", type=Path,
                         help="Explicit files to publish (.txt/.json/.md/.csv only).")
     args = parser.parse_args()
+    if not args.label.strip() or len(args.label) > 160:
+        raise ValueError("Label must contain 1-160 non-sensitive characters.")
+    if any(pattern.search(args.label) for pattern in SECRET_PATTERNS):
+        raise ValueError("Potential secret detected in --label; publication blocked.")
 
     exchange_repo = Path(__file__).resolve().parents[2]
     source_repo = args.repo_path.expanduser().resolve()
@@ -109,6 +112,11 @@ def main() -> int:
     history = base / "history" / timestamp
     latest.mkdir(parents=True, exist_ok=True)
     history.mkdir(parents=True, exist_ok=False)
+    for old_file in latest.iterdir():
+        if old_file.is_file() and not old_file.is_symlink():
+            old_file.unlink()
+        else:
+            raise RuntimeError(f"Unexpected directory or symlink in latest/: {old_file.name}")
 
     manifest_files = []
     for source, data, digest in screened:

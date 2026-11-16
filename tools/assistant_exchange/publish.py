@@ -15,7 +15,7 @@ from pathlib import Path
 EXCHANGE_BRANCH = "assistant-exchange"
 EXCHANGE_DIR = Path("reports/assistant_exchange")
 ALLOWED_SUFFIXES = {".txt", ".json", ".md", ".csv"}
-MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_FILE_BYTES = 15 * 1024 * 1024
 
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----", re.I),
@@ -171,4 +171,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None

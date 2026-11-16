@@ -142,9 +142,26 @@ def _select_ppo_folds(
             )
             return None, None, "INCONCLUSIVE", reason
         folds = matches[0].get("folds")
-        if not isinstance(folds, list):
+        if not isinstance(folds, list) or not folds:
             return None, ppo_seed, "INCONCLUSIVE", (
                 f"Selected seed {ppo_seed} has no valid folds list."
+            )
+        fold_ids = [item.get("fold") for item in folds if isinstance(item, dict)]
+        if len(fold_ids) != len(folds) or any(value is None for value in fold_ids):
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} contains a malformed fold."
+            )
+        if len(set(fold_ids)) != len(fold_ids):
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} contains duplicate fold identifiers."
+            )
+        if matches[0].get("fold_count") not in (None, len(folds)):
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} fold_count does not match its folds list."
+            )
+        if any(item.get("seed", ppo_seed) != ppo_seed for item in folds):
+            return None, ppo_seed, "INCONCLUSIVE", (
+                f"Selected seed {ppo_seed} contains a fold with conflicting seed metadata."
             )
         return folds, ppo_seed, "PASS", None
 
@@ -166,6 +183,7 @@ def _inconclusive_result(reason: str, selected_seed: int | None) -> dict[str, An
         "cost_and_cap_parameters", "fold_alignment", "execution_data_identity",
         "entry_execution", "ppo_daily_exposure_trace",
         "benchmark_daily_exposure_trace", "reported_cost_values",
+        "multi_seed_ppo_mirror",
     )
     checks = {"seed_selection": "INCONCLUSIVE"}
     checks.update({name: "INCONCLUSIVE" for name in names})
@@ -241,13 +259,15 @@ def audit_reports(
                 and isinstance(right.get("test_start"), str) and bool(right["test_start"])
                 and isinstance(right.get("test_end"), str) and bool(right["test_end"])
                 and left_observations is not None and right_observations is not None
+                and left.get("fold") is not None and right.get("fold") is not None
             )
             if not required:
                 alignment.append("INCONCLUSIVE")
             else:
                 alignment.append(
                     "PASS" if (
-                        left["test_start"] == right["test_start"]
+                        left["fold"] == right["fold"]
+                        and left["test_start"] == right["test_start"]
                         and left["test_end"] == right["test_end"]
                         and left_observations == right_observations
                     ) else "FAIL"
@@ -256,10 +276,31 @@ def audit_reports(
 
     fingerprints = []
     execution = []
+    seed_mirrors = []
     ppo_timeseries = []
     benchmark_timeseries = []
     cost_records = []
     for left, right in paired:
+        if selected_seed is not None:
+            per_seed = right.get("ppo_by_seed")
+            if not isinstance(per_seed, list):
+                seed_mirrors.append("INCONCLUSIVE")
+            else:
+                mirrors = [
+                    item for item in per_seed
+                    if isinstance(item, dict) and item.get("seed") == selected_seed
+                ]
+                left_metrics = left.get("metrics")
+                if len(mirrors) != 1 or not isinstance(left_metrics, dict):
+                    seed_mirrors.append("INCONCLUSIVE")
+                else:
+                    mirror_metrics = mirrors[0].get("metrics")
+                    seed_mirrors.append(
+                        "INCONCLUSIVE" if not isinstance(mirror_metrics, dict)
+                        else "PASS" if mirror_metrics == left_metrics
+                        else "FAIL"
+                    )
+
         ppo_hash = left.get("execution_data_fingerprint")
         benchmark_hash = right.get("execution_data_fingerprint")
         fingerprints.append(
@@ -301,6 +342,8 @@ def audit_reports(
     checks["ppo_daily_exposure_trace"] = _aggregate(ppo_timeseries)
     checks["benchmark_daily_exposure_trace"] = _aggregate(benchmark_timeseries)
     checks["reported_cost_values"] = _aggregate(cost_records)
+    if selected_seed is not None:
+        checks["multi_seed_ppo_mirror"] = _aggregate(seed_mirrors)
     statuses = set(checks.values())
     status = "FAIL" if "FAIL" in statuses else (
         "INCONCLUSIVE" if "INCONCLUSIVE" in statuses else "PASS"

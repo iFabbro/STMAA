@@ -51,6 +51,32 @@ def _multi_seed_report():
     return ppo
 
 
+
+def _attach_benchmark_seed_mirror(ppo, benchmark, seed):
+    """Mirror the selected walk-forward PPO metrics into benchmark fold evidence."""
+    if "runs" in ppo:
+        matches = [run for run in ppo["runs"] if run.get("seed") == seed]
+        assert len(matches) == 1
+        metrics_by_fold = {
+            fold["fold"]: fold["metrics"] for fold in matches[0]["folds"]
+        }
+    else:
+        metrics_by_fold = {}
+        for fold in ppo["folds"]:
+            matches = [
+                item for item in fold.get("ppo_by_seed", [])
+                if item.get("seed") == seed
+            ]
+            assert len(matches) == 1
+            metrics_by_fold[fold["fold"]] = matches[0]["metrics"]
+
+    for fold in benchmark["folds"]:
+        fold["ppo_by_seed"] = [{
+            "seed": seed,
+            "metrics": copy.deepcopy(metrics_by_fold[fold["fold"]]),
+        }]
+
+
 def test_methodology_audit_passes_when_all_required_report_evidence_matches():
     result = audit_reports(*_reports())
     assert result["status"] == "PASS"
@@ -61,7 +87,9 @@ def test_methodology_audit_passes_when_all_required_report_evidence_matches():
 
 def test_multi_seed_audit_passes_only_for_explicitly_selected_seed():
     _, benchmark = _reports()
-    result = audit_reports(_multi_seed_report(), benchmark, ppo_seed=42)
+    ppo = _multi_seed_report()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
     assert result["fold_count"] == 1
@@ -147,6 +175,7 @@ def test_methodology_audit_marks_fold_count_mismatch_as_fail():
 
 def test_cli_accepts_explicit_ppo_seed_for_multi_seed_report(tmp_path):
     ppo, benchmark = _multi_seed_report(), _reports()[1]
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     ppo_path = tmp_path / "ppo.json"
     benchmark_path = tmp_path / "benchmark.json"
     output_path = tmp_path / "audit.json"
@@ -214,6 +243,7 @@ def _seed_results_report():
 def test_seed_results_audit_uses_explicit_seed_and_top_level_provenance():
     ppo = _seed_results_report()
     _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     result = audit_reports(ppo, benchmark, ppo_seed=42)
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
@@ -269,6 +299,7 @@ def test_seed_results_audit_rejects_missing_or_duplicate_fold_provenance():
 def test_seed_results_cli_accepts_explicit_seed(tmp_path):
     ppo = _seed_results_report()
     _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     ppo_path = tmp_path / "ppo.json"
     benchmark_path = tmp_path / "benchmark.json"
     output_path = tmp_path / "audit.json"

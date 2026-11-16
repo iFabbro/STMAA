@@ -159,7 +159,7 @@ def _select_ppo_folds(
             return None, ppo_seed, "INCONCLUSIVE", (
                 f"Selected seed {ppo_seed} fold_count does not match its folds list."
             )
-        if any(item.get("seed", ppo_seed) != ppo_seed for item in folds):
+        if any(item.get("seed") != ppo_seed for item in folds):
             return None, ppo_seed, "INCONCLUSIVE", (
                 f"Selected seed {ppo_seed} contains a fold with conflicting seed metadata."
             )

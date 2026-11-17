@@ -1,5 +1,7 @@
 """Tests for read-only multi-seed benchmark report consistency auditing."""
 
+import copy
+
 from benchmark_results_audit import audit_multi_seed_benchmark_report
 
 
@@ -34,8 +36,8 @@ def _report():
                     "exposure_matched_outperformed_ppo": None,
                 },
             }
-            comparisons.append(row)
-            ppo_by_seed.append({"seed": seed, "metrics": row["ppo"]})
+            comparisons.append(copy.deepcopy(row))
+            ppo_by_seed.append({"seed": seed, "metrics": copy.deepcopy(row["ppo"])})
         shared_folds.append({
             "fold": fold_id,
             "equal_weight_buy_and_hold": {"total_return": ew},

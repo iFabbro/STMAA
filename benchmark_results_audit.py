@@ -260,10 +260,24 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                     elif result.get(key) != summary_row.get(key):
                         counters_ok = False
                         issues.append(f"Seed {seed} summary.per_seed {key} differs from seed_results.")
-            for key in ("mean_ppo_fold_return", "median_ppo_fold_return"):
-                if not _close(result.get(key), summary_row.get(key)):
-                    counters_ok = False
-                    issues.append(f"Seed {seed} summary.per_seed {key} differs from seed_results.")
+            ppo_returns = [
+                _number(row.get("ppo", {}).get("total_return"))
+                for row in rows if isinstance(row, dict)
+                and isinstance(row.get("ppo"), dict)
+            ]
+            ppo_returns = [value for value in ppo_returns if value is not None]
+            if len(ppo_returns) != fold_count:
+                counters_ok = False
+                issues.append(f"Seed {seed} has incomplete PPO fold returns for mean/median checks.")
+            else:
+                expected_ppo_summary = {
+                    "mean_ppo_fold_return": sum(ppo_returns) / len(ppo_returns),
+                    "median_ppo_fold_return": float(statistics.median(ppo_returns)),
+                }
+                for key, value in expected_ppo_summary.items():
+                    if not _close(result.get(key), value) or not _close(summary_row.get(key), value):
+                        counters_ok = False
+                        issues.append(f"Seed {seed} {key} differs from its fold-level PPO returns.")
     checks["summary_counter_consistency"] = "PASS" if counters_ok else "FAIL"
 
     summary_ok = True

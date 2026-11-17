@@ -51,6 +51,34 @@ def _multi_seed_report():
     return ppo
 
 
+
+def _attach_benchmark_seed_mirror(ppo, benchmark, seed):
+    """Mirror the selected walk-forward PPO metrics into benchmark fold evidence."""
+    if "runs" in ppo:
+        matches = [run for run in ppo["runs"] if run.get("seed") == seed]
+        assert len(matches) == 1
+        for fold in matches[0]["folds"]:
+            fold["seed"] = seed
+        metrics_by_fold = {
+            fold["fold"]: fold["metrics"] for fold in matches[0]["folds"]
+        }
+    else:
+        metrics_by_fold = {}
+        for fold in ppo["folds"]:
+            matches = [
+                item for item in fold.get("ppo_by_seed", [])
+                if item.get("seed") == seed
+            ]
+            assert len(matches) == 1
+            metrics_by_fold[fold["fold"]] = matches[0]["metrics"]
+
+    for fold in benchmark["folds"]:
+        fold["ppo_by_seed"] = [{
+            "seed": seed,
+            "metrics": copy.deepcopy(metrics_by_fold[fold["fold"]]),
+        }]
+
+
 def test_methodology_audit_passes_when_all_required_report_evidence_matches():
     result = audit_reports(*_reports())
     assert result["status"] == "PASS"
@@ -61,7 +89,9 @@ def test_methodology_audit_passes_when_all_required_report_evidence_matches():
 
 def test_multi_seed_audit_passes_only_for_explicitly_selected_seed():
     _, benchmark = _reports()
-    result = audit_reports(_multi_seed_report(), benchmark, ppo_seed=42)
+    ppo = _multi_seed_report()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
     assert result["fold_count"] == 1
@@ -147,6 +177,7 @@ def test_methodology_audit_marks_fold_count_mismatch_as_fail():
 
 def test_cli_accepts_explicit_ppo_seed_for_multi_seed_report(tmp_path):
     ppo, benchmark = _multi_seed_report(), _reports()[1]
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     ppo_path = tmp_path / "ppo.json"
     benchmark_path = tmp_path / "benchmark.json"
     output_path = tmp_path / "audit.json"
@@ -214,6 +245,7 @@ def _seed_results_report():
 def test_seed_results_audit_uses_explicit_seed_and_top_level_provenance():
     ppo = _seed_results_report()
     _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     result = audit_reports(ppo, benchmark, ppo_seed=42)
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
@@ -269,6 +301,7 @@ def test_seed_results_audit_rejects_missing_or_duplicate_fold_provenance():
 def test_seed_results_cli_accepts_explicit_seed(tmp_path):
     ppo = _seed_results_report()
     _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
     ppo_path = tmp_path / "ppo.json"
     benchmark_path = tmp_path / "benchmark.json"
     output_path = tmp_path / "audit.json"
@@ -285,3 +318,46 @@ def test_seed_results_cli_accepts_explicit_seed(tmp_path):
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert result["status"] == "PASS"
     assert result["selected_seed"] == 42
+
+
+def test_multi_seed_audit_fails_when_benchmark_seed_mirror_metrics_differ():
+    ppo = _multi_seed_report()
+    _, benchmark = _reports()
+    _attach_benchmark_seed_mirror(ppo, benchmark, 42)
+    benchmark["folds"][0]["ppo_by_seed"][0]["metrics"]["total_return"] = 0.99
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["multi_seed_ppo_mirror"] == "FAIL"
+
+
+def test_multi_seed_audit_is_inconclusive_when_benchmark_seed_mirror_is_missing():
+    ppo = _multi_seed_report()
+    _, benchmark = _reports()
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["multi_seed_ppo_mirror"] == "INCONCLUSIVE"
+
+
+def test_multi_seed_audit_rejects_walk_forward_fold_count_mismatch():
+    ppo = _multi_seed_report()
+    ppo["runs"][0]["fold_count"] = 99
+    _, benchmark = _reports()
+
+    result = audit_reports(ppo, benchmark, ppo_seed=42)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert "fold_count does not match" in result["reason"]
+
+
+def test_methodology_audit_fails_when_fold_ids_differ_even_if_dates_match():
+    ppo, benchmark = _reports()
+    benchmark["folds"][0]["fold"] = 2
+
+    result = audit_reports(ppo, benchmark)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["fold_alignment"] == "FAIL"

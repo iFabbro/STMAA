@@ -204,3 +204,58 @@ def test_comparison_fails_closed_when_execution_data_fingerprint_differs():
     report["folds"][0]["execution_data_fingerprint"] = "0" * 64
     with pytest.raises(ValueError, match="fingerprint mismatch"):
         compare_walk_forward_report(_history(), report)
+
+
+
+def test_multi_seed_comparison_builds_a_distinct_exposure_matched_baseline_per_seed():
+    from benchmark_walk_forward import compare_multi_seed_walk_forward_report
+
+    base = _report()
+    fold = {
+        "fold": 1, "training_start": "2023-01-02", "training_end": "2024-01-02",
+        "test_start": "2024-01-03", "test_end": "2024-01-05",
+        "training_observations": 250, "test_observations": 3,
+    }
+    timestamps = [str(_history().index[2]), str(_history().index[3])]
+    base["runs"] = [
+        {
+            "seed": 11, "fold_count": 1,
+            "folds": [{
+                **fold,
+                "metrics": {
+                    "total_return": 0.01,
+                    "timeseries": [
+                        {"timestamp": timestamp, "target_weights": [0.2, 0.2]}
+                        for timestamp in timestamps
+                    ],
+                },
+            }],
+        },
+        {
+            "seed": 22, "fold_count": 1,
+            "folds": [{
+                **fold,
+                "metrics": {
+                    "total_return": 0.02,
+                    "timeseries": [
+                        {"timestamp": timestamp, "target_weights": [0.1, 0.1]}
+                        for timestamp in timestamps
+                    ],
+                },
+            }],
+        },
+    ]
+    base.pop("folds")
+    result = compare_multi_seed_walk_forward_report(
+        _history(), base, include_timeseries=True
+    )
+
+    matched = result["folds"][0]["ppo_exposure_matched_equal_weight_by_seed"]
+    assert [item["seed"] for item in matched] == [11, 22]
+    assert [item["status"] for item in matched] == ["AVAILABLE", "AVAILABLE"]
+    assert [
+        item["metrics"]["timeseries"][0]["target_gross_exposure"]
+        for item in matched
+    ] == pytest.approx([0.4, 0.2])
+    assert result["seed_results"][0]["exposure_matched_available_fold_count"] == 1
+    assert result["seed_results"][1]["exposure_matched_available_fold_count"] == 1

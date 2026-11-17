@@ -221,6 +221,44 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                 if result.get(key) != value or summary_row.get(key) != value:
                     counters_ok = False
                     issues.append(f"Seed {seed} {key} differs from the fold-level comparisons.")
+            if "exposure_matched_available_fold_count" in result:
+                matched_rows = [
+                    row for row in rows
+                    if isinstance(row, dict)
+                    and row.get("ppo_exposure_matched_equal_weight_status") == "AVAILABLE"
+                ]
+                matched_returns = [
+                    float(row["ppo_exposure_matched_equal_weight"]["total_return"])
+                    for row in matched_rows
+                ]
+                matched_expected = {
+                    "exposure_matched_available_fold_count": len(matched_rows),
+                    "exposure_matched_equal_weight_return_wins": sum(
+                        row.get("comparison", {}).get("exposure_matched_outperformed_ppo") is True
+                        for row in matched_rows
+                    ),
+                    "mean_exposure_matched_equal_weight_fold_return": (
+                        sum(matched_returns) / len(matched_returns) if matched_returns else None
+                    ),
+                    "median_exposure_matched_equal_weight_fold_return": (
+                        float(__import__("statistics").median(matched_returns))
+                        if matched_returns else None
+                    ),
+                }
+                for key, value in matched_expected.items():
+                    if key not in result or key not in summary_row:
+                        counters_ok = False
+                        issues.append(f"Seed {seed} is missing matched-exposure summary field {key}.")
+                    elif value is None:
+                        if result.get(key) is not None or summary_row.get(key) is not None:
+                            counters_ok = False
+                            issues.append(f"Seed {seed} {key} should be null with no available matched folds.")
+                    elif result.get(key) != value if isinstance(value, int) else not _close(result.get(key), value):
+                        counters_ok = False
+                        issues.append(f"Seed {seed} {key} differs from its matched fold results.")
+                    elif result.get(key) != summary_row.get(key):
+                        counters_ok = False
+                        issues.append(f"Seed {seed} summary.per_seed {key} differs from seed_results.")
             for key in ("mean_ppo_fold_return", "median_ppo_fold_return"):
                 if not _close(result.get(key), summary_row.get(key)):
                     counters_ok = False

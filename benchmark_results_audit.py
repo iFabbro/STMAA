@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -241,7 +242,7 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                         sum(matched_returns) / len(matched_returns) if matched_returns else None
                     ),
                     "median_exposure_matched_equal_weight_fold_return": (
-                        float(__import__("statistics").median(matched_returns))
+                        float(statistics.median(matched_returns))
                         if matched_returns else None
                     ),
                 }

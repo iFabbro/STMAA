@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _normalize_json_value(value: Any, path: str = "$ ") -> Any:
+def _normalize_json_value(value: Any, path: str = "$") -> Any:
     """Convert supported mappings/sequences to the JSON data model."""
     if isinstance(value, Mapping):
         normalized = {}

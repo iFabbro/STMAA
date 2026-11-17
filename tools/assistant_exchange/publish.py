@@ -22,7 +22,7 @@ SECRET_PATTERNS = [
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?token|refresh[_-]?token|password)\s*[\\"']?\s*[:=]\s*[\\"']?[A-Za-z0-9_./+=-]{12,}"),
+    re.compile(r"(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?token|refresh[_-]?token|password)\s*[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{12,}"),
     re.compile(r"\bPK[A-Z0-9]{18}\b"),
 ]
 

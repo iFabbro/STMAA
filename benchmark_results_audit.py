@@ -228,10 +228,16 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                     if isinstance(row, dict)
                     and row.get("ppo_exposure_matched_equal_weight_status") == "AVAILABLE"
                 ]
-                matched_returns = [
-                    float(row["ppo_exposure_matched_equal_weight"]["total_return"])
-                    for row in matched_rows
-                ]
+                matched_returns = []
+                for row in matched_rows:
+                    metrics = row.get("ppo_exposure_matched_equal_weight")
+                    value = _number(metrics.get("total_return")) if isinstance(metrics, dict) else None
+                    if value is None:
+                        counters_ok = False
+                        issues.append(f"Seed {seed} has an AVAILABLE matched fold without finite total_return.")
+                    else:
+                        matched_returns.append(value)
+                matched_complete = len(matched_returns) == len(matched_rows)
                 matched_expected = {
                     "exposure_matched_available_fold_count": len(matched_rows),
                     "exposure_matched_equal_weight_return_wins": sum(
@@ -239,7 +245,7 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                         for row in matched_rows
                     ),
                     "mean_exposure_matched_equal_weight_fold_return": (
-                        sum(matched_returns) / len(matched_returns) if matched_returns else None
+                        sum(matched_returns) / len(matched_returns) if matched_rows and matched_complete else None
                     ),
                     "median_exposure_matched_equal_weight_fold_return": (
                         float(statistics.median(matched_returns))

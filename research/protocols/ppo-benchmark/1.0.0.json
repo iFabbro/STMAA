@@ -709,7 +709,7 @@
       "exchange_manifest": {
         "path": "reports/assistant_exchange/latest/manifest.json",
         "git_blob_sha": "e934b07df869e4cf0a243c0fe0ab501055f2dbb0",
-        "sha256": "e934b07df869e4cf0a243c0fe0ab501055f2dbb0",
+        "sha256": "929c9154bf8aa8024f364a595db43543039b282f8aa9771ef6cdeb93eb331473",
         "published_at_utc": "2026-11-17T00:20:00.495358+00:00"
       },
       "reports": [
@@ -736,7 +736,8 @@
         "fold_date_mismatches": 0,
         "observation_count_mismatches": 0,
         "benchmark_fold_execution_identity_pass": 11,
-        "exposure_matched_equal_weight_inconclusive_folds": 11
+        "exposure_matched_equal_weight_inconclusive_folds": 11,
+        "seed_comparison_mirrors_checked": 33
       },
       "scope_limitations": [
         "These checks verify report bytes and internal/cross-report consistency; they do not execute the repository auditor scripts.",

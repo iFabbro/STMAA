@@ -8,20 +8,23 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _validate_json_value(value: Any, path: str = "$",) -> None:
-    """Reject values that JSON cannot represent consistently."""
+def _normalize_json_value(value: Any, path: str = "$ ") -> Any:
+    """Convert supported mappings/sequences to the JSON data model."""
     if isinstance(value, Mapping):
+        normalized = {}
         for key, child in value.items():
             if not isinstance(key, str):
                 raise TypeError(f"JSON object key at {path} must be a string")
-            _validate_json_value(child, f"{path}.{key}")
-    elif isinstance(value, (list, tuple)):
-        for index, child in enumerate(value):
-            _validate_json_value(child, f"{path}[{index}]")
-    elif value is None or isinstance(value, (str, bool, int, float)):
-        return
-    else:
-        raise TypeError(f"Unsupported JSON value at {path}: {type(value).__name__}")
+            normalized[key] = _normalize_json_value(child, f"{path}.{key}")
+        return normalized
+    if isinstance(value, (list, tuple)):
+        return [
+            _normalize_json_value(child, f"{path}[{index}]")
+            for index, child in enumerate(value)
+        ]
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    raise TypeError(f"Unsupported JSON value at {path}: {type(value).__name__}")
 
 
 def canonicalize_protocol(protocol: Mapping[str, Any]) -> bytes:
@@ -34,9 +37,9 @@ def canonicalize_protocol(protocol: Mapping[str, Any]) -> bytes:
     """
     if not isinstance(protocol, Mapping):
         raise TypeError("protocol must be a mapping")
-    _validate_json_value(protocol)
+    normalized = _normalize_json_value(protocol)
     serialized = json.dumps(
-        protocol,
+        normalized,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,

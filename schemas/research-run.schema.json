@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iFabbro/STMAA/blob/main/schemas/research-run.schema.json",
+  "title": "STMAA Research Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "experiment_id", "run_id", "execution_id", "protocol_id", "protocol_version", "protocol_fingerprint", "repository", "git_commit", "worktree_clean", "started_at", "outcome", "evidence"],
+  "properties": {
+    "record_type": {"const": "research_run"},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "execution_id": {"type": "string", "minLength": 1},
+    "protocol_id": {"type": "string", "minLength": 1},
+    "protocol_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "protocol_fingerprint": {"$ref": "#/$defs/sha256"},
+    "repository": {"type": "string", "minLength": 1},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "git_ref": {"type": ["string", "null"]},
+    "worktree_clean": {"type": ["boolean", "null"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": ["string", "null"], "format": "date-time"},
+    "outcome": {"enum": ["SUCCESS", "FAILED", "ABORTED", "UNKNOWN"]},
+    "environment": {"type": "object"},
+    "dataset": {"type": "object"},
+    "configuration_fingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "seed": {"type": ["integer", "null"]},
+    "fold": {"type": ["string", "integer", "null"]},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "audits": {"type": "array", "items": {"type": "object"}}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

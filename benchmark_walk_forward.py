@@ -335,9 +335,8 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
         ):
             raise ValueError("Multi-seed PPO fold is missing total_return metrics")
 
-    # A single benchmark schedule cannot represent several distinct PPO
-    # exposure schedules. Keep multi-seed exposure matching explicitly
-    # inconclusive until a per-seed comparator is computed.
+    # Static benchmarks are shared once per market fold. Exposure-matched
+    # comparators are seed-specific and must use each seed's own PPO trace.
     reference_folds_for_benchmark = []
     for fold in reference_folds:
         benchmark_fold = dict(fold)
@@ -348,7 +347,10 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
     single = {**ppo_report, "folds": reference_folds_for_benchmark}
     single.pop("runs", None)
     comparison = compare_walk_forward_report(history, single, include_timeseries=include_timeseries)
+    parameters = ppo_report["training_parameters"]
+    tickers = ppo_report["data"]["tickers"]
     per_seed = []
+    matched_by_seed_fold = {}
     for run in runs:
         seed_rows = []
         for index, fold in enumerate(run["folds"]):
@@ -358,9 +360,32 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
             ew = float(base["equal_weight_buy_and_hold"]["total_return"])
             spy50 = float(base["spy_50pct_exposure"]["total_return"])
             spy100 = float(base["spy_100pct_exposure"]["total_return"])
+            testing = history.loc[
+                pd.Timestamp(base["test_start"]):pd.Timestamp(base["test_end"])
+            ].copy()
+            trace = metrics.get("timeseries")
+            if isinstance(trace, list) and len(trace) == len(testing) - 1:
+                matched = evaluate_exposure_matched_equal_weight(
+                    testing, tickers, trace,
+                    initial_capital=float(parameters["initial_capital"]),
+                    transaction_cost=float(parameters["transaction_cost"]),
+                    slippage=float(parameters["slippage"]),
+                    max_position_size=float(parameters["max_position_size"]),
+                    include_timeseries=include_timeseries,
+                )
+                matched_status = "AVAILABLE"
+            else:
+                matched = None
+                matched_status = "INCONCLUSIVE"
+            matched_by_seed_fold[(run["seed"], index)] = {
+                "seed": run["seed"], "status": matched_status, "metrics": matched,
+            }
+            matched_return = float(matched["total_return"]) if matched is not None else None
             seed_rows.append({
                 "fold": fold["fold"],
                 "ppo": metrics,
+                "ppo_exposure_matched_equal_weight": matched,
+                "ppo_exposure_matched_equal_weight_status": matched_status,
                 "comparison": {
                     "equal_weight_return_difference_percentage_points": (ew - ppo_return) * 100.0,
                     "spy_50pct_return_difference_percentage_points": (spy50 - ppo_return) * 100.0,
@@ -368,9 +393,23 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
                     "equal_weight_outperformed_ppo": ew > ppo_return,
                     "spy_50pct_outperformed_ppo": spy50 > ppo_return,
                     "spy_100pct_outperformed_ppo": spy100 > ppo_return,
+                    "exposure_matched_return_difference_percentage_points": (
+                        (matched_return - ppo_return) * 100.0 if matched_return is not None else None
+                    ),
+                    "exposure_matched_outperformed_ppo": (
+                        matched_return > ppo_return if matched_return is not None else None
+                    ),
                 },
             })
         returns = [float(row["ppo"]["total_return"]) for row in seed_rows]
+        matched_rows = [
+            row for row in seed_rows
+            if row["ppo_exposure_matched_equal_weight_status"] == "AVAILABLE"
+        ]
+        matched_returns = [
+            float(row["ppo_exposure_matched_equal_weight"]["total_return"])
+            for row in matched_rows
+        ]
         per_seed.append({
             "seed": run["seed"], "fold_count": len(seed_rows),
             "equal_weight_return_wins": sum(row["comparison"]["equal_weight_outperformed_ppo"] for row in seed_rows),
@@ -378,6 +417,17 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
             "spy_100pct_return_wins": sum(row["comparison"]["spy_100pct_outperformed_ppo"] for row in seed_rows),
             "mean_ppo_fold_return": sum(returns) / len(returns),
             "median_ppo_fold_return": float(pd.Series(returns).median()),
+            "exposure_matched_available_fold_count": len(matched_rows),
+            "exposure_matched_equal_weight_return_wins": sum(
+                row["comparison"]["exposure_matched_outperformed_ppo"] is True
+                for row in matched_rows
+            ),
+            "mean_exposure_matched_equal_weight_fold_return": (
+                sum(matched_returns) / len(matched_returns) if matched_returns else None
+            ),
+            "median_exposure_matched_equal_weight_fold_return": (
+                float(pd.Series(matched_returns).median()) if matched_returns else None
+            ),
             "folds": seed_rows,
         })
     for index, base in enumerate(comparison["folds"]):
@@ -387,6 +437,9 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
             for run in runs
         ]
         base["seed_comparisons"] = [seed["folds"][index] for seed in per_seed]
+        base["ppo_exposure_matched_equal_weight_by_seed"] = [
+            matched_by_seed_fold[(run["seed"], index)] for run in runs
+        ]
     comparison["method"] = "independent_fold_multi_seed_ppo_vs_equal_weight_and_spy"
     comparison["seeds"] = seeds
     # Remove the single-seed summary inherited from the reference run: it would

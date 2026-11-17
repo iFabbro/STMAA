@@ -1,0 +1,666 @@
+{
+  "protocol_id": "ppo-benchmark",
+  "protocol_version": "1.0.0",
+  "status": "draft",
+  "description": "Draft protocol for evaluating STMAA PPO through independent expanding-window walk-forward folds and execution-aligned passive benchmarks. This draft records observed historical settings but does not retroactively certify prior runs.",
+  "research_objective": "Evaluate whether the STMAA PPO policy demonstrates repeatable out-of-sample behavior relative to passive equal-weight and SPY references under explicitly modeled transaction costs, slippage, allocation limits, and matched execution dates.",
+  "hypothesis": "The research question is whether PPO adds value beyond the declared passive references across the same out-of-sample market folds and random seeds after modeled costs. No positive outcome, statistical significance, or acceptance threshold is assumed by this draft.",
+  "methodology": {
+    "evidence_status_legend": {
+      "CONFIRMED": "Directly supported by checked repository documentation or implementation, or by the published exchange manifest/report metadata.",
+      "REPORTED_NOT_BYTE_REVERIFIED": "Declared by the existing report summary or exchange manifest, but the large report bytes were not independently re-hashed in this review.",
+      "CODE_DEFAULT_ONLY": "A current implementation default; not sufficient by itself to prove that a historical run used the value.",
+      "UNKNOWN": "Not established by the inspected evidence; must remain unresolved before release or acceptance.",
+      "APPROVAL_REQUIRED": "A methodological choice requiring explicit human approval."
+    },
+    "experiment_scope": {
+      "research_family": {
+        "value": "PPO walk-forward benchmark comparison",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md",
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "historical_multi_seed_report": {
+        "value": "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "assistant-exchange:reports/assistant_exchange/latest/manifest.json"
+        ],
+        "note": "The exchange manifest declares this report and its SHA-256; raw report bytes were not available through the file-content response during this review."
+      },
+      "historical_benchmark_report": {
+        "value": "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "assistant-exchange:reports/assistant_exchange/latest/manifest.json"
+        ],
+        "note": "The exchange manifest declares this report and its SHA-256; raw report bytes were not available through the file-content response during this review."
+      },
+      "seeds": {
+        "value": [
+          42,
+          7,
+          21
+        ],
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "report filenames",
+          "assistant-exchange manifest"
+        ]
+      },
+      "seed_selection_rule": {
+        "value": "All declared seeds are evaluated independently; no seed may be selected post hoc as the sole representative without an explicitly documented reason.",
+        "status": "APPROVAL_REQUIRED",
+        "note": "The final reporting and any selection of a primary seed must be approved before protocol release."
+      }
+    },
+    "universe_and_data": {
+      "tickers": {
+        "value": [
+          "AAPL",
+          "GOOGL",
+          "MSFT",
+          "AMZN",
+          "TSLA",
+          "NVDA",
+          "META"
+        ],
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "existing PPO report summary",
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "benchmark_ticker": {
+        "value": "SPY",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md",
+          "benchmark_walk_forward.py"
+        ],
+        "note": "SPY is a benchmark only and must not be included in the PPO training universe."
+      },
+      "provider_and_feed": {
+        "value": "Alpaca SIP",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "note": "The historical run summary identifies SIP. The report's full market_data_contract/feed metadata must be extracted and checked before release."
+      },
+      "bar_timeframe": {
+        "value": "1Day",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "note": "Historical run summary identifies daily bars; raw report metadata still requires direct verification."
+      },
+      "historical_coverage": {
+        "value": {
+          "start": "2018-01-30",
+          "end": "2026-11-06",
+          "observations": 2206
+        },
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "note": "Dates and observation count are reported for the existing multi-seed walk-forward evidence; re-check against raw report before release."
+      },
+      "date_boundary_semantics": {
+        "value": "Not yet fully specified for the protocol; walk_forward.py CLI defines --start-date inclusive and --end-date exclusive.",
+        "status": "CONFIRMED",
+        "source": [
+          "walk_forward.py"
+        ]
+      },
+      "universe_selection_rule": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "No point-in-time constituent selection or documented ex-ante rationale for the seven symbols has been established. Survivorship and selection bias remain unresolved."
+      },
+      "point_in_time_membership": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "No point-in-time universe membership dataset has been evidenced."
+      },
+      "corporate_action_adjustment_policy": {
+        "value": null,
+        "status": "UNKNOWN"
+      },
+      "timezone_exchange_calendar_and_session_policy": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "Must identify the exact market calendar, timestamp timezone, daily bar labeling, holidays, and early-close handling."
+      },
+      "missing_data_policy": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The exact historical data gap, stale-data, and symbol-specific missing-row policy must be documented from the producer and report."
+      },
+      "dataset_snapshot_sha256": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The exchange manifest hashes report files, not the original market-data input snapshot."
+      },
+      "execution_panel_fingerprint": {
+        "value": "Per-fold SHA-256 over ordered execution timestamps and Open/Close values for each PPO ticker.",
+        "status": "CONFIRMED",
+        "source": [
+          "src/backtest/benchmark_methodology.py",
+          "docs/PPO_BENCHMARK_METHODOLOGY_AUDIT.md"
+        ]
+      }
+    },
+    "temporal_design": {
+      "method": {
+        "value": "expanding_window",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md",
+          "existing walk-forward report summary"
+        ]
+      },
+      "fold_count": {
+        "value": 11,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "minimum_training_observations": {
+        "value": 756,
+        "status": "CODE_DEFAULT_ONLY",
+        "source": [
+          "walk_forward.py"
+        ],
+        "note": "CLI default; confirm the exact value in the historical report before treating it as run fact."
+      },
+      "test_observations": {
+        "value": 126,
+        "status": "CODE_DEFAULT_ONLY",
+        "source": [
+          "walk_forward.py"
+        ],
+        "note": "CLI default; confirm the exact value in the historical report before treating it as run fact."
+      },
+      "step_observations": {
+        "value": 126,
+        "status": "CODE_DEFAULT_ONLY",
+        "source": [
+          "walk_forward.py"
+        ],
+        "note": "When omitted, implementation uses the test window size; confirm historical report metadata."
+      },
+      "fold_order_and_overlap": {
+        "value": "Chronological expanding training windows; test windows are chronological and non-overlapping; each fold trains a fresh PPO agent.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md",
+          "src/backtest/walk_forward.py"
+        ]
+      },
+      "fold_portfolio_reset": {
+        "value": "Each fold starts from independent all-cash capital; no positions or equity are carried across folds.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md",
+          "src/backtest/walk_forward.py"
+        ]
+      },
+      "embargo_and_purge": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "No explicit embargo/purge rule is established in the inspected method. Adjacent chronological windows alone do not constitute an embargo."
+      },
+      "feature_causality": {
+        "value": "Current documented feature calculations are causal; future-perturbation regression test exists.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md"
+        ]
+      },
+      "repeated_test_inspection_risk": {
+        "value": "Repeated inspection of reported test windows can induce research-selection bias; protocol must record all experiment iterations and decisions.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md"
+        ]
+      }
+    },
+    "model_and_observation_contract": {
+      "algorithm": {
+        "value": "Proximal Policy Optimization (PPO), Stable-Baselines3",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py",
+          "pyproject.toml"
+        ]
+      },
+      "model_contract_version": {
+        "value": 7,
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ]
+      },
+      "observation_contract": {
+        "value": "dimensionless_ohlc_features_v1",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ]
+      },
+      "observation_state_dimension": {
+        "value": 43,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "note": "Consistent with 7 assets × 5 market features + 7 holdings weights + 1 cash feature; verify against the report/model manifest."
+      },
+      "per_asset_market_features": {
+        "value": [
+          "Close",
+          "RSI",
+          "MACD",
+          "BB_middle",
+          "ATR"
+        ],
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ]
+      },
+      "lookback_observations": {
+        "value": 20,
+        "status": "CODE_DEFAULT_ONLY",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ],
+        "note": "Implementation default; historical run value must be checked in its manifest/config."
+      },
+      "action_and_allocation": {
+        "value": "Long-only target weights; action scores clipped to [0,1], normalized, then capped; unused allocation remains cash.",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ]
+      },
+      "existing_model_artifact_identity": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The exact artifact SHA-256 and full manifest must be attached as evidence for each governed run; a truncated artifact filename is not sufficient."
+      }
+    },
+    "training_parameters": {
+      "random_seeds": {
+        "value": [
+          42,
+          7,
+          21
+        ],
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "requested_timesteps_per_fold": {
+        "value": 50000,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "runtime_timesteps_per_fold": {
+        "value": 51200,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "note": "Reported runtime count after PPO rollout-step alignment; preserve separately from requested timesteps."
+      },
+      "learning_rate": {
+        "value": 0.0003,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "src/backtest/walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "n_steps": {
+        "value": 2048,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "src/backtest/walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "batch_size": {
+        "value": 64,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "src/backtest/walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "n_epochs": {
+        "value": 10,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "src/backtest/walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "gamma": {
+        "value": 0.99,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "source": [
+          "src/backtest/walk_forward.py default",
+          "existing run summary"
+        ]
+      },
+      "other_optimizer_and_policy_parameters": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "Complete Stable-Baselines3 policy, optimizer, entropy, value-function, clipping, and device settings must be captured from the training configuration or model manifest."
+      }
+    },
+    "portfolio_and_cost_model": {
+      "initial_capital": {
+        "value": 100000,
+        "currency": "USD",
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "max_position_weight": {
+        "value": 0.2,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "max_gross_exposure": {
+        "value": 0.5,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "transaction_cost_rate": {
+        "value": 0.001,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "slippage_rate": {
+        "value": 0.0005,
+        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+      },
+      "cost_application": {
+        "value": "Turnover-based costs; benchmark documentation states equal transaction-cost and slippage rates are applied at entry and at rebalancing where applicable.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md",
+          "src/backtest/benchmark.py"
+        ]
+      },
+      "financing_borrow_and_dividend_model": {
+        "value": null,
+        "status": "UNKNOWN"
+      },
+      "market_impact_and_partial_fill_model": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The inspected methodology does not establish a calibrated market-impact, queue-position, or partial-fill model."
+      },
+      "leverage_and_shorting": {
+        "value": "Long-only, no leverage above 100% gross exposure; research gross cap is 50%.",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py"
+        ]
+      }
+    },
+    "execution_model": {
+      "decision_timing": {
+        "value": "Observe completed bar t, execute target at bar t+1 Open.",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py",
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "first_entry": {
+        "value": "The first test observation is observed before the first action; first entry is at the Open of the second test observation.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "fill_model": {
+        "value": "Next-bar Open simulation; not a broker fill simulation.",
+        "status": "CONFIRMED",
+        "source": [
+          "src/agents/ppo_agent.py",
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "benchmark_rebalance": {
+        "value": "Static equal-weight buy-and-hold and SPY references buy once and do not rebalance; PPO exposure-matched equal-weight reference rebalances daily at next-bar Open to match the PPO target gross exposure.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md",
+          "benchmark_walk_forward.py"
+        ]
+      },
+      "benchmark_definitions": {
+        "equal_weight_buy_and_hold": {
+          "value": "Equal target scores over the seven PPO tickers; apply PPO per-position and gross exposure caps; clipped residual remains cash; buy once and hold.",
+          "status": "CONFIRMED",
+          "source": [
+            "docs/PPO_BENCHMARK.md",
+            "benchmark_walk_forward.py"
+          ]
+        },
+        "ppo_exposure_matched_equal_weight": {
+          "value": "At each execution bar, distribute that seed's PPO target gross exposure equally across the PPO universe and rebalance daily; requires complete aligned PPO daily target trace.",
+          "status": "CONFIRMED",
+          "source": [
+            "docs/PPO_BENCHMARK.md",
+            "benchmark_walk_forward.py"
+          ]
+        },
+        "spy_50pct_exposure": {
+          "value": "SPY buy-and-hold at fixed 50% gross exposure.",
+          "status": "CONFIRMED",
+          "source": [
+            "docs/PPO_BENCHMARK.md",
+            "benchmark_walk_forward.py"
+          ]
+        },
+        "spy_100pct_exposure": {
+          "value": "SPY buy-and-hold at fixed 100% gross exposure; contextual reference, not exposure matched.",
+          "status": "CONFIRMED",
+          "source": [
+            "docs/PPO_BENCHMARK.md",
+            "benchmark_walk_forward.py"
+          ]
+        }
+      },
+      "multi_seed_exposure_matching": {
+        "value": "Exposure matching must be calculated separately for each seed from that seed's own PPO trace; never borrow or reuse another seed's exposure schedule.",
+        "status": "APPROVAL_REQUIRED",
+        "note": "This is required to preserve seed-specific policy exposure and must be explicitly confirmed in the protocol review."
+      }
+    },
+    "metrics_and_inference": {
+      "metrics": {
+        "value": [
+          "total_return",
+          "max_drawdown",
+          "volatility",
+          "sharpe_ratio",
+          "sortino_ratio",
+          "turnover",
+          "transaction_costs"
+        ],
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md",
+          "src/backtest/performance_metrics.py"
+        ]
+      },
+      "annualization_periods": {
+        "value": 252,
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "risk_free_rate": {
+        "value": 0,
+        "status": "CODE_DEFAULT_ONLY",
+        "source": [
+          "src/backtest/benchmark.py"
+        ],
+        "note": "Confirm that the historical PPO evaluator and all benchmark paths used the same risk-free rate."
+      },
+      "fold_aggregation": {
+        "value": "Descriptive statistics only; fold returns are independent and must not be concatenated or compounded into a continuous track record.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md",
+          "docs/PPO_BENCHMARK.md"
+        ]
+      },
+      "seed_aggregation": {
+        "value": "Report per-seed and per-fold metrics plus descriptive dispersion; do not treat seed-fold observations as independent market periods.",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_WALK_FORWARD.md"
+        ]
+      },
+      "statistical_inference": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "No approved PSR/DSR, bootstrap confidence interval, multiple-testing correction, or formal hypothesis test is specified for this benchmark protocol."
+      },
+      "acceptance_thresholds": {
+        "value": null,
+        "status": "APPROVAL_REQUIRED",
+        "note": "No performance or statistical threshold is inferred from config/report_thresholds.yaml. Thresholds must be explicitly approved or the protocol must state that it is descriptive with no acceptance claim."
+      },
+      "multiple_testing_and_research_selection": {
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The number of prior PPO experiments, hyperparameter trials, inspected seeds, and report iterations must be disclosed before inferential claims."
+      }
+    },
+    "required_fail_closed_rules": [
+      "Missing or ambiguous required provenance is INCONCLUSIVE, never PASS.",
+      "A mismatch in fold dates, observation counts, execution-data fingerprints, seed/fold mirrors, or benchmark parameters blocks a positive audit.",
+      "A missing or incomplete daily PPO trace makes that seed/fold exposure-matched comparator INCONCLUSIVE; do not substitute another seed's trace.",
+      "Do not concatenate or compound independent fold returns.",
+      "Do not describe SPY 100% exposure as an exposure-matched comparison.",
+      "Do not claim market-impact, partial-fill, or live-execution realism absent separate evidence.",
+      "Do not infer acceptance or profitability from a passing audit."
+    ],
+    "auditor_requirements": {
+      "benchmark_methodology_audit": {
+        "value": "benchmark_methodology_audit.py",
+        "status": "CONFIRMED",
+        "source": [
+          "docs/PPO_BENCHMARK_METHODOLOGY_AUDIT.md"
+        ]
+      },
+      "benchmark_results_audit": {
+        "value": "benchmark_results_audit.py",
+        "status": "CONFIRMED",
+        "source": [
+          "benchmark_results_audit.py"
+        ]
+      },
+      "auditor_status_semantics": {
+        "value": [
+          "PASS",
+          "FAIL",
+          "INCONCLUSIVE"
+        ],
+        "status": "CONFIRMED",
+        "note": "All required audit outcomes must be PASS for an eligible decision; INCONCLUSIVE is not PASS."
+      }
+    },
+    "known_limitations": [
+      "The seven-symbol universe has no evidenced point-in-time membership history; survivorship and selection bias remain possible.",
+      "The original market-data snapshot and full provider revision identity are not yet bound to the exchange report manifest.",
+      "Next-bar Open fills are a simplified simulation and do not model broker queue position, market impact, partial fills, or operational latency.",
+      "Repeated inspection of the same OOS windows can cause research-selection bias.",
+      "Independent fold results do not represent a continuous investable portfolio."
+    ],
+    "release_blockers": [
+      "Directly verify all historical report fields, seeds, folds, dates, tickers, parameters, and per-seed exposure-matched results from the report bytes.",
+      "Attach and verify immutable dataset and environment/dependency-lock fingerprints.",
+      "Specify provider/feed, adjustment policy, exchange calendar, timezone, missing-data handling, and universe selection/point-in-time limitations.",
+      "Specify the complete model/training configuration and exact artifact/manifest identities.",
+      "Decide whether this protocol is descriptive only or define approved statistical inference and acceptance criteria.",
+      "Review and explicitly approve seed handling and per-seed exposure matching.",
+      "Resolve or explicitly accept each UNKNOWN item before changing status from draft to released."
+    ]
+  },
+  "required_auditors": [
+    "benchmark_methodology_audit.py",
+    "benchmark_results_audit.py"
+  ],
+  "required_evidence": [
+    "protocol-json-and-sha256-fingerprint",
+    "original-multi-seed-ppo-walk-forward-report-and-manifest",
+    "original-multi-seed-ppo-benchmark-report-and-manifest",
+    "per-seed-benchmark-methodology-audit-report",
+    "multi-seed-benchmark-results-audit-report",
+    "source-commit-and-clean-worktree-provenance",
+    "market-data-contract-and-immutable-dataset-fingerprint",
+    "training-configuration-and-ppo-model-manifest",
+    "python-runtime-and-uv-lock-fingerprint"
+  ],
+  "allowed_deviations": [
+    "No deviation is permitted silently. Any change to universe, data contract, temporal split, training parameters, costs, execution model, benchmark definitions, metrics, or inference rules requires a new protocol version or a separately approved deviation record.",
+    "Legacy reports may be attached as historical evidence but must not be represented as having been governed by this protocol at execution time."
+  ],
+  "metadata": {
+    "created_as": "draft-for-explicit-human-review",
+    "source_main_commit_at_draft": "9a2c604d81ea6c4fc0a61d261b038329968e9d79",
+    "source_commit_declared_by_exchange_manifest": "a885c425e8442f539408dfb41bf2cd24f2e60e07",
+    "exchange_manifest": {
+      "path": "reports/assistant_exchange/latest/manifest.json",
+      "sha256": "e934b07df869e4cf0a243c0fe0ab501055f2dbb0",
+      "published_at_utc": "2026-11-17T00:20:00.495358+00:00",
+      "benchmark_report": {
+        "path": "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json",
+        "bytes": 19042863,
+        "declared_sha256": "1de9cf019d13f4572c63b64c48876c6a3a46e05b3ad808aa4bf92aab487833ce",
+        "git_blob_sha": "7ee96cea2b9892c74ff8b7f320a335561914328a",
+        "verification": "manifest-declared; bytes not independently re-hashed in this review"
+      },
+      "walk_forward_report": {
+        "path": "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+        "bytes": 6009264,
+        "declared_sha256": "ab5de9bb36c53f9c27f1c720864bbd5de30bfdce5d44527c8099515b6881f9e7",
+        "git_blob_sha": "fb7236f6b71542b16ed87d152fc9bdb2dca36944",
+        "verification": "manifest-declared; bytes not independently re-hashed in this review"
+      }
+    },
+    "source_files": [
+      {
+        "path": "docs/PPO_WALK_FORWARD.md",
+        "git_blob_sha": "cde7b208631bd72d04e0b8d2efaa1133383b5447"
+      },
+      {
+        "path": "docs/PPO_BENCHMARK.md",
+        "git_blob_sha": "c28528ea3a8a8a8604fc520043fd40984b00bb7c"
+      },
+      {
+        "path": "docs/PPO_BENCHMARK_METHODOLOGY_AUDIT.md",
+        "git_blob_sha": "e221e594e70db23b7541a0775c606c248b389814"
+      },
+      {
+        "path": "benchmark_walk_forward.py",
+        "git_blob_sha": "2ce74ad802708de2a37f0af5d94bfac50793909d"
+      },
+      {
+        "path": "src/backtest/benchmark_methodology.py",
+        "git_blob_sha": "b3148b9bcaeb029c26cc4e41c917c8c546cc49d0"
+      },
+      {
+        "path": "src/backtest/walk_forward.py",
+        "git_blob_sha": "a5c574fb6df08d52c490b1e8036c295ddab99e18"
+      },
+      {
+        "path": "src/agents/ppo_agent.py",
+        "git_blob_sha": "0f69ff69b7500f5e7e2bdc4114408a2eab21f39c"
+      },
+      {
+        "path": "schemas/research-protocol.schema.json",
+        "git_blob_sha": "a047fda76b9b8082d36724ca6bfc499fc76b6185"
+      }
+    ],
+    "no_retraining_no_regeneration": true,
+    "no_broker_access": true,
+    "no_historical_report_mutation": true,
+    "release_requires_explicit_user_approval": true
+  }
+}

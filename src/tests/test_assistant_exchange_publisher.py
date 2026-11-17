@@ -15,23 +15,23 @@ PUBLISHER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PUBLISHER)
 
 
-def test_publisher_file_limit_is_15_mib() -> None:
-    assert PUBLISHER.MAX_FILE_BYTES == 15 * 1024 * 1024
+def test_publisher_file_limit_is_30_mib() -> None:
+    assert PUBLISHER.MAX_FILE_BYTES == 30 * 1024 * 1024
 
 
-def test_publisher_accepts_file_at_15_mib(tmp_path: Path) -> None:
+def test_publisher_accepts_file_at_30_mib(tmp_path: Path) -> None:
     source = tmp_path / "at-limit.json"
-    source.write_bytes(b"x" * (15 * 1024 * 1024))
+    source.write_bytes(b"x" * (30 * 1024 * 1024))
 
     data, digest = PUBLISHER.inspect_source(source)
 
-    assert len(data) == 15 * 1024 * 1024
+    assert len(data) == 30 * 1024 * 1024
     assert len(digest) == 64
 
 
-def test_publisher_rejects_file_above_15_mib(tmp_path: Path) -> None:
+def test_publisher_rejects_file_above_30_mib(tmp_path: Path) -> None:
     source = tmp_path / "over-limit.json"
-    source.write_bytes(b"x" * ((15 * 1024 * 1024) + 1))
+    source.write_bytes(b"x" * ((30 * 1024 * 1024) + 1))
 
     with pytest.raises(ValueError, match="Rejected size"):
         PUBLISHER.inspect_source(source)

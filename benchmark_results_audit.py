@@ -117,7 +117,9 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
             and len(results) == len(seeds)
             and all(row.get("fold") == fold_id for row in comparison_rows)
         )
-        if not comparison_map and legacy_comparison_order_ok:
+        if legacy_comparison_order_ok:
+            # A dict keyed by missing seeds contains {None: last_row}; it is
+            # truthy, so testing `not comparison_map` misses the legacy shape.
             comparison_map = dict(zip(seeds, comparison_rows))
 
         if (

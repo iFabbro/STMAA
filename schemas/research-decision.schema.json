@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iFabbro/STMAA/blob/main/schemas/research-decision.schema.json",
+  "title": "STMAA Research Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision_id", "decision", "actor", "timestamp", "experiment_id", "run_id", "execution_id", "protocol_fingerprint", "evidence_fingerprints", "auditor_outcomes", "rationale"],
+  "properties": {
+    "decision_id": {"type": "string", "minLength": 1},
+    "decision": {"enum": ["PENDING", "ACCEPTED", "REJECTED", "INCONCLUSIVE", "WITHDRAWN"]},
+    "actor": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "execution_id": {"type": "string", "minLength": 1},
+    "protocol_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_fingerprints": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "auditor_outcomes": {"type": "array", "items": {"type": "object"}},
+    "rationale": {"type": "string", "minLength": 1},
+    "supersedes_decision_id": {"type": ["string", "null"]},
+    "limitations": {"type": "array", "items": {"type": "string"}, "default": []}
+  }
+}

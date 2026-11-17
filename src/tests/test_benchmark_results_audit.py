@@ -1,4 +1,4 @@
-"""Tests for read-only multi-seed benchmark report consistency auditing."""
+""""Tests for read-only multi-seed benchmark report consistency auditing."""
 
 import copy
 
@@ -21,6 +21,7 @@ def _report():
         for seed in seeds:
             ppo_return = values[fold_id][seed]
             row = {
+                "seed": seed,
                 "fold": fold_id,
                 "ppo": {"total_return": ppo_return},
                 "ppo_exposure_matched_equal_weight": None,
@@ -50,7 +51,7 @@ def _report():
     for seed in seeds:
         rows = [
             row for fold in shared_folds for row in fold["seed_comparisons"]
-            if row["ppo"]["total_return"] == values[fold["fold"]][seed]
+            if row["seed"] == seed
         ]
         returns = [row["ppo"]["total_return"] for row in rows]
         wins = {

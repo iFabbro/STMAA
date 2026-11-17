@@ -413,15 +413,15 @@ Il progetto usa un'unica base di codice e un unico lock file per le architetture
 
 Il workflow GitHub Actions esegue l'intera suite di test su Linux, macOS Intel (`macos-15-intel`) e Apple Silicon (`macos-15`). I test di identità dei processi e recupero delle sessioni orfane vengono eseguiti su tutte e tre le piattaforme, senza esclusioni specifiche per macOS. CI controlla inoltre la coerenza delle dipendenze ed esegue Ruff. Il lock file è verificato con `uv lock --check`; le installazioni CI usano `uv sync --locked`.
 
-## Stato dello sviluppo e handoff operativo (15 novembre 2026)
+## Stato dello sviluppo e handoff operativo (17 novembre 2026)
 
 Questa sezione è il punto di ripartenza per chiunque continui il lavoro su STMAA. Ha priorità sulle descrizioni storiche più sotto quando riportano uno stato precedente. **Prima di eseguire un test, benchmark, training o audit, leggere questa sezione e controllare gli artefatti già prodotti. Non ripetere attività già completate solo per ricostruire il contesto.**
 
 ### Repository e ambiente
 
 - Repository: `iFabbro/STMAA`.
-- Ultimo commit noto su `main`: `c5045592f495c0f183c269b253bbda3b24fa94a5` — `Fix dotenv import side effects and Doctor test isolation (#362)`.
-- Ultime modifiche integrate: PR #358–#362 (qualità quote vs idoneità all'esecuzione; consolidamento limiti di rischio; first-run setup offline; diagnostica Alpaca Paper zero-write; isolamento dotenv/Doctor).
+- Ultimo commit verificato su `main`: `ed0e90040e90f1ac7c1973be7dd88fdfd30b8d3e` — `Fix multi-seed benchmark PPO provenance audit (#366)`; integra anche il lavoro di benchmark exposure-matched della PR #369.
+- Ultime modifiche integrate: PR #363–#369. In particolare: handoff e registro anti-duplicazione (#363); audit metodologico multi-seed con selezione seed esplicita (#364–#365); verifica della provenienza PPO e coerenza dei report, più comparator Equal Weight exposure-matched per seed (#366, che include #369). Le PR #367–#368 riguardano il publisher assistant-exchange, non il runtime di trading.
 - Ambiente locale di riferimento: iMac Intel x86_64, macOS 12.7.6; checkout `~/Projects/STMAA`; Python di progetto 3.12.13 tramite `.venv`/uv. Il Python globale può essere 3.13 e non va usato per eseguire il progetto.
 - La configurazione locale resta Paper-only. `.env`, `logs/` e `models/` sono dati locali: non sovrascriverli o eliminarli durante prove di installazione.
 
@@ -434,7 +434,7 @@ Questa sezione è il punto di ripartenza per chiunque continui il lavoro su STMA
 | Benchmark PPO | Eseguito | Confronti equal-weight buy-and-hold, equal-weight exposure-matched (dove la traccia PPO è disponibile), SPY 50% e SPY 100%. Le simulazioni sono per fold indipendenti. |
 | Allineamento benchmark del seed 42 | Verificato | Confronto puntuale su 11 fold: date, `next_bar_open`, fingerprint dei dati, metriche PPO e timeseries embedded coincidono tra il report PPO seed 42 e il report benchmark matched. |
 | Audit metodologico benchmark, seed 42 | **PASS in memoria** | Chiamando `audit_reports()` con il report multi-seed normalizzato sul seed 42 e il benchmark matched, tutti i 7 controlli risultano PASS su 11 fold: parametri/costi/cap, allineamento fold, identità dati, entry execution, traccia esposizione PPO, traccia benchmark e valori costi. |
-| Audit nativo multi-seed | Da correggere | L'auditor attuale si aspetta `folds` al top-level; il report multi-seed usa `runs[]` con fold annidati per seed. La normalizzazione in memoria non ha modificato il report JSON né aggiunto il supporto multi-seed al codice. |
+| Auditor metodologico multi-seed | Implementato; esecuzione sui report locali da completare | PR #364–#366 supportano i formati multi-seed, selezione esplicita del seed e verifica delle mirror PPO. PR #369 aggiunge l'audit di coerenza e il comparator Equal Weight exposure-matched distinto per seed. Nessun esito PASS sui file locali viene assunto finché gli auditor non sono eseguiti sui JSON effettivi. |
 | Soak read-only Alpaca Paper | Da ripetere | Un tentativo precedente si è interrotto dopo 22 cicli per il difetto temporale delle barre giornaliere, senza inviare ordini. La correzione è stata integrata (#342); il soak sul codice corretto non risulta ancora completato. |
 | Preflight Alpaca Paper zero-write | Implementato | PR #361 aggiunge un diagnostico read-only distinto dal preflight di `trade.py`; non è un soak, non avvia il ciclo e non invia ordini. Va eseguito localmente solo se serve una nuova fotografia dello stato Paper. |
 | Raccolta PPO shadow prospettica | Non avviata | Registro PRE-FREEZE; PR #333 resta aperta in Draft. Nessuna raccolta va attivata senza chiusura dei gate e autorizzazione esplicita. |
@@ -472,18 +472,45 @@ Il PASS indica che i controlli implementati dispongono di evidenza coerente nei 
 
 ### Prossimo lavoro effettivo
 
-**Priorità immediata: rendere permanente il supporto multi-seed nell'auditor metodologico benchmark.** Non riaddestrare PPO e non rigenerare i benchmark già confrontati per risolvere un problema di schema dell'auditor.
+**Priorità immediata: eseguire gli auditor sui report multi-seed già esistenti.** Non riaddestrare PPO e non rigenerare walk-forward o benchmark in questa fase.
 
-Intervento previsto, da realizzare in una PR dedicata:
+Report locali attesi:
 
-1. supportare il formato legacy single-seed (`folds`) e i formati multi-seed effettivamente presenti (`seed_results[]` e `runs[]`);
-2. introdurre una selezione esplicita del seed (ad esempio `--ppo-seed 42`);
-3. se il report è multi-seed e il seed non è specificato, restituire INCONCLUSIVE/errore esplicito, mai scegliere un seed implicitamente;
-4. mantenere fail-closed su mismatch di fingerprint, date, parametri, costi e allineamento fold;
-5. aggiungere test per seed presente/assente/sconosciuto, mismatch, dati mancanti e compatibilità single-seed;
-6. rigenerare il report di audit solo dopo aver corretto e testato l'auditor, usando gli artefatti già esistenti.
+- `reports/ppo_walk_forward_multiseed_20261110_42_7_21.json`
+- `reports/ppo_benchmark_multiseed_20261110_42_7_21.json`
 
-Non correggere il significato del campo `execution_data_identity` del benchmark generator senza prima ispezionare il codice che lo produce e i relativi test. Non assumere che sia un semplice problema di wiring.
+Prima verificare che i file esistano e registrare gli hash; poi eseguire l'auditor di coerenza benchmark e l'auditor metodologico separatamente per i seed 42, 7 e 21:
+
+```bash
+cd ~/Projects/STMAA
+git status --short --branch
+test -s reports/ppo_walk_forward_multiseed_20261110_42_7_21.json
+test -s reports/ppo_benchmark_multiseed_20261110_42_7_21.json
+shasum -a 256 \
+  reports/ppo_walk_forward_multiseed_20261110_42_7_21.json \
+  reports/ppo_benchmark_multiseed_20261110_42_7_21.json
+
+uv run --locked python benchmark_results_audit.py \
+  --benchmark-report reports/ppo_benchmark_multiseed_20261110_42_7_21.json \
+  --output reports/benchmark_results_consistency_audit_20261117.json
+
+for seed in 42 7 21; do
+  uv run --locked python benchmark_methodology_audit.py \
+    --ppo-report reports/ppo_walk_forward_multiseed_20261110_42_7_21.json \
+    --benchmark-report reports/ppo_benchmark_multiseed_20261110_42_7_21.json \
+    --ppo-seed "$seed" \
+    --output "reports/benchmark_methodology_audit_20261117_seed${seed}.json"
+done
+```
+
+Interpretazione degli esiti:
+
+- `PASS`: tutti i controlli implementati dispongono di evidenza coerente nel report.
+- `FAIL`: mismatch concreto; fermarsi e investigare il campo/seed/fold indicato.
+- `INCONCLUSIVE`: evidenza assente o ambigua; non equivale a PASS.
+- Per il comparator `ppo_exposure_matched_equal_weight_by_seed`, verificare che la copertura attesa sia 33/33 (3 seed × 11 fold) e che ogni seed abbia usato la propria traccia giornaliera. Se il report benchmark è precedente alla PR #369 e non contiene questi campi, l'auditor deve restare INCONCLUSIVE: non rigenerare il benchmark in questo passaggio. Un'eventuale ricalcolazione del solo confronto, senza training PPO, richiederà una decisione separata.
+
+I report JSON di input non devono essere modificati. Conservare gli hash prima/dopo e archiviare i nuovi output di audit separatamente. Il comando benchmark comparison non fa parte di questa fase.
 
 ### Regole anti-duplicazione per l'assistente successivo
 
@@ -506,7 +533,7 @@ Non correggere il significato del campo `execution_data_identity` del benchmark 
 
 L'obiettivo di prodotto è distribuire STMAA con un modello PPO già addestrato e validato, senza richiedere all'utente finale di eseguire training. **Questo requisito non va confuso con lo stato attuale del repository:** il README e il repository non documentano ancora un artefatto pre-addestrato versionato e distribuito ai nuovi checkout. Il modello content-addressed presente nell'ambiente locale di sviluppo non equivale a un artefatto pubblicato e installabile da ogni utente. La strategia di packaging, distribuzione, verifica SHA-256/manifest e aggiornamento del modello resta da definire e validare prima di dichiarare il prodotto pronto all'uso.
 
-## Aggiornamenti recenti (9–15 novembre 2026)
+## Aggiornamenti recenti (9–17 novembre 2026)
 
 Le PR recenti hanno consolidato soprattutto cinque aree:
 
@@ -517,6 +544,7 @@ Le PR recenti hanno consolidato soprattutto cinque aree:
 - **Dashboard e documentazione (#342–#348):** correzione del limite temporale post-chiusura per le barre giornaliere Alpaca (#342); specifica e redesign visuale della dashboard (#344–#345); classificazione indipendente della freschezza dello snapshot posizioni (#347); aggiornamento dello screenshot nel README (#348). Le modifiche dashboard restano locali/read-only e non introducono chiamate o mutazioni broker.
 - **Dashboard, sicurezza e qualità del codice (#349–#357):** correzione della documentazione di stato, navigazione mouse e composizione Overview, copertura dei componenti dashboard, remediation dipendenze con compatibilità macOS Intel, workflow Bandit/Semgrep, coverage multipiattaforma e pin immutabili delle GitHub Actions.
 - **Qualità dati, rischio e onboarding (#358–#362):** separazione tra qualità di monitoraggio delle quote e idoneità all'esecuzione; consolidamento dei limiti di esposizione/posizione/drawdown; wizard First-Run Paper offline; diagnostica Alpaca Paper zero-write; caricamento dotenv differito al runtime e isolamento dei test Doctor dall'ambiente ereditato.
+- **Audit multi-seed e benchmark (#363–#369):** handoff verificato e regole anti-duplicazione (#363); supporto metodologico ai report multi-seed `runs[]` e `seed_results[]`, con selezione esplicita del seed (#364–#365); verifica della provenienza PPO e delle mirror per seed/fold (#366); audit read-only dei contatori, confronti, medie/mediane e copertura exposure-matched, con Equal Weight exposure-matched calcolato usando la traccia specifica di ogni seed (#369, integrata nel merge #366). I report sorgente non vengono riscritti dall'auditor.
 
 ### Stato della validazione operativa
 

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iFabbro/STMAA/blob/main/schemas/research-protocol.schema.json",
+  "title": "STMAA Research Protocol",
+  "description": "Versioned declaration of a research method. A schema-valid draft is not approved for use.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_id", "protocol_version", "status", "description", "research_objective", "hypothesis", "methodology", "required_auditors", "required_evidence"],
+  "properties": {
+    "protocol_id": {"type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "protocol_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "status": {"enum": ["draft", "released", "retired"]},
+    "description": {"type": "string", "minLength": 1},
+    "research_objective": {"type": "string", "minLength": 1},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "methodology": {
+      "type": "object",
+      "description": "Complete research design; field-level detail is protocol-family specific.",
+      "minProperties": 1,
+      "additionalProperties": true
+    },
+    "required_auditors": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "required_evidence": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "allowed_deviations": {"type": "array", "items": {"type": "string"}, "default": []},
+    "metadata": {"type": "object", "additionalProperties": true}
+  }
+}

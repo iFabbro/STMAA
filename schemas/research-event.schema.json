@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iFabbro/STMAA/blob/main/schemas/research-event.schema.json",
+  "title": "STMAA Research Journal Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sequence", "event_type", "timestamp", "payload", "previous_hash", "record_hash"],
+  "properties": {
+    "sequence": {"type": "integer", "minimum": 1},
+    "event_type": {"enum": ["RUN_RECORDED", "EVIDENCE_VERIFIED", "AUDIT_RECORDED", "DECISION_RECORDED", "LEGACY_IMPORTED"]},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object"},
+    "previous_hash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "record_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -102,7 +102,24 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
         fold_id = shared.get("fold")
         ppo_rows, comparison_rows = shared.get("ppo_by_seed"), shared.get("seed_comparisons")
         ppo_map = {r.get("seed"): r for r in ppo_rows if isinstance(r, dict)} if isinstance(ppo_rows, list) else {}
-        comparison_map = {r.get("seed"): r for r in comparison_rows if isinstance(r, dict)} if isinstance(comparison_rows, list) else {}
+        comparison_map = {
+            r.get("seed"): r for r in comparison_rows if isinstance(r, dict)
+        } if isinstance(comparison_rows, list) else {}
+
+        # Older reports omitted seed on fold-level comparison rows. Accept that
+        # legacy shape only when the top-level seed_results order is exactly the
+        # declared seed order and every comparison row identifies this fold.
+        legacy_comparison_order_ok = (
+            isinstance(comparison_rows, list)
+            and len(comparison_rows) == len(seeds)
+            and all(isinstance(row, dict) and "seed" not in row for row in comparison_rows)
+            and [row.get("seed") for row in results if isinstance(row, dict)] == seeds
+            and len(results) == len(seeds)
+            and all(row.get("fold") == fold_id for row in comparison_rows)
+        )
+        if not comparison_map and legacy_comparison_order_ok:
+            comparison_map = dict(zip(seeds, comparison_rows))
+
         if (
             not isinstance(ppo_rows, list) or not isinstance(comparison_rows, list)
             or len(ppo_map) != len(seeds) or set(ppo_map) != set(seeds)

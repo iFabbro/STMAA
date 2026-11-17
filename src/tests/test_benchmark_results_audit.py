@@ -63,7 +63,7 @@ def _report():
             "seed": seed, "fold_count": 2, **wins,
             "mean_ppo_fold_return": sum(returns) / 2,
             "median_ppo_fold_return": sum(returns) / 2,
-            "folds": rows,
+            "folds": copy.deepcopy(rows),
         })
     summary = {
         "seed_count": 2, "fold_count": 2, "ppo_run_count": 4,

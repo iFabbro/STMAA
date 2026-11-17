@@ -382,6 +382,7 @@ def compare_multi_seed_walk_forward_report(history: pd.DataFrame, ppo_report: di
             }
             matched_return = float(matched["total_return"]) if matched is not None else None
             seed_rows.append({
+                "seed": run["seed"],
                 "fold": fold["fold"],
                 "ppo": metrics,
                 "ppo_exposure_matched_equal_weight": matched,

@@ -111,6 +111,8 @@ def test_multi_seed_comparison_reuses_one_benchmark_per_fold_for_all_seeds():
     assert len(result["folds"][0]["ppo_by_seed"]) == 2
     assert result["folds"][0]["equal_weight_buy_and_hold"]["observations"] == 3
     assert result["seed_results"][1]["folds"][0]["ppo"]["total_return"] == pytest.approx(0.02)
+    assert [row["seed"] for row in result["seed_results"][1]["folds"]] == [22]
+    assert [row["seed"] for row in result["folds"][0]["seed_comparisons"]] == [11, 22]
 
 
 def test_multi_seed_comparison_rejects_changed_fold_layout():

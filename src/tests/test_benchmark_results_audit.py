@@ -63,7 +63,7 @@ def _report():
             "seed": seed, "fold_count": 2, **wins,
             "mean_ppo_fold_return": sum(returns) / 2,
             "median_ppo_fold_return": sum(returns) / 2,
-            "folds": rows,
+            "folds": copy.deepcopy(rows),
         })
     summary = {
         "seed_count": 2, "fold_count": 2, "ppo_run_count": 4,
@@ -93,6 +93,38 @@ def test_consistency_audit_accepts_reconciled_report_but_flags_legacy_matched_pa
     assert result["checks"]["summary_counter_consistency"] == "PASS"
     assert result["checks"]["benchmark_summary_consistency"] == "PASS"
     assert result["checks"]["exposure_matched_seed_coverage"] == "INCONCLUSIVE"
+
+
+def test_consistency_audit_accepts_legacy_ordered_comparison_mirrors():
+    report = _report()
+    for fold in report["folds"]:
+        for row in fold["seed_comparisons"]:
+            row.pop("seed")
+    for seed_result in report["seed_results"]:
+        for row in seed_result["folds"]:
+            row.pop("seed")
+
+    result = audit_multi_seed_benchmark_report(report)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["seed_fold_mirrors"] == "PASS"
+    assert result["checks"]["exposure_matched_seed_coverage"] == "INCONCLUSIVE"
+
+
+def test_consistency_audit_rejects_reordered_legacy_comparison_mirrors():
+    report = _report()
+    for fold in report["folds"]:
+        for row in fold["seed_comparisons"]:
+            row.pop("seed")
+        fold["seed_comparisons"].reverse()
+    for seed_result in report["seed_results"]:
+        for row in seed_result["folds"]:
+            row.pop("seed")
+
+    result = audit_multi_seed_benchmark_report(report)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["seed_fold_mirrors"] == "FAIL"
 
 
 def test_consistency_audit_detects_seed_win_counter_mismatch():

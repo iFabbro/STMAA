@@ -2,13 +2,18 @@
   "exchange_branch": "assistant-exchange",
   "files": [
     {
-      "bytes": 184115,
-      "filename": "STMAA_REPORT_SCHEMA.txt",
-      "sha256": "3c3d1920d60f8142159128dfec56868d373737d83e81be72875d0914dcf45eeb"
+      "bytes": 19042863,
+      "filename": "ppo_benchmark_multiseed_20261110_42_7_21.json",
+      "sha256": "1de9cf019d13f4572c63b64c48876c6a3a46e05b3ad808aa4bf92aab487833ce"
+    },
+    {
+      "bytes": 6009264,
+      "filename": "ppo_walk_forward_multiseed_20261110_42_7_21.json",
+      "sha256": "ab5de9bb36c53f9c27f1c720864bbd5de30bfdce5d44527c8099515b6881f9e7"
     }
   ],
-  "label": "benchmark report schema inspection",
-  "published_at_utc": "2026-11-16T23:21:54.257922+00:00",
+  "label": "benchmark multi-seed audit input reports",
+  "published_at_utc": "2026-11-17T00:20:00.495358+00:00",
   "schema_version": 1,
   "security_note": "Explicit files only; pattern screening is not a guarantee.",
   "source_branch": "main",

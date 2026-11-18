@@ -353,7 +353,6 @@ def test_provider_fails_closed_when_prior_account_activity_exists_without_risk_p
 
 def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_observation():
     bot = FakeBot()
-    cause = ConnectionError("remote disconnected")
     bot.get_market_data = lambda: (_ for _ in ()).throw(
         TransientMarketDataError(
             "Alpaca market-data transport unavailable after 3 attempts",

@@ -110,6 +110,12 @@ class PaperSoakStopController:
     @staticmethod
     def _first_failure(snapshot: PaperSoakHealthSnapshot) -> str | None:
         checks = (
+            # Preserve the primary cause when a provider reports an exhausted
+            # transport retry budget alongside unavailable downstream snapshots.
+            (
+                snapshot.api_consecutive_failures >= MAX_CONSECUTIVE_API_FAILURES,
+                "broker_api_unreachable_threshold",
+            ),
             (not snapshot.broker_endpoint_is_paper, "non_paper_broker_endpoint"),
             (snapshot.order_mutation_attempted, "broker_order_mutation_attempted"),
             (not snapshot.broker_state_consistent, "broker_state_mismatch"),
@@ -118,10 +124,6 @@ class PaperSoakStopController:
             (not snapshot.market_data_fresh, "market_data_stale"),
             (not snapshot.persistence_healthy, "persistence_or_lock_failure"),
             (not snapshot.broker_snapshot_complete, "broker_snapshot_incomplete"),
-            (
-                snapshot.api_consecutive_failures >= MAX_CONSECUTIVE_API_FAILURES,
-                "broker_api_unreachable_threshold",
-            ),
             (
                 snapshot.heartbeat_age_seconds > MAX_HEARTBEAT_AGE_SECONDS,
                 "heartbeat_stale_threshold",

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from src.data.alpaca_feed import TransientMarketDataError
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.strategy.weight_interface import PortfolioWeights
 from src.utils.paper_soak_production_provider import (
@@ -347,3 +348,27 @@ def test_provider_fails_closed_when_prior_account_activity_exists_without_risk_p
         match="Cannot calculate shadow drawdown: persisted risk peak is missing",
     ):
         ProductionPaperSoakObservationProvider(bot)()
+
+
+
+def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_observation():
+    bot = FakeBot()
+    bot.get_market_data = lambda: (_ for _ in ()).throw(
+        TransientMarketDataError(
+            "Alpaca market-data transport unavailable after 3 attempts",
+            attempts=3,
+        )
+    )
+    observation = ProductionPaperSoakObservationProvider(bot)()
+
+    assert observation.health.broker_endpoint_is_paper is True
+    assert observation.health.order_mutation_attempted is False
+    assert observation.health.api_consecutive_failures == 3
+    assert observation.health.market_data_valid is False
+    assert observation.health.market_data_fresh is False
+    assert observation.health.broker_snapshot_complete is False
+    assert observation.decision["market_data_status"] == "transport_unavailable"
+    assert observation.decision["market_data_retry_attempts"] == 3
+    assert observation.decision["order_submission"] == "disabled"
+    assert bot.generate_weights_calls == []
+    assert bot.executor.lock_active is False

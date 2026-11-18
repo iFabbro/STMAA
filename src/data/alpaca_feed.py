@@ -7,6 +7,9 @@ non è assunta come costante e dipende dal feed configurato.
 """
 import logging
 import os
+import time
+
+import requests
 from datetime import timedelta
 from typing import List, Optional
 
@@ -49,6 +52,18 @@ if (
     or QUOTE_WIDE_SPREAD_PCT <= 0
 ):
     raise ValueError("STMAA quote-quality thresholds must be positive (future tolerances may be zero)")
+
+
+MAX_TRANSIENT_API_ATTEMPTS = 3
+TRANSIENT_API_BACKOFF_SECONDS = 0.5
+
+
+class TransientMarketDataError(ConnectionError):
+    """A market-data transport failure after bounded retries."""
+
+    def __init__(self, message: str, *, attempts: int) -> None:
+        super().__init__(message)
+        self.attempts = attempts
 
 
 class AlpacaFeed:
@@ -305,6 +320,36 @@ class AlpacaFeed:
         """Use the canonical versioned feature implementation for inference."""
         return calculate_features(frame)
 
+    def _request_stock_bars_with_retry(self, request) -> pd.DataFrame:
+        """Retry only transient transport failures; never retry data/contract errors."""
+        self._last_get_bars_retry_count = 0
+        for attempt in range(1, MAX_TRANSIENT_API_ATTEMPTS + 1):
+            try:
+                return self.client.get_stock_bars(request).df
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+                if attempt >= MAX_TRANSIENT_API_ATTEMPTS:
+                    logger.error(
+                        "Alpaca get_stock_bars transport failed after %s attempts: %s",
+                        attempt,
+                        exc,
+                    )
+                    raise TransientMarketDataError(
+                        "Alpaca market-data transport unavailable after "
+                        f"{attempt} attempts",
+                        attempts=attempt,
+                    ) from exc
+                delay = TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                self._last_get_bars_retry_count = attempt
+                logger.warning(
+                    "Transient Alpaca get_stock_bars failure (%s/%s); retrying in %.2fs: %s",
+                    attempt,
+                    MAX_TRANSIENT_API_ATTEMPTS,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable retry loop")
+
     def get_bars(
         self,
         tickers: List[str],
@@ -344,11 +389,7 @@ class AlpacaFeed:
         )
 
         logger.info(f"⬇️  Scaricamento bars per {tickers} (ultimi {days}gg)…")
-        try:
-            bars = self.client.get_stock_bars(request).df
-        except Exception as e:
-            logger.error(f"Errore get_bars: {e}")
-            raise
+        bars = self._request_stock_bars_with_retry(request)
 
         if bars.empty:
             raise RuntimeError("AlpacaFeed: nessuna barra ricevuta da Alpaca.")

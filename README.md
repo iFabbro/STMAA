@@ -548,7 +548,7 @@ Le PR recenti hanno consolidato soprattutto cinque aree:
 
 ### Stato della validazione operativa — checkpoint 18 novembre 2026
 
-**Stato verificato al checkpoint:** smoke Alpaca Paper read-only completato; soak shadow di 48 ore avviato e ancora in corso. Il soak non è concluso e non va dichiarato superato finché il processo e il database non attestano una durata effettiva di 48 ore e una chiusura `completed`.
+**Stato verificato al checkpoint:** smoke Alpaca Paper read-only completato; il primo tentativo di soak shadow di 48 ore è fallito dopo circa 15 minuti e 29 secondi per una disconnessione durante il download delle barre. Il soak non è superato; il processo è terminato e la correzione della resilienza API è proposta separatamente nella PR #377.
 
 #### Pre-test completati
 
@@ -589,19 +589,16 @@ Il run ha operato in modalità `paper_soak_read_only`; i metadati SQLite attesta
 
 #### Istruzioni di ripresa per la prossima sessione
 
-**Non ripetere** la diagnosi del risk peak né lo smoke Paper appena descritti, salvo che il soak fallisca o emergano nuove evidenze che invalidino questi risultati. Non riavviare il soak e non creare un secondo processo se il PID esistente è ancora attivo.
+Non ripetere la diagnosi del risk peak né lo smoke Paper già completati, salvo nuove evidenze che li invalidino. Il processo del soak precedente è terminato: non tentare di riprenderlo e non considerarlo un run valido di 48 ore.
 
-Per un controllo puntuale del processo e del log:
+La correzione della resilienza API è proposta nella PR #377. Prima di un nuovo soak:
+1. verificare la revisione del diff e il completamento di tutti i test/controlli CI richiesti;
+2. attendere l'autorizzazione esplicita al merge;
+3. aggiornare il checkout locale al commit approvato;
+4. ripetere uno smoke Paper strettamente read-only;
+5. avviare un nuovo run di 48 ore con un nuovo run ID e una directory separata.
 
-```bash
-cd ~/Projects/STMAA || exit 1
-kill -0 14391 2>/dev/null && echo "SOAK RUNNING" || echo "SOAK TERMINATED"
-tail -30 logs/paper_soak_48h/20261118_154126/soak.log
-```
-
-Alla fine delle 48 ore, eseguire una sola verifica conclusiva sui dati già raccolti: stato e durata della run in `runs`; conteggi e timestamp degli eventi `session_started`, `shadow_observation`, `heartbeat` e `session_finished`; intervalli/gap tra cicli; errori; contenuto delle shadow observations (in particolare `order_submission=disabled`, `order_mutation_attempted=false`, esposizione, drawdown, pending orders e determinabilità dell'esposizione); eventuali snapshot; integrità del commit/worktree. Dichiarare il soak superato soltanto se la durata effettiva è almeno 48 ore, la run termina con stato `completed` e non emergono violazioni del confine ordini o anomalie bloccanti. Non inviare ordini per completare questa verifica.
-
-**Non sono ancora disponibili al checkpoint** il conteggio finale dei cicli, la durata effettiva, la chiusura `session_finished` del soak, l'esito finale del database e la valutazione conclusiva del rischio. Questi punti restano aperti; non vanno presentati come test superati.
+Non inviare ordini per completare la verifica. Il tentativo precedente resta un run fallito e non può essere sommato a un eventuale nuovo soak.
 
 ## Analisi statica di sicurezza
 

@@ -8,10 +8,10 @@ non è assunta come costante e dipende dal feed configurato.
 import logging
 import os
 import time
-
-import requests
 from datetime import timedelta
 from typing import List, Optional
+
+import requests
 
 import numpy as np
 import pandas as pd

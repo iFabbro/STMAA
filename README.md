@@ -546,11 +546,59 @@ Le PR recenti hanno consolidato soprattutto cinque aree:
 - **Qualità dati, rischio e onboarding (#358–#362):** separazione tra qualità di monitoraggio delle quote e idoneità all'esecuzione; consolidamento dei limiti di esposizione/posizione/drawdown; wizard First-Run Paper offline; diagnostica Alpaca Paper zero-write; caricamento dotenv differito al runtime e isolamento dei test Doctor dall'ambiente ereditato.
 - **Audit multi-seed e benchmark (#363–#369):** handoff verificato e regole anti-duplicazione (#363); supporto metodologico ai report multi-seed `runs[]` e `seed_results[]`, con selezione esplicita del seed (#364–#365); verifica della provenienza PPO e delle mirror per seed/fold (#366); audit read-only dei contatori, confronti, medie/mediane e copertura exposure-matched, con Equal Weight exposure-matched calcolato usando la traccia specifica di ogni seed (#369, integrata nel merge #366). I report sorgente non vengono riscritti dall'auditor.
 
-### Stato della validazione operativa
+### Stato della validazione operativa — checkpoint 18 novembre 2026
 
-La validazione end-to-end su Alpaca Paper è ancora in corso. Un precedente tentativo di soak read-only si è interrotto dopo 22 cicli per una discrepanza temporale tra il limite della richiesta delle barre giornaliere e il calcolo dell'ultima sessione NYSE completata; in quel tentativo non sono stati inviati ordini. La correzione è stata integrata in `main` con la PR #342 (merge commit `e684f82c7ac68e798129599b266ce3a6780d08f0`). **Il soak deve ancora essere ripetuto sul codice corretto**: il merge della correzione non dimostra da solo il superamento della verifica operativa.
+**Stato verificato al checkpoint:** smoke Alpaca Paper read-only completato; il primo tentativo di soak shadow di 48 ore è fallito dopo circa 15 minuti e 29 secondi per una disconnessione durante il download delle barre. Il soak non è superato; il processo è terminato e la correzione della resilienza API è proposta separatamente nella PR #377.
 
-La raccolta shadow prospettica resta non avviata e subordinata ai gate del registro di freeze. Qualsiasi test che comporti mutazioni broker richiede un'autorizzazione separata ed esplicita. Nessun risultato di test, benchmark, dashboard o soak deve essere interpretato come autorizzazione al live trading.
+#### Pre-test completati
+
+- **Riferimento codice:** commit `437b1dd43a760d23bd6904df43f52e147d13895e`, branch locale `main`. Questo è il commit sul quale è stato avviato il test; non modificarlo durante il soak.
+- **Diagnosi risk peak:** `broker_state.json` era nello schema 2, revisione 52, account mode `paper`, con account ID presente ed equity history vuota. Non erano presenti né `risk_peak_portfolio_value` né il campo legacy `peak_equity`; non risultava attività storica precedente (ordini/esecuzioni o submission irrisolte). La diagnosi è stata `NO_PRIOR_HISTORY_TEMPORARY_EQUITY_BASELINE_ALLOWED`: il provider poteva quindi usare l'equity Paper corrente come baseline temporanea in memoria, senza inventare o persistere uno storico del peak.
+- **Smoke Paper read-only:** eseguito con `uv run --locked --env-file .env` tramite `python -m src.utils.paper_soak_production_provider`. Il primo tentativo senza `--env-file .env` era terminato prima dell'accesso al broker perché le credenziali non erano esportate nella shell; il tentativo corretto è terminato con `PAPER_SOAK_STATUS: COMPLETED` ed exit code 0.
+- **Smoke run:** `0496fdad-8650-4c72-a03d-135c1c3e6c64`. PPO inizializzato, modello scoperto/caricato/validato e inferenza disponibile; 100 righe di barre per i 7 ticker configurati. La decisione shadow ha riportato equity 100.000 USD, peak temporaneo 100.000 USD, drawdown 0, esposizione lorda 0 e ordini pendenti 0.
+- **Confine ordini:** metadato run `order_submission=disabled`; osservazione `health.order_mutation_attempted=false`; nessun metodo di invio ordini eseguito. Il test `alpaca_paper_e2e_smoke.py` non è stato usato perché invia deliberatamente un ordine BUY Paper da 10 USD.
+- **Persistenza locale:** il database SQLite temporaneo dello smoke conteneva una run `completed`, quattro eventi (una `session_started`, una `shadow_observation`, un `heartbeat`, una `session_finished`) e zero snapshot. Il provider ha aggiornato metadati locali in `broker_state.json`: revisione 52 → 55, equity/last verified equity 100.000 USD, equity history ancora vuota e nessun peak moderno o legacy persistito. Read-only si riferisce alle mutazioni broker: il provider può aggiornare metadati locali e riconciliare lo stato persistito.
+
+#### Soak shadow 48 ore — tentativo fallito
+
+Il primo tentativo sul commit `437b1dd43a760d23bd6904df43f52e147d13895e` **non ha completato il soak**. La run è terminata in stato `failed` dopo circa 15 minuti e 29 secondi per un errore di trasporto durante il download delle barre Alpaca. Non va conteggiata come validazione di 48 ore e non deve essere ripresa come se fosse ancora attiva.
+
+| Campo | Valore |
+|---|---|
+| Avvio | 18 novembre 2026, 15:41:40 Europe/Rome circa |
+| Arresto | 18 novembre 2026, 15:57:09 Europe/Rome circa |
+| Durata effettiva | 929,462 secondi (circa 15 min 29 s) |
+| Durata configurata | 48 ore |
+| Intervallo | 300 secondi |
+| Branch / commit | `main` / `437b1dd43a760d23bd6904df43f52e147d13895e` |
+| Run ID | `3a55d2d0-63e4-4ea7-8ed8-ca468ae8f75a` |
+| PID wrapper verificato dopo il test | `14391` — terminato |
+| Run directory | `logs/paper_soak_48h/20261118_154126` |
+| Database eventi | `logs/paper_soak_48h/20261118_154126/events.sqlite` |
+| Log | `logs/paper_soak_48h/20261118_154126/soak.log` |
+
+Il database SQLite registra tre `shadow_observation` valide e tre heartbeat prima dell'errore. Le osservazioni registrate riportano endpoint Paper, `order_mutation_attempted=false`, stato broker coerente, esposizione determinabile, dati validi/freschi e persistenza sana. Le decisioni shadow hanno esposizione lorda zero e nessun ordine pendente. Questi riscontri sono limitati ai tre campioni acquisiti: non dimostrano la continuità delle condizioni per 48 ore.
+
+Alle 15:57:09 il download delle barre ha sollevato `ConnectionError` con `RemoteDisconnected('Remote end closed connection without response')`. Il runner ha registrato `shadow_runner_error` e ha chiuso la run con `status=failed`, `reason=shadow_runner_error`. Non è stato registrato un evento `stop_triggered`: l'eccezione è uscita dal provider prima della valutazione del controller. Il campo `api_consecutive_failures` era zero nelle tre osservazioni precedenti e non rappresentava il guasto sopraggiunto.
+
+**Diagnosi:** `AlpacaFeed.get_bars()` rilancia immediatamente l'eccezione di trasporto e `PaperSoakShadowRunner` termina la run su qualsiasi eccezione del provider. Il retry limitato e la contabilizzazione dei fallimenti API nel percorso del soak sono quindi ancora da implementare e verificare. La causa remota della disconnessione non è determinabile dai log disponibili.
+
+Il run ha operato in modalità `paper_soak_read_only`; i metadati SQLite attestano `broker_access=read_only`, `broker_mutations_enabled=false` e `order_submission=disabled`. Non risultano tentativi di mutazione degli ordini nelle osservazioni registrate. Questo non sostituisce una verifica indipendente dell'intero ambiente di esecuzione.
+
+**Stato attuale:** soak 48 ore non superato; processo terminato; nessun nuovo soak avviato. Il tentativo successivo è subordinato a una correzione dedicata, test automatici, CI verde e nuovo smoke Paper read-only. Non inviare ordini per completare la verifica.
+
+#### Istruzioni di ripresa per la prossima sessione
+
+Non ripetere la diagnosi del risk peak né lo smoke Paper già completati, salvo nuove evidenze che li invalidino. Il processo del soak precedente è terminato: non tentare di riprenderlo e non considerarlo un run valido di 48 ore.
+
+La correzione della resilienza API è proposta nella PR #377. Prima di un nuovo soak:
+1. verificare la revisione del diff e il completamento di tutti i test/controlli CI richiesti;
+2. attendere l'autorizzazione esplicita al merge;
+3. aggiornare il checkout locale al commit approvato;
+4. ripetere uno smoke Paper strettamente read-only;
+5. avviare un nuovo run di 48 ore con un nuovo run ID e una directory separata.
+
+Non inviare ordini per completare la verifica. Il tentativo precedente resta un run fallito e non può essere sommato a un eventuale nuovo soak.
 
 ## Analisi statica di sicurezza
 

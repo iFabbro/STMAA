@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from src.data.alpaca_feed import TransientMarketDataError
+
 from src.utils.paper_soak_monitor import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     PaperSoakMonitor,
@@ -89,7 +91,38 @@ class ProductionPaperSoakObservationProvider:
         # Market data and VIX use the production feeds. One broker snapshot is
         # then collected under the execution lock and passed into generate_weights,
         # which performs corporate-action reconciliation and PPO inference.
-        market_data = self.bot.get_market_data()
+        try:
+            market_data = self.bot.get_market_data()
+        except TransientMarketDataError as exc:
+            # Convert exhausted transport retries into an explicit unhealthy
+            # observation so the stop controller can persist the failure.
+            # No broker snapshot or strategy inference is attempted on stale data.
+            return PaperSoakShadowObservation(
+                health=PaperSoakHealthSnapshot(
+                    broker_endpoint_is_paper=(
+                        getattr(self.executor, "paper_trading", None) is True
+                        and getattr(self.executor, "base_url", None) == PAPER_ENDPOINT
+                    ),
+                    order_mutation_attempted=False,
+                    broker_state_consistent=False,
+                    exposure_determinable=False,
+                    market_data_valid=False,
+                    market_data_fresh=False,
+                    persistence_healthy=False,
+                    broker_snapshot_complete=False,
+                    api_consecutive_failures=exc.attempts,
+                    heartbeat_age_seconds=0.0,
+                ),
+                decision={
+                    "decision_type": "production_ppo_shadow",
+                    "market_data_status": "transport_unavailable",
+                    "market_data_retry_attempts": exc.attempts,
+                    "market_data_error_type": type(exc.__cause__).__name__
+                    if exc.__cause__ is not None
+                    else type(exc).__name__,
+                    "order_submission": "disabled",
+                },
+            )
         vix = self.bot.get_vix_value()
         execution_lock = getattr(self.executor, "execution_lock", None)
         if not callable(execution_lock):
@@ -329,6 +362,9 @@ class ProductionPaperSoakObservationProvider:
                 "broker_snapshot_at": account.get("account_snapshot_at"),
                 "unresolved_execution_state": unresolved_execution_state,
                 "order_submission": "disabled",
+                "market_data_retry_attempts": int(
+                    getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)
+                ),
             }
             return PaperSoakShadowObservation(health=health, decision=decision)
     

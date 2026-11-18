@@ -153,3 +153,52 @@ def test_shadow_runner_rejects_invalid_observation_interval(tmp_path, interval):
     monitor = PaperSoakMonitor(db_path=tmp_path / "shadow.db")
     with pytest.raises(ValueError, match="positive and finite"):
         PaperSoakShadowRunner(monitor, lambda: None, interval)
+
+
+
+def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp_path):
+    database = tmp_path / "shadow.db"
+    monitor = PaperSoakMonitor(db_path=database, duration_seconds=10)
+    health = healthy_health(
+        broker_state_consistent=False,
+        exposure_determinable=False,
+        market_data_valid=False,
+        market_data_fresh=False,
+        persistence_healthy=False,
+        broker_snapshot_complete=False,
+        api_consecutive_failures=3,
+    )
+    runner = PaperSoakShadowRunner(
+        monitor,
+        lambda: PaperSoakShadowObservation(
+            health=health,
+            decision={
+                "market_data_status": "transport_unavailable",
+                "market_data_retry_attempts": 3,
+                "market_data_error_type": "ConnectionError",
+                "order_submission": "disabled",
+            },
+        ),
+    )
+
+    run_id = runner.run(sleep=lambda _seconds: pytest.fail("must stop immediately"))
+
+    with db_conn(database) as conn:
+        run = conn.execute(
+            "SELECT status FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        events = conn.execute(
+            "SELECT event_type, payload FROM events WHERE run_id = ? ORDER BY id",
+            (run_id,),
+        ).fetchall()
+
+    assert run["status"] == "failed"
+    event_types = [row["event_type"] for row in events]
+    assert "market_data_retry_exhausted" in event_types
+    assert "stop_triggered" in event_types
+    retry_event = next(
+        row for row in events if row["event_type"] == "market_data_retry_exhausted"
+    )
+    assert json.loads(retry_event["payload"])["attempts"] == 3
+    stop_event = next(row for row in events if row["event_type"] == "stop_triggered")
+    assert json.loads(stop_event["payload"])["reason"] == "broker_api_unreachable_threshold"

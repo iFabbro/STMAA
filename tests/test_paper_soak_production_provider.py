@@ -9,7 +9,9 @@ from src.strategy.risk_overlay import RiskOverlayModule
 from src.strategy.weight_interface import PortfolioWeights
 from src.utils.paper_soak_production_provider import (
     ProductionPaperSoakObservationProvider,
+    _report_persisted_run_status,
 )
+from src.utils.sqlite_logger import end_run, start_run
 
 
 class FakeExecutor:
@@ -357,20 +359,20 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
     bot.get_market_data = lambda: (_ for _ in ()).throw(
         TransientMarketDataError(
             "Alpaca market-data transport unavailable after 3 attempts",
-            attempts=3,
+            attempts=6,
         )
     )
     observation = ProductionPaperSoakObservationProvider(bot)()
 
     assert observation.health.broker_endpoint_is_paper is True
     assert observation.health.order_mutation_attempted is False
-    assert observation.health.market_data_request_attempts == 3
+    assert observation.health.market_data_request_attempts == 6
     assert observation.health.market_data_request_exhausted is True
-    assert observation.health.market_data_valid is False
-    assert observation.health.market_data_fresh is False
-    assert observation.health.broker_snapshot_complete is False
+    assert observation.health.market_data_valid is None
+    assert observation.health.market_data_fresh is None
+    assert observation.health.broker_snapshot_complete is None
     assert observation.decision["market_data_status"] == "transport_unavailable"
-    assert observation.decision["market_data_retry_attempts"] == 3
+    assert observation.decision["market_data_request_attempts"] == 6
     assert observation.decision["order_submission"] == "disabled"
     assert bot.generate_weights_calls == []
     assert bot.executor.lock_active is False

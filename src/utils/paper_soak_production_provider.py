@@ -331,7 +331,16 @@ class ProductionPaperSoakObservationProvider:
                 market_data_fresh=True,
                 persistence_healthy=persistence_healthy,
                 broker_snapshot_complete=snapshot_complete,
-                market_data_request_attempts=max(\n                    1,\n                    int(getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)) + 1,\n                ),
+                market_data_request_attempts=max(
+                    1,
+                    int(
+                        getattr(
+                            getattr(self.bot, "alpaca_feed", None),
+                            "_last_get_bars_retry_count",
+                            0,
+                        )
+                    ) + 1,
+                ),
                 heartbeat_age_seconds=0.0,
             )
             decision = {
@@ -490,7 +499,7 @@ def main(argv: list[str] | None = None) -> int:
                 "AND mode = 'paper_soak_read_only'",
                 (run_id,),
             ).fetchone()
-        persisted_status = row["status"] if row is not None else None
+        persisted_status = row[0] if row is not None else None
     except Exception as exc:
         print(
             "PAPER_SOAK_RUN_STATE: unknown "

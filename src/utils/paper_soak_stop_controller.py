@@ -10,10 +10,11 @@ import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from src.data.alpaca_feed import MAX_TRANSIENT_API_ATTEMPTS
 from src.utils.paper_soak_monitor import PaperSoakMonitor
 from src.utils.sqlite_logger import db_conn, log_event
 
-MAX_MARKET_DATA_REQUEST_ATTEMPTS = 6
+MAX_MARKET_DATA_REQUEST_ATTEMPTS = MAX_TRANSIENT_API_ATTEMPTS
 MAX_HEARTBEAT_AGE_SECONDS = 120.0
 
 
@@ -99,6 +100,11 @@ class PaperSoakStopController:
 
         if type(snapshot.market_data_request_exhausted) is not bool:
             return "unknown_or_invalid_signal:market_data_request_exhausted"
+        if (
+            snapshot.market_data_request_exhausted
+            and attempts < MAX_MARKET_DATA_REQUEST_ATTEMPTS
+        ):
+            return "unknown_or_invalid_signal:inconsistent_market_data_request_telemetry"
 
         heartbeat_age = snapshot.heartbeat_age_seconds
         if isinstance(heartbeat_age, bool) or not isinstance(heartbeat_age, (int, float)):

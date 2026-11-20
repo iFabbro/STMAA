@@ -6,7 +6,7 @@ import pytest
 from src.utils.paper_soak_monitor import PaperSoakMonitor
 from src.utils import paper_soak_stop_controller
 from src.utils.paper_soak_stop_controller import (
-    MAX_CONSECUTIVE_API_FAILURES,
+    MAX_MARKET_DATA_REQUEST_ATTEMPTS,
     MAX_HEARTBEAT_AGE_SECONDS,
     PaperSoakHealthSnapshot,
     PaperSoakStopController,
@@ -24,7 +24,7 @@ def healthy_snapshot(**overrides):
         "market_data_fresh": True,
         "persistence_healthy": True,
         "broker_snapshot_complete": True,
-        "api_consecutive_failures": 0,
+        "market_data_request_attempts": 0,
         "heartbeat_age_seconds": 0.0,
     }
     values.update(overrides)
@@ -75,14 +75,14 @@ def test_api_failure_threshold_is_exact(tmp_path):
     _, controller = make_controller(tmp_path)
 
     assert controller.evaluate(
-        healthy_snapshot(api_consecutive_failures=MAX_CONSECUTIVE_API_FAILURES - 1)
+        healthy_snapshot(market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS - 1)
     ).stopped is False
     decision = controller.evaluate(
-        healthy_snapshot(api_consecutive_failures=MAX_CONSECUTIVE_API_FAILURES)
+        healthy_snapshot(market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS)
     )
 
     assert decision.stopped is True
-    assert decision.reason == "broker_api_unreachable_threshold"
+    assert decision.reason == "market_data_retry_budget_exhausted"
 
 
 def test_heartbeat_age_threshold_is_strictly_greater_than_limit(tmp_path):
@@ -110,10 +110,10 @@ def test_heartbeat_age_threshold_is_strictly_greater_than_limit(tmp_path):
         ("market_data_fresh", None),
         ("persistence_healthy", None),
         ("broker_snapshot_complete", None),
-        ("api_consecutive_failures", None),
+        ("market_data_request_attempts", None),
         ("heartbeat_age_seconds", None),
-        ("api_consecutive_failures", -1),
-        ("api_consecutive_failures", True),
+        ("market_data_request_attempts", -1),
+        ("market_data_request_attempts", True),
         ("heartbeat_age_seconds", float("nan")),
         ("heartbeat_age_seconds", float("inf")),
         ("heartbeat_age_seconds", -1),

@@ -203,6 +203,17 @@ def build_report(
         for item in outage_recoveries
         if type(item.get("outage_id")) is int
     }
+    unavailable_samples_valid = all(
+        type(item.get("outage_id")) is int
+        and item.get("inference_performed") is False
+        and item.get("stale_data_used") is False
+        for item in unavailable_samples
+    )
+    recoveries_valid = all(
+        item.get("inference_performed_after_recovery") is True
+        and item.get("stale_data_used") is False
+        for item in outage_recoveries
+    )
     transport_outage_evidence_valid = (
         not outage_starts and not outage_recoveries
     ) or (
@@ -210,6 +221,13 @@ def build_report(
         and len(start_by_id) == len(outage_starts)
         and len(recovery_by_id) == len(outage_recoveries)
         and set(start_by_id) == set(recovery_by_id)
+        and unavailable_samples_valid
+        and recoveries_valid
+        and all(
+            type(item.get("outage_id")) is int
+            and item.get("outage_id") in start_by_id
+            for item in unavailable_samples
+        )
         and all(
             _finite_number(recovery_by_id[outage_id].get("outage_seconds"))
             and recovery_by_id[outage_id]["outage_seconds"] <= outage_policy

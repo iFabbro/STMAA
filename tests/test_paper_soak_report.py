@@ -345,7 +345,7 @@ def test_report_counts_explicit_unavailable_samples_when_outage_recovers_within_
         payload={"outage_id": 1, "max_market_data_outage_seconds": 600.0},
         db_path=database,
     )
-    for _ in range(2):
+    for sequence in range(1, 4):
         log_event(
             run_id,
             source="paper_soak_shadow_runner",
@@ -360,7 +360,7 @@ def test_report_counts_explicit_unavailable_samples_when_outage_recovers_within_
             source="paper_soak_monitor",
             event_type="heartbeat",
             message="heartbeat",
-            payload={"sequence": 1, "elapsed_seconds": 1},
+            payload={"sequence": sequence, "elapsed_seconds": sequence},
             db_path=database,
         )
     log_event(
@@ -384,7 +384,7 @@ def test_report_counts_explicit_unavailable_samples_when_outage_recovers_within_
         },
         db_path=database,
     )
-    finalize_run(run_id, database, observation=False)
+    finalize_run(run_id, database, observation=True)
     report = build_report(
         database,
         run_id,

@@ -14,8 +14,6 @@ from typing import Any
 
 import numpy as np
 
-from src.data.alpaca_feed import TransientMarketDataError
-
 from src.utils.paper_soak_monitor import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     PaperSoakMonitor,

@@ -253,13 +253,13 @@ def test_shadow_runner_recovers_from_transient_outage_without_inference_until_fr
 
     event_types = [row["event_type"] for row in events]
     assert run["status"] == "completed"
-    assert calls == [50.0, 51.0, 52.0, 53.0]
-    assert inference_calls == [52.0, 53.0]
+    assert calls == [50.0, 51.0, 52.0]
+    assert inference_calls == [52.0]
     assert event_types.count("market_data_unavailable_observation") == 2
     assert event_types.count("market_data_outage_started") == 1
     assert event_types.count("market_data_outage_recovered") == 1
-    assert event_types.count("shadow_observation") == 2
-    assert event_types.count("heartbeat") == 4
+    assert event_types.count("shadow_observation") == 1
+    assert event_types.count("heartbeat") == 3
 
 
 def test_shadow_runner_stops_when_transport_outage_budget_is_exhausted(tmp_path):

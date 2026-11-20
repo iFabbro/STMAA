@@ -198,6 +198,10 @@ class PaperSoakShadowRunner:
                 observation = self._validate_observation(raw_observation)
                 if outage_started_at is not None:
                     outage_elapsed = max(0.0, self.clock() - outage_started_at)
+                    if outage_elapsed >= self.max_market_data_outage_seconds:
+                        return stop_for_transport_outage(
+                            "market_data_outage_budget_exhausted", outage_elapsed
+                        )
                     self.monitor.record_event(
                         "market_data_outage_recovered",
                         "Fresh market data recovered; normal read-only observations resumed",

@@ -119,6 +119,7 @@ class ProductionPaperSoakObservationProvider:
                     persistence_healthy=None,
                     broker_snapshot_complete=None,
                     market_data_request_attempts=exc.attempts,
+                    market_data_request_exhausted=True,
                     heartbeat_age_seconds=None,
                 ),
                 decision={
@@ -341,6 +342,7 @@ class ProductionPaperSoakObservationProvider:
                         )
                     ) + 1,
                 ),
+                market_data_request_exhausted=False,
                 heartbeat_age_seconds=0.0,
             )
             decision = {
@@ -379,8 +381,14 @@ class ProductionPaperSoakObservationProvider:
                 "broker_snapshot_at": account.get("account_snapshot_at"),
                 "unresolved_execution_state": unresolved_execution_state,
                 "order_submission": "disabled",
-                "market_data_request_attempts": max(\n                    1,\n                    int(
-                        getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)
+                "market_data_request_attempts": max(
+                    1,
+                    int(
+                        getattr(
+                            getattr(self.bot, "alpaca_feed", None),
+                            "_last_get_bars_retry_count",
+                            0,
+                        )
                     ) + 1,
                 ),
             }

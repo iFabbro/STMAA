@@ -137,6 +137,7 @@ class PaperSoakShadowRunner:
                             "market_data_outage_budget_exhausted", outage_elapsed
                         )
 
+                request_started_at = self.clock()
                 try:
                     raw_observation = self.observation_provider()
                 except TransientMarketDataError as exc:
@@ -144,7 +145,16 @@ class PaperSoakShadowRunner:
                     if outage_started_at is None:
                         next_outage_id += 1
                         outage_id = next_outage_id
-                        outage_started_at = now
+                        outage_started_at = request_started_at
+                        set_deadline = getattr(
+                            self.observation_provider,
+                            "set_market_data_outage_deadline",
+                            None,
+                        )
+                        if callable(set_deadline):
+                            set_deadline(
+                                outage_started_at + self.max_market_data_outage_seconds
+                            )
                         self.monitor.record_event(
                             "market_data_outage_started",
                             "Market-data transport became unavailable; recovery window started",
@@ -202,6 +212,13 @@ class PaperSoakShadowRunner:
                         return stop_for_transport_outage(
                             "market_data_outage_budget_exhausted", outage_elapsed
                         )
+                    clear_deadline = getattr(
+                        self.observation_provider,
+                        "set_market_data_outage_deadline",
+                        None,
+                    )
+                    if callable(clear_deadline):
+                        clear_deadline(None)
                     self.monitor.record_event(
                         "market_data_outage_recovered",
                         "Fresh market data recovered; normal read-only observations resumed",

@@ -215,7 +215,7 @@ def build_report(
         for item in outage_recoveries
     )
     transport_outage_evidence_valid = (
-        not outage_starts and not outage_recoveries
+        not outage_starts and not outage_recoveries and not unavailable_samples
     ) or (
         outage_policy_valid
         and len(start_by_id) == len(outage_starts)

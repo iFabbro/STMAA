@@ -410,3 +410,19 @@ def test_cli_reports_completed_persisted_run_without_claiming_acceptance(tmp_pat
     assert "PAPER_SOAK_RUN_STATE: completed" in output
     assert "PAPER_SOAK_STATUS: RUN_COMPLETED" in output
     assert "PAPER_SOAK_STATUS: PASS" not in output
+
+
+
+def test_provider_does_not_run_inference_after_market_data_outage_deadline():
+    bot = FakeBot()
+    provider = ProductionPaperSoakObservationProvider(bot)
+    provider.set_market_data_outage_deadline(0.0)
+
+    with pytest.raises(
+        TransientMarketDataError,
+        match="outage budget expired before strategy inference",
+    ):
+        provider()
+
+    assert bot.generate_weights_calls == []
+    assert bot.executor.lock_active is False

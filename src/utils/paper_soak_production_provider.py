@@ -9,11 +9,16 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from src.data.alpaca_feed import (
+    MAX_TRANSIENT_API_ATTEMPTS,
+    TransientMarketDataError,
+)
 from src.utils.paper_soak_monitor import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     PaperSoakMonitor,
@@ -40,6 +45,7 @@ class ProductionPaperSoakObservationProvider:
     def __init__(self, bot: Any) -> None:
         self.bot = bot
         self.executor = bot.executor
+        self._market_data_outage_deadline: float | None = None
         state = self.executor.state
         self._prior_state_has_account_history = any(
             (
@@ -86,6 +92,18 @@ class ProductionPaperSoakObservationProvider:
         peak = self._finite_positive(stored_peak, "persisted risk peak")
         return max(peak, equity)
 
+    def set_market_data_outage_deadline(self, deadline: float | None) -> None:
+        """Set or clear the runner's monotonic deadline for market-data recovery."""
+        if deadline is not None and (
+            isinstance(deadline, bool)
+            or not isinstance(deadline, (int, float))
+            or not math.isfinite(float(deadline))
+        ):
+            raise ValueError("market-data outage deadline must be finite or None")
+        self._market_data_outage_deadline = (
+            None if deadline is None else float(deadline)
+        )
+
     def __call__(self) -> PaperSoakShadowObservation:
         # Market data and VIX use the production feeds. One broker snapshot is
         # then collected under the execution lock and passed into generate_weights,
@@ -93,6 +111,12 @@ class ProductionPaperSoakObservationProvider:
         # Let the runner own bounded outage recovery. No downstream broker
         # snapshot or PPO inference is attempted until fresh market data returns.
         market_data = self.bot.get_market_data()
+        deadline = self._market_data_outage_deadline
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TransientMarketDataError(
+                "Market-data outage budget expired before strategy inference",
+                attempts=MAX_TRANSIENT_API_ATTEMPTS,
+            )
         vix = self.bot.get_vix_value()
         execution_lock = getattr(self.executor, "execution_lock", None)
         if not callable(execution_lock):

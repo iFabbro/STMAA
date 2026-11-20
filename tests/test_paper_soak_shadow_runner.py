@@ -176,7 +176,7 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
             health=health,
             decision={
                 "market_data_status": "transport_unavailable",
-                "market_data_retry_attempts": 3,
+                "market_data_request_attempts": 6,
                 "market_data_error_type": "ConnectionError",
                 "order_submission": "disabled",
             },

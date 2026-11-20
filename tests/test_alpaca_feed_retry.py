@@ -66,7 +66,7 @@ def test_get_stock_bars_stops_after_bounded_transient_failures(monkeypatch):
         TRANSIENT_API_BACKOFF_SECONDS * 2,
         TRANSIENT_API_BACKOFF_SECONDS * 4,
         TRANSIENT_API_BACKOFF_SECONDS * 8,
-        TRANSIENT_API_BACKOFF_SECONDS * 8,
+        TRANSIENT_API_BACKOFF_SECONDS * 16,
     ]
     assert sum(delays) == 15.5
 

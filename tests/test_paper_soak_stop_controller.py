@@ -72,7 +72,7 @@ def test_each_boolean_safety_violation_triggers_stop(tmp_path, field, value, rea
     assert controller.stopped is True
 
 
-def test_api_failure_threshold_is_exact(tmp_path):
+def test_market_data_request_attempt_threshold_is_exact(tmp_path):
     _, controller = make_controller(tmp_path)
 
     assert controller.evaluate(
@@ -201,3 +201,25 @@ def test_successful_request_at_retry_limit_does_not_trigger_transport_stop(tmp_p
     )
 
     assert decision.stopped is False
+
+
+
+def test_exhausted_transport_budget_keeps_primary_cause_when_downstream_is_unknown(tmp_path):
+    _, controller = make_controller(tmp_path)
+
+    decision = controller.evaluate(
+        healthy_snapshot(
+            broker_state_consistent=None,
+            exposure_determinable=None,
+            market_data_valid=None,
+            market_data_fresh=None,
+            persistence_healthy=None,
+            broker_snapshot_complete=None,
+            market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS,
+            market_data_request_exhausted=True,
+            heartbeat_age_seconds=None,
+        )
+    )
+
+    assert decision.stopped is True
+    assert decision.reason == "market_data_retry_budget_exhausted"

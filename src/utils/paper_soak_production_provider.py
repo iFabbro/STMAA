@@ -410,6 +410,38 @@ def validate_production_paper_preflight(bot: Any) -> dict:
         raise RuntimeError("Paper soak preflight failed: Alpaca Paper account is not active and unblocked")
     return account
 
+
+def _report_persisted_run_status(run_id: str, db_path: Path) -> int:
+    """Report the persisted terminal state, never the runner's return alone."""
+    print(f"PAPER_SOAK_RUN_ID: {run_id}")
+    print(f"EVENT_DATABASE: {db_path}")
+    try:
+        with db_conn(db_path) as conn:
+            row = conn.execute(
+                "SELECT status FROM runs WHERE run_id = ? "
+                "AND mode = 'paper_soak_read_only'",
+                (run_id,),
+            ).fetchone()
+        persisted_status = row[0] if row is not None else None
+    except Exception as exc:
+        print(
+            "PAPER_SOAK_RUN_STATE: unknown "
+            f"({type(exc).__name__}: unable to verify persisted run status)"
+        )
+        print("PAPER_SOAK_STATUS: INCOMPLETE")
+        return 2
+
+    print(f"PAPER_SOAK_RUN_STATE: {persisted_status or 'unknown'}")
+    if persisted_status == "completed":
+        print("PAPER_SOAK_STATUS: RUN_COMPLETED")
+        return 0
+    if persisted_status == "failed":
+        print("PAPER_SOAK_STATUS: FAIL")
+        return 1
+    print("PAPER_SOAK_STATUS: INCOMPLETE")
+    return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the production-inference, read-only STMAA Paper soak shadow runner."
@@ -498,33 +530,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"PAPER_SOAK_STATUS: FAILED ({type(exc).__name__}: {exc})")
         return 1
 
-    print(f"PAPER_SOAK_RUN_ID: {run_id}")
-    print(f"EVENT_DATABASE: {args.db_path}")
-    try:
-        with db_conn(args.db_path) as conn:
-            row = conn.execute(
-                "SELECT status FROM runs WHERE run_id = ? "
-                "AND mode = 'paper_soak_read_only'",
-                (run_id,),
-            ).fetchone()
-        persisted_status = row[0] if row is not None else None
-    except Exception as exc:
-        print(
-            "PAPER_SOAK_RUN_STATE: unknown "
-            f"({type(exc).__name__}: unable to verify persisted run status)"
-        )
-        print("PAPER_SOAK_STATUS: INCOMPLETE")
-        return 2
-
-    print(f"PAPER_SOAK_RUN_STATE: {persisted_status or 'unknown'}")
-    if persisted_status == "completed":
-        print("PAPER_SOAK_STATUS: RUN_COMPLETED")
-        return 0
-    if persisted_status == "failed":
-        print("PAPER_SOAK_STATUS: FAIL")
-        return 1
-    print("PAPER_SOAK_STATUS: INCOMPLETE")
-    return 2
+    return _report_persisted_run_status(run_id, args.db_path)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ def healthy_snapshot(**overrides):
         "market_data_fresh": True,
         "persistence_healthy": True,
         "broker_snapshot_complete": True,
-        "market_data_request_attempts": 0,
+        "market_data_request_attempts": 1,
+        "market_data_request_exhausted": False,
         "heartbeat_age_seconds": 0.0,
     }
     values.update(overrides)
@@ -78,7 +79,10 @@ def test_api_failure_threshold_is_exact(tmp_path):
         healthy_snapshot(market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS - 1)
     ).stopped is False
     decision = controller.evaluate(
-        healthy_snapshot(market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS)
+        healthy_snapshot(
+            market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS,
+            market_data_request_exhausted=True,
+        )
     )
 
     assert decision.stopped is True
@@ -111,6 +115,7 @@ def test_heartbeat_age_threshold_is_strictly_greater_than_limit(tmp_path):
         ("persistence_healthy", None),
         ("broker_snapshot_complete", None),
         ("market_data_request_attempts", None),
+        ("market_data_request_exhausted", None),
         ("heartbeat_age_seconds", None),
         ("market_data_request_attempts", -1),
         ("market_data_request_attempts", True),
@@ -183,3 +188,16 @@ def test_non_snapshot_input_fails_closed(tmp_path):
 
     assert decision.stopped is True
     assert decision.reason == "unknown_or_invalid_signal:snapshot"
+
+
+def test_successful_request_at_retry_limit_does_not_trigger_transport_stop(tmp_path):
+    _, controller = make_controller(tmp_path)
+
+    decision = controller.evaluate(
+        healthy_snapshot(
+            market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS,
+            market_data_request_exhausted=False,
+        )
+    )
+
+    assert decision.stopped is False

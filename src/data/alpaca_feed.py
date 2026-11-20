@@ -412,7 +412,7 @@ class AlpacaFeed:
                     8.0,
                 )
                 session = getattr(self.client, "_session", None)
-            deadline = getattr(session, "deadline", None)
+                deadline = getattr(session, "deadline", None)
                 if deadline is not None:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:

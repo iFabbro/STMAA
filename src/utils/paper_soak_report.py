@@ -157,6 +157,16 @@ def build_report(
         }
     ]
     observations = [item[2] for item in parsed_events if item[0] == "shadow_observation"]
+    unavailable_samples = [
+        item[2] for item in parsed_events
+        if item[0] == "market_data_unavailable_observation"
+    ]
+    outage_starts = [
+        item[2] for item in parsed_events if item[0] == "market_data_outage_started"
+    ]
+    outage_recoveries = [
+        item[2] for item in parsed_events if item[0] == "market_data_outage_recovered"
+    ]
     heartbeats = [item[2] for item in parsed_events if item[0] == "heartbeat"]
     finish_events = [item[2] for item in parsed_events if item[0] == "session_finished"]
     finish = finish_events[-1] if finish_events else {}
@@ -178,7 +188,52 @@ def build_report(
         and type(heartbeat_count) is int
         and heartbeat_count == len(heartbeats)
         and len(heartbeats) >= expected_samples
-        and len(observations) >= expected_samples
+        and len(observations) + len(unavailable_samples) >= expected_samples
+    )
+
+    outage_policy = metadata.get("max_market_data_outage_seconds")
+    outage_policy_valid = _finite_number(outage_policy) and outage_policy > 0
+    start_by_id = {
+        item.get("outage_id"): item
+        for item in outage_starts
+        if type(item.get("outage_id")) is int
+    }
+    recovery_by_id = {
+        item.get("outage_id"): item
+        for item in outage_recoveries
+        if type(item.get("outage_id")) is int
+    }
+    unavailable_samples_valid = all(
+        type(item.get("outage_id")) is int
+        and item.get("inference_performed") is False
+        and item.get("stale_data_used") is False
+        for item in unavailable_samples
+    )
+    recoveries_valid = all(
+        item.get("inference_performed_after_recovery") is True
+        and item.get("stale_data_used") is False
+        for item in outage_recoveries
+    )
+    transport_outage_evidence_valid = (
+        not outage_starts and not outage_recoveries and not unavailable_samples
+    ) or (
+        outage_policy_valid
+        and len(start_by_id) == len(outage_starts)
+        and len(recovery_by_id) == len(outage_recoveries)
+        and set(start_by_id) == set(recovery_by_id)
+        and unavailable_samples_valid
+        and recoveries_valid
+        and all(
+            type(item.get("outage_id")) is int
+            and item.get("outage_id") in start_by_id
+            for item in unavailable_samples
+        )
+        and all(
+            _finite_number(recovery_by_id[outage_id].get("outage_seconds"))
+            and recovery_by_id[outage_id]["outage_seconds"] <= outage_policy
+            and start_by_id[outage_id].get("max_market_data_outage_seconds") == outage_policy
+            for outage_id in start_by_id
+        )
     )
 
     provider_name = metadata.get("provider_name")
@@ -297,6 +352,7 @@ def build_report(
         "duration_met": duration_met,
         "terminal_event_present": bool(finish_events),
         "heartbeat_and_observation_coverage_sufficient": heartbeat_coverage,
+        "transport_outages_recovered_within_budget": transport_outage_evidence_valid,
         "no_stop_triggered": not stop_events,
         "no_error_events": not error_events,
         "observations_present": bool(observations),
@@ -362,7 +418,11 @@ def build_report(
         )
     if not heartbeat_coverage:
         report["limitations"].append(
-            "Heartbeat and shadow-observation counts do not prove continuous sampling at the configured interval."
+            "Heartbeat, healthy observation, and explicit unavailable-sample counts do not prove required sampling coverage."
+        )
+    if not transport_outage_evidence_valid:
+        report["limitations"].append(
+            "A market-data outage lacks a matching recovery event within the recorded outage budget."
         )
     if not commit_valid:
         report["limitations"].append(

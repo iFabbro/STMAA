@@ -2,9 +2,14 @@ import requests
 import pytest
 
 from src.data.alpaca_feed import (
+    MARKET_DATA_CONNECT_TIMEOUT_SECONDS,
+    MARKET_DATA_READ_TIMEOUT_SECONDS,
+    MARKET_DATA_REQUEST_TIMEOUT_SECONDS,
     MAX_TRANSIENT_API_ATTEMPTS,
     TRANSIENT_API_BACKOFF_SECONDS,
+    _MarketDataTimeoutSession,
     AlpacaFeed,
+    Urllib3Timeout,
     TransientMarketDataError,
 )
 
@@ -110,3 +115,53 @@ def test_get_stock_bars_does_not_retry_structural_errors(monkeypatch):
     assert feed.client.calls == 1
     assert feed._last_get_bars_retry_count == 0
     assert delays == []
+
+
+
+def test_market_data_timeout_session_applies_finite_default_timeout(monkeypatch):
+    captured = {}
+
+    def fake_request(_session, method, url, **kwargs):
+        captured.update(kwargs)
+        return "response"
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    session = _MarketDataTimeoutSession()
+
+    assert session.request("GET", "https://data.alpaca.markets") == "response"
+    timeout = captured["timeout"]
+    assert isinstance(timeout, Urllib3Timeout)
+    assert timeout.total == MARKET_DATA_REQUEST_TIMEOUT_SECONDS
+    assert timeout._connect == MARKET_DATA_CONNECT_TIMEOUT_SECONDS
+    assert timeout._read == MARKET_DATA_READ_TIMEOUT_SECONDS
+
+
+def test_market_data_timeout_session_preserves_explicit_timeout(monkeypatch):
+    captured = {}
+
+    def fake_request(_session, method, url, **kwargs):
+        captured.update(kwargs)
+        return "response"
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    session = _MarketDataTimeoutSession()
+
+    session.request("GET", "https://data.alpaca.markets", timeout=(1, 2))
+    assert captured["timeout"] == (1, 2)
+
+
+def test_market_data_timeout_session_refuses_request_after_deadline(monkeypatch):
+    calls = []
+
+    def fake_request(_session, method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return "response"
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    session = _MarketDataTimeoutSession()
+    session.set_deadline(0.0)
+
+    with pytest.raises(requests.exceptions.Timeout, match="deadline expired"):
+        session.request("GET", "https://data.alpaca.markets")
+
+    assert calls == []

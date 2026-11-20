@@ -323,3 +323,116 @@ def test_successful_request_at_retry_limit_is_not_reported_as_exhausted(tmp_path
     assert report["overall_status"] == "PASS"
     assert report["unknown_signals"] == []
     assert report["failures"] == []
+
+
+
+def test_report_counts_explicit_unavailable_samples_when_outage_recovers_within_budget(
+    tmp_path,
+):
+    database = tmp_path / "soak.db"
+    run_id = create_run(
+        database,
+        metadata={"max_market_data_outage_seconds": 600.0},
+        observation=False,
+        finalize=False,
+    )
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="market_data_outage_started",
+        message="outage started",
+        level="WARNING",
+        payload={"outage_id": 1, "max_market_data_outage_seconds": 600.0},
+        db_path=database,
+    )
+    for sequence in range(1, 4):
+        log_event(
+            run_id,
+            source="paper_soak_shadow_runner",
+            event_type="market_data_unavailable_observation",
+            message="no fresh data; no inference",
+            level="WARNING",
+            payload={"outage_id": 1, "inference_performed": False, "stale_data_used": False},
+            db_path=database,
+        )
+        log_event(
+            run_id,
+            source="paper_soak_monitor",
+            event_type="heartbeat",
+            message="heartbeat",
+            payload={"sequence": sequence, "elapsed_seconds": sequence},
+            db_path=database,
+        )
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="market_data_outage_recovered",
+        message="fresh data recovered",
+        level="WARNING",
+        payload={
+            "outage_id": 1,
+            "outage_seconds": 120.0,
+            "inference_performed_after_recovery": True,
+            "stale_data_used": False,
+        },
+        db_path=database,
+    )
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="shadow_observation",
+        message="post-recovery healthy observation",
+        payload={
+            "health": HEALTHY,
+            "hypothetical_decision": {"action": "hold"},
+            "stop_triggered": False,
+        },
+        db_path=database,
+    )
+    finalize_run(run_id, database, observation=True)
+    report = build_report(
+        database,
+        run_id,
+        ci_evidence_path=write_ci_evidence(tmp_path),
+    )
+
+    assert report["checks"]["transport_outages_recovered_within_budget"] is True
+    assert report["checks"]["heartbeat_and_observation_coverage_sufficient"] is True
+    assert report["overall_status"] == "PASS"
+
+
+def test_report_rejects_unmatched_or_over_budget_transport_outage(tmp_path):
+    database = tmp_path / "soak.db"
+    run_id = create_run(
+        database,
+        metadata={"max_market_data_outage_seconds": 600.0},
+        observation=False,
+        finalize=False,
+    )
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="market_data_outage_started",
+        message="outage started",
+        level="WARNING",
+        payload={"outage_id": 1, "max_market_data_outage_seconds": 600.0},
+        db_path=database,
+    )
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="market_data_outage_recovered",
+        message="late recovery",
+        level="WARNING",
+        payload={"outage_id": 1, "outage_seconds": 601.0},
+        db_path=database,
+    )
+    finalize_run(run_id, database, observation=False)
+    report = build_report(
+        database,
+        run_id,
+        ci_evidence_path=write_ci_evidence(tmp_path),
+    )
+
+    assert report["checks"]["transport_outages_recovered_within_budget"] is False
+    assert report["overall_status"] == "INCOMPLETE"

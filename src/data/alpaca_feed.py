@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import List, Optional
 
 import requests
+from urllib3.util import Timeout as Urllib3Timeout
 
 import numpy as np
 import pandas as pd
@@ -58,6 +59,52 @@ if (
 # The maximum configured sleep between attempts is 0.5 + 1 + 2 + 4 + 8 = 15.5s.
 MAX_TRANSIENT_API_ATTEMPTS = 6
 TRANSIENT_API_BACKOFF_SECONDS = 0.5
+MARKET_DATA_CONNECT_TIMEOUT_SECONDS = 5.0
+MARKET_DATA_READ_TIMEOUT_SECONDS = 15.0
+MARKET_DATA_REQUEST_TIMEOUT_SECONDS = 20.0
+
+
+class _MarketDataTimeoutSession(requests.Session):
+    """Apply total, connect and read timeouts to Alpaca SDK REST requests.
+
+    alpaca-py's historical client does not expose a request-timeout constructor
+    option; its REST client delegates to this requests.Session instance.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.deadline: float | None = None
+
+    def set_deadline(self, deadline: float | None) -> None:
+        self.deadline = deadline
+
+    def request(self, method, url, **kwargs):
+        if "timeout" not in kwargs:
+            remaining = (
+                None if self.deadline is None else self.deadline - time.monotonic()
+            )
+            if remaining is not None and remaining <= 0:
+                raise requests.exceptions.Timeout(
+                    "Market-data outage recovery deadline expired"
+                )
+            kwargs["timeout"] = Urllib3Timeout(
+                total=(
+                    MARKET_DATA_REQUEST_TIMEOUT_SECONDS
+                    if remaining is None
+                    else remaining
+                ),
+                connect=(
+                    MARKET_DATA_CONNECT_TIMEOUT_SECONDS
+                    if remaining is None
+                    else min(MARKET_DATA_CONNECT_TIMEOUT_SECONDS, remaining)
+                ),
+                read=(
+                    MARKET_DATA_READ_TIMEOUT_SECONDS
+                    if remaining is None
+                    else min(MARKET_DATA_READ_TIMEOUT_SECONDS, remaining)
+                ),
+            )
+        return super().request(method, url, **kwargs)
 
 
 class TransientMarketDataError(ConnectionError):
@@ -92,7 +139,18 @@ class AlpacaFeed:
             api_key=self.api_key,
             secret_key=self.api_secret,
         )
+        # alpaca-py currently exposes its requests session as _session but has
+        # no public timeout option for historical REST calls.
+        self.client._session = _MarketDataTimeoutSession()
         logger.info("✅ AlpacaFeed inizializzato (alpaca-py)")
+
+    def set_request_deadline(self, deadline: float | None) -> None:
+        """Bound the current request/retry cycle by a monotonic deadline."""
+        session = self.client._session
+        set_deadline = getattr(session, "set_deadline", None)
+        if not callable(set_deadline):
+            raise RuntimeError("Alpaca market-data session cannot enforce deadlines")
+        set_deadline(deadline)
 
     # ------------------------------------------------------------------
     # Dati storici (bars giornalieri)
@@ -325,10 +383,19 @@ class AlpacaFeed:
     def _request_stock_bars_with_retry(self, request) -> pd.DataFrame:
         """Retry only transient transport failures; never retry data/contract errors."""
         self._last_get_bars_retry_count = 0
+        last_transport_error = None
         for attempt in range(1, MAX_TRANSIENT_API_ATTEMPTS + 1):
+            session = getattr(self.client, "_session", None)
+            deadline = getattr(session, "deadline", None)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TransientMarketDataError(
+                    "Alpaca market-data outage recovery deadline expired",
+                    attempts=max(1, attempt - 1),
+                ) from last_transport_error
             try:
                 return self.client.get_stock_bars(request).df
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+                last_transport_error = exc
                 if attempt >= MAX_TRANSIENT_API_ATTEMPTS:
                     logger.error(
                         "Alpaca get_stock_bars transport failed after %s attempts: %s",
@@ -344,6 +411,16 @@ class AlpacaFeed:
                     TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1)),
                     8.0,
                 )
+                session = getattr(self.client, "_session", None)
+                deadline = getattr(session, "deadline", None)
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TransientMarketDataError(
+                            "Alpaca market-data outage recovery deadline expired",
+                            attempts=attempt,
+                        ) from exc
+                    delay = min(delay, remaining)
                 self._last_get_bars_retry_count = attempt
                 logger.warning(
                     "Transient Alpaca get_stock_bars failure (%s/%s); retrying in %.2fs: %s",

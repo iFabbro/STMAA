@@ -9,18 +9,22 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from src.data.alpaca_feed import TransientMarketDataError
-
+from src.data.alpaca_feed import (
+    MAX_TRANSIENT_API_ATTEMPTS,
+    TransientMarketDataError,
+)
 from src.utils.paper_soak_monitor import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     PaperSoakMonitor,
 )
 from src.utils.paper_soak_shadow_runner import (
+    DEFAULT_MAX_MARKET_DATA_OUTAGE_SECONDS,
     PaperSoakShadowObservation,
     PaperSoakShadowRunner,
 )
@@ -41,6 +45,7 @@ class ProductionPaperSoakObservationProvider:
     def __init__(self, bot: Any) -> None:
         self.bot = bot
         self.executor = bot.executor
+        self._market_data_outage_deadline: float | None = None
         state = self.executor.state
         self._prior_state_has_account_history = any(
             (
@@ -87,51 +92,34 @@ class ProductionPaperSoakObservationProvider:
         peak = self._finite_positive(stored_peak, "persisted risk peak")
         return max(peak, equity)
 
+    def set_market_data_outage_deadline(self, deadline: float | None) -> None:
+        """Set or clear the runner's monotonic deadline for market-data recovery."""
+        if deadline is not None and (
+            isinstance(deadline, bool)
+            or not isinstance(deadline, (int, float))
+            or not math.isfinite(float(deadline))
+        ):
+            raise ValueError("market-data outage deadline must be finite or None")
+        self._market_data_outage_deadline = (
+            None if deadline is None else float(deadline)
+        )
+        feed = getattr(self.bot, "alpaca_feed", None)
+        set_request_deadline = getattr(feed, "set_request_deadline", None)
+        if callable(set_request_deadline):
+            set_request_deadline(self._market_data_outage_deadline)
+
     def __call__(self) -> PaperSoakShadowObservation:
         # Market data and VIX use the production feeds. One broker snapshot is
         # then collected under the execution lock and passed into generate_weights,
         # which performs corporate-action reconciliation and PPO inference.
-        try:
-            market_data = self.bot.get_market_data()
-        except TransientMarketDataError as exc:
-            # Convert exhausted transport retries into an explicit unhealthy
-            # observation so the stop controller can persist the failure.
-            # No broker snapshot or strategy inference is attempted on stale data.
-            paper_mode = getattr(self.executor, "paper_trading", None)
-            endpoint = getattr(self.executor, "base_url", None)
-            if paper_mode is True and endpoint == PAPER_ENDPOINT:
-                paper_endpoint: bool | None = True
-            elif paper_mode is False or (
-                isinstance(endpoint, str) and endpoint != PAPER_ENDPOINT
-            ):
-                paper_endpoint = False
-            else:
-                paper_endpoint = None
-
-            return PaperSoakShadowObservation(
-                health=PaperSoakHealthSnapshot(
-                    broker_endpoint_is_paper=paper_endpoint,
-                    order_mutation_attempted=False,
-                    broker_state_consistent=None,
-                    exposure_determinable=None,
-                    market_data_valid=None,
-                    market_data_fresh=None,
-                    persistence_healthy=None,
-                    broker_snapshot_complete=None,
-                    market_data_request_attempts=exc.attempts,
-                    market_data_request_exhausted=True,
-                    heartbeat_age_seconds=None,
-                ),
-                decision={
-                    "decision_type": "production_ppo_shadow",
-                    "market_data_status": "transport_unavailable",
-                    "market_data_request_attempts": exc.attempts,
-                    "market_data_request_exhausted": True,
-                    "market_data_error_type": type(exc.__cause__).__name__
-                    if exc.__cause__ is not None
-                    else type(exc).__name__,
-                    "order_submission": "disabled",
-                },
+        # Let the runner own bounded outage recovery. No downstream broker
+        # snapshot or PPO inference is attempted until fresh market data returns.
+        market_data = self.bot.get_market_data()
+        deadline = self._market_data_outage_deadline
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TransientMarketDataError(
+                "Market-data outage budget expired before strategy inference",
+                attempts=MAX_TRANSIENT_API_ATTEMPTS,
             )
         vix = self.bot.get_vix_value()
         execution_lock = getattr(self.executor, "execution_lock", None)
@@ -455,6 +443,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         help="market/broker observation and heartbeat interval",
     )
+    parser.add_argument(
+        "--max-market-data-outage-seconds",
+        type=float,
+        default=DEFAULT_MAX_MARKET_DATA_OUTAGE_SECONDS,
+        help="maximum continuous market-data outage tolerated before fail-closed stop",
+    )
     parser.add_argument("--branch", default="main")
     parser.add_argument("--commit-sha", required=True)
     parser.add_argument("--db-path", type=Path, default=DB_PATH)
@@ -476,6 +470,12 @@ def main(argv: list[str] | None = None) -> int:
             or args.interval_seconds <= 0
         ):
             raise ValueError("interval-seconds must be positive and finite")
+        if (
+            isinstance(args.max_market_data_outage_seconds, bool)
+            or not math.isfinite(args.max_market_data_outage_seconds)
+            or args.max_market_data_outage_seconds <= 0
+        ):
+            raise ValueError("max-market-data-outage-seconds must be positive and finite")
         if len(args.commit_sha) != 40 or any(
             character not in "0123456789abcdefABCDEF" for character in args.commit_sha
         ):
@@ -515,6 +515,7 @@ def main(argv: list[str] | None = None) -> int:
                 "provider_kind": "production_read_only",
                 "production_strategy_inference": True,
                 "observation_interval_seconds": args.interval_seconds,
+                "max_market_data_outage_seconds": args.max_market_data_outage_seconds,
                 "broker_preflight_passed": True,
                 "broker_preflight_mode": "paper",
             },
@@ -523,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
             monitor,
             observation_provider=ProductionPaperSoakObservationProvider(bot),
             observation_interval_seconds=args.interval_seconds,
+            max_market_data_outage_seconds=args.max_market_data_outage_seconds,
         )
         run_id = runner.run()
     except KeyboardInterrupt:

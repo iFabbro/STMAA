@@ -223,3 +223,20 @@ def test_exhausted_transport_budget_keeps_primary_cause_when_downstream_is_unkno
 
     assert decision.stopped is True
     assert decision.reason == "market_data_retry_budget_exhausted"
+
+
+
+def test_exhausted_flag_below_retry_budget_fails_closed(tmp_path):
+    _, controller = make_controller(tmp_path)
+
+    decision = controller.evaluate(
+        healthy_snapshot(
+            market_data_request_attempts=MAX_MARKET_DATA_REQUEST_ATTEMPTS - 1,
+            market_data_request_exhausted=True,
+        )
+    )
+
+    assert decision.stopped is True
+    assert decision.reason == (
+        "unknown_or_invalid_signal:inconsistent_market_data_request_telemetry"
+    )

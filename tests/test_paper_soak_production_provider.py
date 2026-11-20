@@ -374,3 +374,24 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
     assert observation.decision["order_submission"] == "disabled"
     assert bot.generate_weights_calls == []
     assert bot.executor.lock_active is False
+
+
+
+def test_cli_reports_failed_persisted_run_as_fail(tmp_path, capsys):
+    database = tmp_path / "paper-soak.db"
+    run_id = start_run(
+        mode="paper_soak_read_only",
+        branch="main",
+        commit_sha="a" * 40,
+        meta={"order_submission": "disabled"},
+        db_path=database,
+    )
+    end_run(run_id, status="failed", db_path=database)
+
+    exit_code = _report_persisted_run_status(run_id, database)
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "PAPER_SOAK_RUN_STATE: failed" in output
+    assert "PAPER_SOAK_STATUS: FAIL" in output
+    assert "PAPER_SOAK_STATUS: COMPLETED" not in output

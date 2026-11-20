@@ -368,9 +368,13 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
     assert observation.health.order_mutation_attempted is False
     assert observation.health.market_data_request_attempts == 6
     assert observation.health.market_data_request_exhausted is True
+    assert observation.health.broker_state_consistent is None
+    assert observation.health.exposure_determinable is None
     assert observation.health.market_data_valid is None
     assert observation.health.market_data_fresh is None
+    assert observation.health.persistence_healthy is None
     assert observation.health.broker_snapshot_complete is None
+    assert observation.health.heartbeat_age_seconds is None
     assert observation.decision["market_data_status"] == "transport_unavailable"
     assert observation.decision["market_data_request_attempts"] == 6
     assert observation.decision["order_submission"] == "disabled"

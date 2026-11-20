@@ -89,24 +89,25 @@ class PaperSoakShadowRunner:
                 observation = self._validate_observation(
                     self.observation_provider()
                 )
-                retry_attempts = observation.decision.get(
-                    "market_data_retry_attempts", 0
-                )
-                if type(retry_attempts) is not int or retry_attempts < 0:
-                    raise ValueError("market_data_retry_attempts must be a non-negative integer")
-                if retry_attempts:
-                    retry_exhausted = (
-                        observation.decision.get("market_data_status")
-                        == "transport_unavailable"
+                request_attempts = observation.health.market_data_request_attempts
+                request_exhausted = observation.health.market_data_request_exhausted
+                if type(request_attempts) is not int or request_attempts < 1:
+                    raise ValueError(
+                        "market_data_request_attempts must be a positive integer"
                     )
+                if type(request_exhausted) is not bool:
+                    raise ValueError("market_data_request_exhausted must be boolean")
+                if request_exhausted or request_attempts > 1:
                     self.monitor.record_event(
-                        "market_data_retry_exhausted" if retry_exhausted else "market_data_retry_recovered",
+                        "market_data_retry_exhausted"
+                        if request_exhausted
+                        else "market_data_retry_recovered",
                         "Market-data transport retry budget exhausted"
-                        if retry_exhausted
+                        if request_exhausted
                         else "Market-data transport recovered after retry",
-                        level="ERROR" if retry_exhausted else "WARNING",
+                        level="ERROR" if request_exhausted else "WARNING",
                         payload={
-                            "attempts": retry_attempts,
+                            "attempts": request_attempts,
                             "error_type": observation.decision.get(
                                 "market_data_error_type"
                             ),

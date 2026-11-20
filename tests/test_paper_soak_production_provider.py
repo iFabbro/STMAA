@@ -9,7 +9,9 @@ from src.strategy.risk_overlay import RiskOverlayModule
 from src.strategy.weight_interface import PortfolioWeights
 from src.utils.paper_soak_production_provider import (
     ProductionPaperSoakObservationProvider,
+    _report_persisted_run_status,
 )
+from src.utils.sqlite_logger import end_run, start_run
 
 
 class FakeExecutor:
@@ -163,7 +165,8 @@ def test_production_provider_reuses_production_inference_and_emits_complete_heal
     assert health.market_data_fresh is True
     assert health.persistence_healthy is True
     assert health.broker_snapshot_complete is True
-    assert health.api_consecutive_failures == 0
+    assert health.market_data_request_attempts == 1
+    assert health.market_data_request_exhausted is False
 
     decision = observation.decision
     assert decision["decision_type"] == "production_ppo_shadow"
@@ -355,20 +358,67 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
     bot = FakeBot()
     bot.get_market_data = lambda: (_ for _ in ()).throw(
         TransientMarketDataError(
-            "Alpaca market-data transport unavailable after 3 attempts",
-            attempts=3,
+            "Alpaca market-data transport unavailable after 6 attempts",
+            attempts=6,
         )
     )
     observation = ProductionPaperSoakObservationProvider(bot)()
 
     assert observation.health.broker_endpoint_is_paper is True
     assert observation.health.order_mutation_attempted is False
-    assert observation.health.api_consecutive_failures == 3
-    assert observation.health.market_data_valid is False
-    assert observation.health.market_data_fresh is False
-    assert observation.health.broker_snapshot_complete is False
+    assert observation.health.market_data_request_attempts == 6
+    assert observation.health.market_data_request_exhausted is True
+    assert observation.health.broker_state_consistent is None
+    assert observation.health.exposure_determinable is None
+    assert observation.health.market_data_valid is None
+    assert observation.health.market_data_fresh is None
+    assert observation.health.persistence_healthy is None
+    assert observation.health.broker_snapshot_complete is None
+    assert observation.health.heartbeat_age_seconds is None
     assert observation.decision["market_data_status"] == "transport_unavailable"
-    assert observation.decision["market_data_retry_attempts"] == 3
+    assert observation.decision["market_data_request_attempts"] == 6
     assert observation.decision["order_submission"] == "disabled"
     assert bot.generate_weights_calls == []
     assert bot.executor.lock_active is False
+
+
+
+def test_cli_reports_failed_persisted_run_as_fail(tmp_path, capsys):
+    database = tmp_path / "paper-soak.db"
+    run_id = start_run(
+        mode="paper_soak_read_only",
+        branch="main",
+        commit_sha="a" * 40,
+        meta={"order_submission": "disabled"},
+        db_path=database,
+    )
+    end_run(run_id, status="failed", db_path=database)
+
+    exit_code = _report_persisted_run_status(run_id, database)
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "PAPER_SOAK_RUN_STATE: failed" in output
+    assert "PAPER_SOAK_STATUS: FAIL" in output
+    assert "PAPER_SOAK_STATUS: COMPLETED" not in output
+
+
+
+def test_cli_reports_completed_persisted_run_without_claiming_acceptance(tmp_path, capsys):
+    database = tmp_path / "paper-soak.db"
+    run_id = start_run(
+        mode="paper_soak_read_only",
+        branch="main",
+        commit_sha="b" * 40,
+        meta={"order_submission": "disabled"},
+        db_path=database,
+    )
+    end_run(run_id, status="completed", db_path=database)
+
+    exit_code = _report_persisted_run_status(run_id, database)
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "PAPER_SOAK_RUN_STATE: completed" in output
+    assert "PAPER_SOAK_STATUS: RUN_COMPLETED" in output
+    assert "PAPER_SOAK_STATUS: PASS" not in output

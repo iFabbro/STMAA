@@ -13,7 +13,8 @@ HEALTHY = {
     "market_data_fresh": True,
     "persistence_healthy": True,
     "broker_snapshot_complete": True,
-    "api_consecutive_failures": 0,
+    "market_data_request_attempts": 1,
+    "market_data_request_exhausted": False,
     "heartbeat_age_seconds": 1.0,
 }
 COMMIT_SHA = "a" * 40
@@ -198,8 +199,9 @@ def test_unknown_mandatory_signal_fails_closed(tmp_path):
     )
     finalize_run(run_id, database)
     report = build_report(database)
-    assert report["overall_status"] == "FAIL"
-    assert "observation_3_unknown_signal:market_data_fresh" in report["failures"]
+    assert report["overall_status"] == "INCOMPLETE"
+    assert "observation_3_unknown_signal:market_data_fresh" in report["unknown_signals"]
+    assert "observation_3_unknown_signal:market_data_fresh" not in report["failures"]
 
 
 def test_provider_placeholder_cannot_pass_operational_acceptance(tmp_path):
@@ -289,3 +291,35 @@ def test_report_can_select_a_specific_run(tmp_path):
     report = build_report(database, selected, write_ci_evidence(tmp_path))
     assert report["run_id"] == selected
     assert report["overall_status"] == "PASS"
+
+
+
+def test_successful_request_at_retry_limit_is_not_reported_as_exhausted(tmp_path):
+    database = tmp_path / "soak.db"
+    run_id = create_run(database, finalize=False)
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="shadow_observation",
+        message="request recovered on final attempt",
+        payload={
+            "health": {
+                **HEALTHY,
+                "market_data_request_attempts": 6,
+                "market_data_request_exhausted": False,
+            },
+            "stop_triggered": False,
+            "hypothetical_decision": {"action": "hold"},
+        },
+        db_path=database,
+    )
+    finalize_run(run_id, database)
+
+    report = build_report(
+        database,
+        ci_evidence_path=write_ci_evidence(tmp_path),
+    )
+
+    assert report["overall_status"] == "PASS"
+    assert report["unknown_signals"] == []
+    assert report["failures"] == []

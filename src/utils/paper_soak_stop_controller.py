@@ -10,16 +10,17 @@ import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from src.data.alpaca_feed import MAX_TRANSIENT_API_ATTEMPTS
 from src.utils.paper_soak_monitor import PaperSoakMonitor
 from src.utils.sqlite_logger import db_conn, log_event
 
-MAX_CONSECUTIVE_API_FAILURES = 3
+MAX_MARKET_DATA_REQUEST_ATTEMPTS = MAX_TRANSIENT_API_ATTEMPTS
 MAX_HEARTBEAT_AGE_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
 class PaperSoakHealthSnapshot:
-    """One complete set of independent health observations.
+    """One set of independent health observations, with unknown values represented as None.
 
     None is deliberately permitted at the boundary so that missing telemetry
     can be represented and converted into a fail-closed stop decision.
@@ -33,7 +34,8 @@ class PaperSoakHealthSnapshot:
     market_data_fresh: bool | None = None
     persistence_healthy: bool | None = None
     broker_snapshot_complete: bool | None = None
-    api_consecutive_failures: int | None = None
+    market_data_request_attempts: int | None = None
+    market_data_request_exhausted: bool | None = None
     heartbeat_age_seconds: float | None = None
 
 
@@ -92,9 +94,17 @@ class PaperSoakStopController:
             if type(value) is not bool:
                 return f"unknown_or_invalid_signal:{field}"
 
-        failures = snapshot.api_consecutive_failures
-        if type(failures) is not int or failures < 0:
-            return "unknown_or_invalid_signal:api_consecutive_failures"
+        attempts = snapshot.market_data_request_attempts
+        if type(attempts) is not int or attempts < 1:
+            return "unknown_or_invalid_signal:market_data_request_attempts"
+
+        if type(snapshot.market_data_request_exhausted) is not bool:
+            return "unknown_or_invalid_signal:market_data_request_exhausted"
+        if (
+            snapshot.market_data_request_exhausted
+            and attempts < MAX_MARKET_DATA_REQUEST_ATTEMPTS
+        ):
+            return "unknown_or_invalid_signal:inconsistent_market_data_request_telemetry"
 
         heartbeat_age = snapshot.heartbeat_age_seconds
         if isinstance(heartbeat_age, bool) or not isinstance(heartbeat_age, (int, float)):
@@ -110,12 +120,6 @@ class PaperSoakStopController:
     @staticmethod
     def _first_failure(snapshot: PaperSoakHealthSnapshot) -> str | None:
         checks = (
-            # Preserve the primary cause when a provider reports an exhausted
-            # transport retry budget alongside unavailable downstream snapshots.
-            (
-                snapshot.api_consecutive_failures >= MAX_CONSECUTIVE_API_FAILURES,
-                "broker_api_unreachable_threshold",
-            ),
             (not snapshot.broker_endpoint_is_paper, "non_paper_broker_endpoint"),
             (snapshot.order_mutation_attempted, "broker_order_mutation_attempted"),
             (not snapshot.broker_state_consistent, "broker_state_mismatch"),
@@ -143,10 +147,25 @@ class PaperSoakStopController:
             reason = "unknown_or_invalid_signal:snapshot"
             details: dict[str, Any] = {"received_type": type(snapshot).__name__}
         else:
-            reason = self._validate_snapshot(snapshot)
             details = asdict(snapshot)
-            if reason is None:
-                reason = self._first_failure(snapshot)
+            attempts = snapshot.market_data_request_attempts
+            # A failed market-data request is the primary cause. Evaluate its
+            # bounded request budget before downstream signals that were not
+            # evaluated because the request never returned data.
+            if snapshot.broker_endpoint_is_paper is False:
+                reason = "non_paper_broker_endpoint"
+            elif snapshot.order_mutation_attempted is True:
+                reason = "broker_order_mutation_attempted"
+            elif (
+                snapshot.market_data_request_exhausted is True
+                and type(attempts) is int
+                and attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS
+            ):
+                reason = "market_data_retry_budget_exhausted"
+            else:
+                reason = self._validate_snapshot(snapshot)
+                if reason is None:
+                    reason = self._first_failure(snapshot)
 
         if reason is None:
             return PaperSoakStopDecision(stopped=False)
@@ -164,7 +183,7 @@ class PaperSoakStopController:
                 payload={
                     "reason": reason,
                     "details": details,
-                    "max_consecutive_api_failures": MAX_CONSECUTIVE_API_FAILURES,
+                    "max_market_data_request_attempts": MAX_MARKET_DATA_REQUEST_ATTEMPTS,
                     "max_heartbeat_age_seconds": MAX_HEARTBEAT_AGE_SECONDS,
                 },
                 db_path=self.monitor.db_path,

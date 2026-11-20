@@ -32,7 +32,8 @@ def healthy_health(**overrides):
         "market_data_fresh": True,
         "persistence_healthy": True,
         "broker_snapshot_complete": True,
-        "api_consecutive_failures": 0,
+        "market_data_request_attempts": 1,
+        "market_data_request_exhausted": False,
         "heartbeat_age_seconds": 0.0,
     }
     values.update(overrides)
@@ -166,7 +167,8 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
         market_data_fresh=False,
         persistence_healthy=False,
         broker_snapshot_complete=False,
-        api_consecutive_failures=3,
+        market_data_request_attempts=6,
+        market_data_request_exhausted=True,
     )
     runner = PaperSoakShadowRunner(
         monitor,
@@ -174,7 +176,7 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
             health=health,
             decision={
                 "market_data_status": "transport_unavailable",
-                "market_data_retry_attempts": 3,
+                "market_data_request_attempts": 6,
                 "market_data_error_type": "ConnectionError",
                 "order_submission": "disabled",
             },
@@ -199,6 +201,6 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
     retry_event = next(
         row for row in events if row["event_type"] == "market_data_retry_exhausted"
     )
-    assert json.loads(retry_event["payload"])["attempts"] == 3
+    assert json.loads(retry_event["payload"])["attempts"] == 6
     stop_event = next(row for row in events if row["event_type"] == "stop_triggered")
-    assert json.loads(stop_event["payload"])["reason"] == "broker_api_unreachable_threshold"
+    assert json.loads(stop_event["payload"])["reason"] == "market_data_retry_budget_exhausted"

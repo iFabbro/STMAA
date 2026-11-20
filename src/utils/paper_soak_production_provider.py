@@ -126,6 +126,7 @@ class ProductionPaperSoakObservationProvider:
                     "decision_type": "production_ppo_shadow",
                     "market_data_status": "transport_unavailable",
                     "market_data_request_attempts": exc.attempts,
+                    "market_data_request_exhausted": True,
                     "market_data_error_type": type(exc.__cause__).__name__
                     if exc.__cause__ is not None
                     else type(exc).__name__,
@@ -391,6 +392,7 @@ class ProductionPaperSoakObservationProvider:
                         )
                     ) + 1,
                 ),
+                "market_data_request_exhausted": False,
             }
             return PaperSoakShadowObservation(health=health, decision=decision)
     

@@ -103,6 +103,10 @@ class ProductionPaperSoakObservationProvider:
         self._market_data_outage_deadline = (
             None if deadline is None else float(deadline)
         )
+        feed = getattr(self.bot, "alpaca_feed", None)
+        set_request_deadline = getattr(feed, "set_request_deadline", None)
+        if callable(set_request_deadline):
+            set_request_deadline(self._market_data_outage_deadline)
 
     def __call__(self) -> PaperSoakShadowObservation:
         # Market data and VIX use the production feeds. One broker snapshot is

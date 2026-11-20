@@ -291,3 +291,35 @@ def test_report_can_select_a_specific_run(tmp_path):
     report = build_report(database, selected, write_ci_evidence(tmp_path))
     assert report["run_id"] == selected
     assert report["overall_status"] == "PASS"
+
+
+
+def test_successful_request_at_retry_limit_is_not_reported_as_exhausted(tmp_path):
+    database = tmp_path / "soak.db"
+    run_id = create_run(database, finalize=False)
+    log_event(
+        run_id,
+        source="paper_soak_shadow_runner",
+        event_type="shadow_observation",
+        message="request recovered on final attempt",
+        payload={
+            "health": {
+                **HEALTHY,
+                "market_data_request_attempts": 6,
+                "market_data_request_exhausted": False,
+            },
+            "stop_triggered": False,
+            "hypothetical_decision": {"action": "hold"},
+        },
+        db_path=database,
+    )
+    finalize_run(run_id, database)
+
+    report = build_report(
+        database,
+        ci_evidence_path=write_ci_evidence(tmp_path),
+    )
+
+    assert report["overall_status"] == "PASS"
+    assert report["unknown_signals"] == []
+    assert report["failures"] == []

@@ -25,7 +25,7 @@ from src.utils.paper_soak_shadow_runner import (
     PaperSoakShadowRunner,
 )
 from src.utils.paper_soak_stop_controller import PaperSoakHealthSnapshot
-from src.utils.sqlite_logger import DB_PATH
+from src.utils.sqlite_logger import DB_PATH, db_conn
 
 PAPER_ENDPOINT = "https://paper-api.alpaca.markets"
 
@@ -97,26 +97,34 @@ class ProductionPaperSoakObservationProvider:
             # Convert exhausted transport retries into an explicit unhealthy
             # observation so the stop controller can persist the failure.
             # No broker snapshot or strategy inference is attempted on stale data.
+            paper_mode = getattr(self.executor, "paper_trading", None)
+            endpoint = getattr(self.executor, "base_url", None)
+            if paper_mode is True and endpoint == PAPER_ENDPOINT:
+                paper_endpoint: bool | None = True
+            elif paper_mode is False or (
+                isinstance(endpoint, str) and endpoint != PAPER_ENDPOINT
+            ):
+                paper_endpoint = False
+            else:
+                paper_endpoint = None
+
             return PaperSoakShadowObservation(
                 health=PaperSoakHealthSnapshot(
-                    broker_endpoint_is_paper=(
-                        getattr(self.executor, "paper_trading", None) is True
-                        and getattr(self.executor, "base_url", None) == PAPER_ENDPOINT
-                    ),
+                    broker_endpoint_is_paper=paper_endpoint,
                     order_mutation_attempted=False,
-                    broker_state_consistent=False,
-                    exposure_determinable=False,
-                    market_data_valid=False,
-                    market_data_fresh=False,
-                    persistence_healthy=False,
-                    broker_snapshot_complete=False,
-                    api_consecutive_failures=exc.attempts,
-                    heartbeat_age_seconds=0.0,
+                    broker_state_consistent=None,
+                    exposure_determinable=None,
+                    market_data_valid=None,
+                    market_data_fresh=None,
+                    persistence_healthy=None,
+                    broker_snapshot_complete=None,
+                    market_data_request_attempts=exc.attempts,
+                    heartbeat_age_seconds=None,
                 ),
                 decision={
                     "decision_type": "production_ppo_shadow",
                     "market_data_status": "transport_unavailable",
-                    "market_data_retry_attempts": exc.attempts,
+                    "market_data_request_attempts": exc.attempts,
                     "market_data_error_type": type(exc.__cause__).__name__
                     if exc.__cause__ is not None
                     else type(exc).__name__,
@@ -323,7 +331,7 @@ class ProductionPaperSoakObservationProvider:
                 market_data_fresh=True,
                 persistence_healthy=persistence_healthy,
                 broker_snapshot_complete=snapshot_complete,
-                api_consecutive_failures=0,
+                market_data_request_attempts=max(\n                    1,\n                    int(getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)) + 1,\n                ),
                 heartbeat_age_seconds=0.0,
             )
             decision = {
@@ -362,8 +370,9 @@ class ProductionPaperSoakObservationProvider:
                 "broker_snapshot_at": account.get("account_snapshot_at"),
                 "unresolved_execution_state": unresolved_execution_state,
                 "order_submission": "disabled",
-                "market_data_retry_attempts": int(
-                    getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)
+                "market_data_request_attempts": max(\n                    1,\n                    int(
+                        getattr(getattr(self.bot, "alpaca_feed", None), "_last_get_bars_retry_count", 0)
+                    ) + 1,
                 ),
             }
             return PaperSoakShadowObservation(health=health, decision=decision)
@@ -473,9 +482,32 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"PAPER_SOAK_RUN_ID: {run_id}")
-    print("PAPER_SOAK_STATUS: COMPLETED")
     print(f"EVENT_DATABASE: {args.db_path}")
-    return 0
+    try:
+        with db_conn(args.db_path) as conn:
+            row = conn.execute(
+                "SELECT status FROM runs WHERE run_id = ? "
+                "AND mode = 'paper_soak_read_only'",
+                (run_id,),
+            ).fetchone()
+        persisted_status = row["status"] if row is not None else None
+    except Exception as exc:
+        print(
+            "PAPER_SOAK_RUN_STATE: unknown "
+            f"({type(exc).__name__}: unable to verify persisted run status)"
+        )
+        print("PAPER_SOAK_STATUS: INCOMPLETE")
+        return 2
+
+    print(f"PAPER_SOAK_RUN_STATE: {persisted_status or 'unknown'}")
+    if persisted_status == "completed":
+        print("PAPER_SOAK_STATUS: RUN_COMPLETED")
+        return 0
+    if persisted_status == "failed":
+        print("PAPER_SOAK_STATUS: FAIL")
+        return 1
+    print("PAPER_SOAK_STATUS: INCOMPLETE")
+    return 2
 
 
 if __name__ == "__main__":

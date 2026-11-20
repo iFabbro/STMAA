@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from src.utils.paper_soak_stop_controller import MAX_MARKET_DATA_REQUEST_ATTEMPTS\nfrom src.utils.sqlite_logger import DB_PATH
+from src.utils.paper_soak_stop_controller import MAX_MARKET_DATA_REQUEST_ATTEMPTS
+from src.utils.sqlite_logger import DB_PATH
 
 REPORT_SCHEMA_VERSION = 2
 REQUIRED_BOOLEAN_SIGNALS = (
@@ -70,6 +71,7 @@ def _base_report(run_id: str | None) -> dict[str, Any]:
         "soak_status": "NOT_RUN",
         "checks": {},
         "failures": [],
+        "unknown_signals": [],
         "limitations": [
             "The report evaluates persisted local evidence and supplied CI evidence only.",
             "CI evidence is an operator-supplied snapshot; verify it against GitHub for the recorded commit.",
@@ -238,9 +240,18 @@ def build_report(
             unknown_signals.append(
                 f"observation_{index}_unknown_signal:market_data_request_attempts"
             )
-        elif attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS:
+        request_exhausted = health.get("market_data_request_exhausted")
+        if type(request_exhausted) is not bool:
+            unknown_signals.append(
+                f"observation_{index}_unknown_signal:market_data_request_exhausted"
+            )
+        elif request_exhausted and attempts_valid and attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS:
             observation_failures.append(
                 f"observation_{index}_market_data_retry_budget_exhausted"
+            )
+        elif request_exhausted and attempts_valid:
+            unknown_signals.append(
+                f"observation_{index}_inconsistent_transport_retry_telemetry"
             )
 
         heartbeat_age = health.get("heartbeat_age_seconds")

@@ -54,7 +54,9 @@ if (
     raise ValueError("STMAA quote-quality thresholds must be positive (future tolerances may be zero)")
 
 
-MAX_TRANSIENT_API_ATTEMPTS = 3
+# Six bounded attempts allow brief DNS/network interruptions to recover.
+# The maximum configured sleep between attempts is 0.5 + 1 + 2 + 4 + 8 = 15.5s.
+MAX_TRANSIENT_API_ATTEMPTS = 6
 TRANSIENT_API_BACKOFF_SECONDS = 0.5
 
 
@@ -338,7 +340,10 @@ class AlpacaFeed:
                         f"{attempt} attempts",
                         attempts=attempt,
                     ) from exc
-                delay = TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                delay = min(
+                    TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                    8.0,
+                )
                 self._last_get_bars_retry_count = attempt
                 logger.warning(
                     "Transient Alpaca get_stock_bars failure (%s/%s); retrying in %.2fs: %s",

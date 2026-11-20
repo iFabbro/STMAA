@@ -397,3 +397,24 @@ def test_cli_reports_failed_persisted_run_as_fail(tmp_path, capsys):
     assert "PAPER_SOAK_RUN_STATE: failed" in output
     assert "PAPER_SOAK_STATUS: FAIL" in output
     assert "PAPER_SOAK_STATUS: COMPLETED" not in output
+
+
+
+def test_cli_reports_completed_persisted_run_without_claiming_acceptance(tmp_path, capsys):
+    database = tmp_path / "paper-soak.db"
+    run_id = start_run(
+        mode="paper_soak_read_only",
+        branch="main",
+        commit_sha="b" * 40,
+        meta={"order_submission": "disabled"},
+        db_path=database,
+    )
+    end_run(run_id, status="completed", db_path=database)
+
+    exit_code = _report_persisted_run_status(run_id, database)
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "PAPER_SOAK_RUN_STATE: completed" in output
+    assert "PAPER_SOAK_STATUS: RUN_COMPLETED" in output
+    assert "PAPER_SOAK_STATUS: PASS" not in output

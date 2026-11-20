@@ -58,6 +58,23 @@ if (
 # The maximum configured sleep between attempts is 0.5 + 1 + 2 + 4 + 8 = 15.5s.
 MAX_TRANSIENT_API_ATTEMPTS = 6
 TRANSIENT_API_BACKOFF_SECONDS = 0.5
+MARKET_DATA_CONNECT_TIMEOUT_SECONDS = 5.0
+MARKET_DATA_READ_TIMEOUT_SECONDS = 15.0
+
+
+class _MarketDataTimeoutSession(requests.Session):
+    """Apply finite connect/read timeouts to Alpaca SDK REST requests.
+
+    alpaca-py's historical client does not expose a request-timeout constructor
+    option; its REST client delegates to this requests.Session instance.
+    """
+
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault(
+            "timeout",
+            (MARKET_DATA_CONNECT_TIMEOUT_SECONDS, MARKET_DATA_READ_TIMEOUT_SECONDS),
+        )
+        return super().request(method, url, **kwargs)
 
 
 class TransientMarketDataError(ConnectionError):
@@ -92,6 +109,9 @@ class AlpacaFeed:
             api_key=self.api_key,
             secret_key=self.api_secret,
         )
+        # alpaca-py currently exposes its requests session as _session but has
+        # no public timeout option for historical REST calls.
+        self.client._session = _MarketDataTimeoutSession()
         logger.info("✅ AlpacaFeed inizializzato (alpaca-py)")
 
     # ------------------------------------------------------------------

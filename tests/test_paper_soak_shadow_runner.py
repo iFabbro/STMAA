@@ -2,9 +2,11 @@ import json
 
 import pytest
 
+from src.data.alpaca_feed import TransientMarketDataError
 from src.utils.paper_soak_monitor import PaperSoakMonitor
 from src.utils.paper_soak_shadow_runner import (
     PaperSoakShadowObservation,
+    DEFAULT_MAX_MARKET_DATA_OUTAGE_SECONDS,
     PaperSoakShadowRunner,
 )
 from src.utils.paper_soak_stop_controller import PaperSoakHealthSnapshot
@@ -204,3 +206,117 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
     assert json.loads(retry_event["payload"])["attempts"] == 6
     stop_event = next(row for row in events if row["event_type"] == "stop_triggered")
     assert json.loads(stop_event["payload"])["reason"] == "market_data_retry_budget_exhausted"
+
+
+
+def test_shadow_runner_recovers_from_transient_outage_without_inference_until_fresh_data(
+    tmp_path,
+):
+    database = tmp_path / "shadow-recovery.db"
+    clock = FakeClock()
+    monitor = PaperSoakMonitor(
+        db_path=database,
+        duration_seconds=2.5,
+        heartbeat_interval_seconds=1,
+        clock=clock,
+    )
+    calls = []
+    inference_calls = []
+
+    def provider():
+        calls.append(clock())
+        if len(calls) <= 2:
+            raise TransientMarketDataError("temporary DNS failure", attempts=6)
+        inference_calls.append(clock())
+        return PaperSoakShadowObservation(
+            health=healthy_health(),
+            decision={"action": "hold"},
+        )
+
+    runner = PaperSoakShadowRunner(
+        monitor,
+        provider,
+        observation_interval_seconds=1,
+        max_market_data_outage_seconds=3,
+        clock=clock,
+    )
+    run_id = runner.run(sleep=clock.sleep)
+
+    with db_conn(database) as conn:
+        run = conn.execute(
+            "SELECT status FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        events = conn.execute(
+            "SELECT event_type, payload FROM events WHERE run_id = ? ORDER BY id",
+            (run_id,),
+        ).fetchall()
+
+    event_types = [row["event_type"] for row in events]
+    assert run["status"] == "completed"
+    assert calls == [50.0, 51.0, 52.0, 53.0]
+    assert inference_calls == [52.0, 53.0]
+    assert event_types.count("market_data_unavailable_observation") == 2
+    assert event_types.count("market_data_outage_started") == 1
+    assert event_types.count("market_data_outage_recovered") == 1
+    assert event_types.count("shadow_observation") == 2
+    assert event_types.count("heartbeat") == 4
+
+
+def test_shadow_runner_stops_when_transport_outage_budget_is_exhausted(tmp_path):
+    database = tmp_path / "shadow-outage-budget.db"
+    clock = FakeClock()
+    monitor = PaperSoakMonitor(
+        db_path=database,
+        duration_seconds=20,
+        heartbeat_interval_seconds=1,
+        clock=clock,
+    )
+    provider_calls = []
+
+    def provider():
+        provider_calls.append(clock())
+        raise TransientMarketDataError("DNS unavailable", attempts=6)
+
+    runner = PaperSoakShadowRunner(
+        monitor,
+        provider,
+        observation_interval_seconds=1,
+        max_market_data_outage_seconds=2,
+        clock=clock,
+    )
+    run_id = runner.run(sleep=clock.sleep)
+
+    with db_conn(database) as conn:
+        run = conn.execute(
+            "SELECT status FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        stop = conn.execute(
+            "SELECT payload FROM events WHERE run_id = ? AND event_type = 'stop_triggered'",
+            (run_id,),
+        ).fetchone()
+
+    assert run["status"] == "failed"
+    assert provider_calls == [50.0, 51.0]
+    assert json.loads(stop["payload"])["reason"] == (
+        "market_data_outage_budget_exhausted"
+    )
+
+
+@pytest.mark.parametrize(
+    "budget", [0, -1, True, float("nan"), float("inf")]
+)
+def test_shadow_runner_rejects_invalid_market_data_outage_budget(tmp_path, budget):
+    monitor = PaperSoakMonitor(db_path=tmp_path / "shadow.db")
+    with pytest.raises(ValueError, match="positive and finite"):
+        PaperSoakShadowRunner(
+            monitor, lambda: None, max_market_data_outage_seconds=budget
+        )
+
+
+def test_shadow_runner_records_default_outage_budget_in_run_metadata(tmp_path):
+    monitor = PaperSoakMonitor(db_path=tmp_path / "shadow.db", duration_seconds=1)
+    runner = PaperSoakShadowRunner(monitor, lambda: PaperSoakShadowObservation(
+        health=healthy_health(), decision={"action": "hold"}
+    ))
+    assert runner.max_market_data_outage_seconds == DEFAULT_MAX_MARKET_DATA_OUTAGE_SECONDS
+    assert monitor.run_metadata["max_market_data_outage_seconds"] == 600.0

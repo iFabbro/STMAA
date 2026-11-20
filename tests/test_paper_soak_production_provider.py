@@ -354,7 +354,7 @@ def test_provider_fails_closed_when_prior_account_activity_exists_without_risk_p
 
 
 
-def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_observation():
+def test_provider_propagates_exhausted_transport_failure_without_inference():
     bot = FakeBot()
     bot.get_market_data = lambda: (_ for _ in ()).throw(
         TransientMarketDataError(
@@ -362,22 +362,10 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
             attempts=6,
         )
     )
-    observation = ProductionPaperSoakObservationProvider(bot)()
 
-    assert observation.health.broker_endpoint_is_paper is True
-    assert observation.health.order_mutation_attempted is False
-    assert observation.health.market_data_request_attempts == 6
-    assert observation.health.market_data_request_exhausted is True
-    assert observation.health.broker_state_consistent is None
-    assert observation.health.exposure_determinable is None
-    assert observation.health.market_data_valid is None
-    assert observation.health.market_data_fresh is None
-    assert observation.health.persistence_healthy is None
-    assert observation.health.broker_snapshot_complete is None
-    assert observation.health.heartbeat_age_seconds is None
-    assert observation.decision["market_data_status"] == "transport_unavailable"
-    assert observation.decision["market_data_request_attempts"] == 6
-    assert observation.decision["order_submission"] == "disabled"
+    with pytest.raises(TransientMarketDataError):
+        ProductionPaperSoakObservationProvider(bot)()
+
     assert bot.generate_weights_calls == []
     assert bot.executor.lock_active is False
 

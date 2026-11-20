@@ -152,7 +152,11 @@ class PaperSoakStopController:
             # A failed market-data request is the primary cause. Evaluate its
             # bounded request budget before downstream signals that were not
             # evaluated because the request never returned data.
-            if (
+            if snapshot.broker_endpoint_is_paper is False:
+                reason = "non_paper_broker_endpoint"
+            elif snapshot.order_mutation_attempted is True:
+                reason = "broker_order_mutation_attempted"
+            elif (
                 snapshot.market_data_request_exhausted is True
                 and type(attempts) is int
                 and attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS

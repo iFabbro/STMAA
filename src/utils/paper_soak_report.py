@@ -18,7 +18,7 @@ from typing import Any
 
 from src.utils.sqlite_logger import DB_PATH
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 REQUIRED_BOOLEAN_SIGNALS = (
     "broker_endpoint_is_paper",
     "order_mutation_attempted",
@@ -217,44 +217,67 @@ def build_report(
             report["ci"]["status"] = "INCOMPLETE"
 
     observation_failures: list[str] = []
+    unknown_signals: list[str] = []
     for index, observation in enumerate(observations):
         health = observation.get("health")
         if not isinstance(health, dict):
-            observation_failures.append(f"observation_{index}_missing_health")
+            unknown_signals.append(f"observation_{index}_missing_health")
             continue
-        missing = [
+
+        unknown_fields = [
             key for key in REQUIRED_BOOLEAN_SIGNALS
             if type(health.get(key)) is not bool
         ]
-        if missing:
-            observation_failures.extend(
-                f"observation_{index}_unknown_signal:{key}" for key in missing
-            )
-            continue
-        failures = health.get("api_consecutive_failures")
-        heartbeat_age = health.get("heartbeat_age_seconds")
-        if type(failures) is not int or failures < 0:
-            observation_failures.append(f"observation_{index}_invalid_api_failures")
-            continue
-        if not _finite_number(heartbeat_age) or heartbeat_age < 0:
-            observation_failures.append(f"observation_{index}_invalid_heartbeat_age")
-            continue
-        unsafe = (
-            not health["broker_endpoint_is_paper"]
-            or health["order_mutation_attempted"]
-            or not health["broker_state_consistent"]
-            or not health["exposure_determinable"]
-            or not health["market_data_valid"]
-            or not health["market_data_fresh"]
-            or not health["persistence_healthy"]
-            or not health["broker_snapshot_complete"]
-            or failures >= 3
-            or heartbeat_age > 120
-            or observation.get("stop_triggered") is not False
-            or not isinstance(observation.get("hypothetical_decision"), dict)
+        unknown_signals.extend(
+            f"observation_{index}_unknown_signal:{key}" for key in unknown_fields
         )
-        if unsafe:
-            observation_failures.append(f"observation_{index}_failed_safety_control")
+
+        attempts = health.get("market_data_request_attempts")
+        attempts_valid = type(attempts) is int and attempts >= 1
+        if not attempts_valid:
+            unknown_signals.append(
+                f"observation_{index}_unknown_signal:market_data_request_attempts"
+            )
+        elif attempts >= 6:
+            observation_failures.append(
+                f"observation_{index}_market_data_retry_budget_exhausted"
+            )
+
+        heartbeat_age = health.get("heartbeat_age_seconds")
+        heartbeat_valid = _finite_number(heartbeat_age) and heartbeat_age >= 0
+        if not heartbeat_valid:
+            unknown_signals.append(
+                f"observation_{index}_unknown_signal:heartbeat_age_seconds"
+            )
+
+        known_unsafe = False
+        for key in REQUIRED_BOOLEAN_SIGNALS:
+            value = health.get(key)
+            if type(value) is bool:
+                if (
+                    (key == "broker_endpoint_is_paper" and value is False)
+                    or (key == "order_mutation_attempted" and value is True)
+                    or (key not in {"broker_endpoint_is_paper", "order_mutation_attempted"} and value is False)
+                ):
+                    known_unsafe = True
+        if heartbeat_valid and heartbeat_age > 120:
+            known_unsafe = True
+
+        stop_triggered = observation.get("stop_triggered")
+        if stop_triggered is True:
+            known_unsafe = True
+        elif stop_triggered is not False:
+            unknown_signals.append(f"observation_{index}_unknown_signal:stop_triggered")
+
+        if not isinstance(observation.get("hypothetical_decision"), dict):
+            unknown_signals.append(
+                f"observation_{index}_unknown_signal:hypothetical_decision"
+            )
+
+        if known_unsafe:
+            observation_failures.append(
+                f"observation_{index}_failed_safety_control"
+            )
 
     checks = {
         "run_completed": run["status"] == "completed" and run["ended_at"] is not None,
@@ -266,7 +289,7 @@ def build_report(
         "no_stop_triggered": not stop_events,
         "no_error_events": not error_events,
         "observations_present": bool(observations),
-        "all_observations_safe": bool(observations) and not observation_failures,
+        "all_observations_safe": bool(observations) and not observation_failures and not unknown_signals,
         "production_read_only_provider_declared": provider_declared,
         "source_commit_sha_recorded": commit_valid,
         "order_submission_disabled": metadata.get("order_submission") == "disabled",
@@ -278,6 +301,7 @@ def build_report(
     }
     report["checks"] = checks
     report["failures"].extend(observation_failures)
+    report["unknown_signals"].extend(unknown_signals)
     if stop_events:
         report["failures"].append("stop_triggered")
     if error_events:

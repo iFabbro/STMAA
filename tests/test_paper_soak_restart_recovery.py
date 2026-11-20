@@ -27,7 +27,7 @@ def healthy_snapshot(**overrides):
         "market_data_fresh": True,
         "persistence_healthy": True,
         "broker_snapshot_complete": True,
-        "api_consecutive_failures": 0,
+        "market_data_request_attempts": 0,
         "heartbeat_age_seconds": 0.0,
     }
     values.update(overrides)

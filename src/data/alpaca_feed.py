@@ -385,7 +385,8 @@ class AlpacaFeed:
         self._last_get_bars_retry_count = 0
         last_transport_error = None
         for attempt in range(1, MAX_TRANSIENT_API_ATTEMPTS + 1):
-            deadline = getattr(self.client._session, "deadline", None)
+            session = getattr(self.client, "_session", None)
+            deadline = getattr(session, "deadline", None)
             if deadline is not None and time.monotonic() >= deadline:
                 raise TransientMarketDataError(
                     "Alpaca market-data outage recovery deadline expired",
@@ -410,7 +411,8 @@ class AlpacaFeed:
                     TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1)),
                     8.0,
                 )
-                deadline = getattr(self.client._session, "deadline", None)
+                session = getattr(self.client, "_session", None)
+            deadline = getattr(session, "deadline", None)
                 if deadline is not None:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:

@@ -163,7 +163,7 @@ def test_production_provider_reuses_production_inference_and_emits_complete_heal
     assert health.market_data_fresh is True
     assert health.persistence_healthy is True
     assert health.broker_snapshot_complete is True
-    assert health.api_consecutive_failures == 0
+    assert health.market_data_request_attempts == 1
 
     decision = observation.decision
     assert decision["decision_type"] == "production_ppo_shadow"
@@ -363,7 +363,7 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
 
     assert observation.health.broker_endpoint_is_paper is True
     assert observation.health.order_mutation_attempted is False
-    assert observation.health.api_consecutive_failures == 3
+    assert observation.health.market_data_request_attempts == 3
     assert observation.health.market_data_valid is False
     assert observation.health.market_data_fresh is False
     assert observation.health.broker_snapshot_complete is False

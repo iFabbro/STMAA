@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from src.utils.sqlite_logger import DB_PATH
+from src.utils.paper_soak_stop_controller import MAX_MARKET_DATA_REQUEST_ATTEMPTS\nfrom src.utils.sqlite_logger import DB_PATH
 
 REPORT_SCHEMA_VERSION = 2
 REQUIRED_BOOLEAN_SIGNALS = (
@@ -238,7 +238,7 @@ def build_report(
             unknown_signals.append(
                 f"observation_{index}_unknown_signal:market_data_request_attempts"
             )
-        elif attempts >= 6:
+        elif attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS:
             observation_failures.append(
                 f"observation_{index}_market_data_retry_budget_exhausted"
             )

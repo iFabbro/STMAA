@@ -358,7 +358,7 @@ def test_provider_converts_exhausted_market_data_transport_failure_to_unhealthy_
     bot = FakeBot()
     bot.get_market_data = lambda: (_ for _ in ()).throw(
         TransientMarketDataError(
-            "Alpaca market-data transport unavailable after 3 attempts",
+            "Alpaca market-data transport unavailable after 6 attempts",
             attempts=6,
         )
     )

@@ -369,7 +369,12 @@ def test_report_counts_explicit_unavailable_samples_when_outage_recovers_within_
         event_type="market_data_outage_recovered",
         message="fresh data recovered",
         level="WARNING",
-        payload={"outage_id": 1, "outage_seconds": 120.0},
+        payload={
+            "outage_id": 1,
+            "outage_seconds": 120.0,
+            "inference_performed_after_recovery": True,
+            "stale_data_used": False,
+        },
         db_path=database,
     )
     log_event(

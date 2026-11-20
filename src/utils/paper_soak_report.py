@@ -346,6 +346,11 @@ def build_report(
         report["soak_status"] = "PASS"
         report["overall_status"] = "PASS"
 
+    if unknown_signals:
+        report["limitations"].append(
+            "One or more observation health signals are unknown or were not evaluated; "
+            "the run cannot pass acceptance on incomplete evidence."
+        )
     if not provider_declared:
         report["limitations"].append(
             "No production read-only provider and production inference identity are declared; "

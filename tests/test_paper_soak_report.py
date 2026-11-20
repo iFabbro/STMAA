@@ -13,7 +13,7 @@ HEALTHY = {
     "market_data_fresh": True,
     "persistence_healthy": True,
     "broker_snapshot_complete": True,
-    "api_consecutive_failures": 0,
+    "market_data_request_attempts": 0,
     "heartbeat_age_seconds": 1.0,
 }
 COMMIT_SHA = "a" * 40
@@ -198,8 +198,9 @@ def test_unknown_mandatory_signal_fails_closed(tmp_path):
     )
     finalize_run(run_id, database)
     report = build_report(database)
-    assert report["overall_status"] == "FAIL"
-    assert "observation_3_unknown_signal:market_data_fresh" in report["failures"]
+    assert report["overall_status"] == "INCOMPLETE"
+    assert "observation_3_unknown_signal:market_data_fresh" in report["unknown_signals"]
+    assert "observation_3_unknown_signal:market_data_fresh" not in report["failures"]
 
 
 def test_provider_placeholder_cannot_pass_operational_acceptance(tmp_path):

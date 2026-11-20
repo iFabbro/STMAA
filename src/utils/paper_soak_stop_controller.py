@@ -34,6 +34,7 @@ class PaperSoakHealthSnapshot:
     persistence_healthy: bool | None = None
     broker_snapshot_complete: bool | None = None
     market_data_request_attempts: int | None = None
+    market_data_request_exhausted: bool | None = None
     heartbeat_age_seconds: float | None = None
 
 
@@ -96,6 +97,9 @@ class PaperSoakStopController:
         if type(attempts) is not int or attempts < 1:
             return "unknown_or_invalid_signal:market_data_request_attempts"
 
+        if type(snapshot.market_data_request_exhausted) is not bool:
+            return "unknown_or_invalid_signal:market_data_request_exhausted"
+
         heartbeat_age = snapshot.heartbeat_age_seconds
         if isinstance(heartbeat_age, bool) or not isinstance(heartbeat_age, (int, float)):
             return "unknown_or_invalid_signal:heartbeat_age_seconds"
@@ -142,7 +146,11 @@ class PaperSoakStopController:
             # A failed market-data request is the primary cause. Evaluate its
             # bounded request budget before downstream signals that were not
             # evaluated because the request never returned data.
-            if type(attempts) is int and attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS:
+            if (
+                snapshot.market_data_request_exhausted is True
+                and type(attempts) is int
+                and attempts >= MAX_MARKET_DATA_REQUEST_ATTEMPTS
+            ):
                 reason = "market_data_retry_budget_exhausted"
             else:
                 reason = self._validate_snapshot(snapshot)

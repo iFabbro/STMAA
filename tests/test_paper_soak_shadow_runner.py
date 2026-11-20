@@ -32,7 +32,8 @@ def healthy_health(**overrides):
         "market_data_fresh": True,
         "persistence_healthy": True,
         "broker_snapshot_complete": True,
-        "market_data_request_attempts": 0,
+        "market_data_request_attempts": 1,
+        "market_data_request_exhausted": False,
         "heartbeat_age_seconds": 0.0,
     }
     values.update(overrides)

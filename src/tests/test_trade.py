@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import trade
+from src.data.alpaca_feed import TransientMarketDataError
 from trade import PaperTradingBot
 from src.utils import monitoring_state
 from src.strategy.weight_interface import PortfolioWeights
@@ -123,9 +124,10 @@ def test_get_vix_value_returns_latest_valid_close(monkeypatch):
         def __init__(self, symbol):
             assert symbol == "^VIX"
 
-        def history(self, period, interval):
+        def history(self, period, interval, timeout=None):
             assert period == "10d"
             assert interval == "1d"
+            assert timeout is not None and timeout > 0
             return history
 
     monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
@@ -133,6 +135,55 @@ def test_get_vix_value_returns_latest_valid_close(monkeypatch):
     monkeypatch.setattr(bot, "_latest_completed_vix_session_date", lambda: history.index[-1].date())
     assert bot.get_vix_value() == pytest.approx(24.2)
 
+
+
+def test_get_vix_value_recovers_after_temporary_yfinance_error(monkeypatch):
+    history = pd.DataFrame(
+        {"Close": [22.4]},
+        index=pd.DatetimeIndex(["2026-10-21"]),
+    )
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            assert symbol == "^VIX"
+
+        def history(self, period, interval, timeout=None):
+            calls.append(timeout)
+            if len(calls) == 1:
+                raise ConnectionError("temporary DNS failure")
+            return history
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    monkeypatch.setattr(trade.time, "sleep", lambda _seconds: None)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    monkeypatch.setattr(
+        bot, "_latest_completed_vix_session_date", lambda: history.index[-1].date()
+    )
+
+    assert bot.get_vix_value() == pytest.approx(22.4)
+    assert len(calls) == 2
+
+
+def test_get_vix_value_respects_expired_soak_outage_deadline(monkeypatch):
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, period, interval, timeout=None):
+            calls.append(timeout)
+            raise ConnectionError("temporary DNS failure")
+
+    monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
+    monkeypatch.setattr(trade.time, "monotonic", lambda: 100.0)
+    bot = PaperTradingBot.__new__(PaperTradingBot)
+    bot._vix_outage_deadline = 99.0
+
+    with pytest.raises(TransientMarketDataError, match="deadline expired"):
+        bot.get_vix_value()
+    assert calls == []
 
 
 def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
@@ -145,7 +196,7 @@ def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
         def __init__(self, symbol):
             pass
 
-        def history(self, period, interval):
+        def history(self, period, interval, timeout=None):
             return history
 
     monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
@@ -153,7 +204,8 @@ def test_get_vix_value_fails_closed_when_latest_close_is_stale(monkeypatch):
     monkeypatch.setattr(
         bot, "_latest_completed_vix_session_date", lambda: pd.Timestamp("2026-10-21").date()
     )
-    with pytest.raises(RuntimeError, match="valid VIX close"):
+    monkeypatch.setattr(trade.time, "sleep", lambda _seconds: None)
+    with pytest.raises(TransientMarketDataError, match="VIX data unavailable"):
         bot.get_vix_value()
 
 
@@ -176,8 +228,13 @@ def test_get_vix_value_fails_closed_on_invalid_data(monkeypatch, history):
 
     monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)
     bot = PaperTradingBot.__new__(PaperTradingBot)
-    with pytest.raises(RuntimeError, match="Cannot obtain a valid VIX"):
-        bot.get_vix_value()
+    monkeypatch.setattr(trade.time, "sleep", lambda _seconds: None)
+    if history.empty or history["Close"].dropna().empty:
+        with pytest.raises(TransientMarketDataError, match="VIX data unavailable"):
+            bot.get_vix_value()
+    else:
+        with pytest.raises(RuntimeError, match="invalid numeric value"):
+            bot.get_vix_value()
 
 
 

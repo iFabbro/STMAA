@@ -301,6 +301,18 @@ class PaperTradingBot:
                     latest_session = self._latest_completed_vix_session_date()
                     dated_values = []
                     for timestamp, value in close.items():
+                        # Validate every returned numeric value before filtering by
+                        # session date. Otherwise an invalid value attached to an
+                        # undated/default index can be misclassified as stale data
+                        # and retried as a transient outage.
+                        try:
+                            numeric_value = float(value)
+                        except (TypeError, ValueError, OverflowError) as exc:
+                            raise ValueError(
+                                f"Invalid VIX value: {value!r}"
+                            ) from exc
+                        if not np.isfinite(numeric_value) or numeric_value < 0:
+                            raise ValueError(f"Invalid VIX value: {numeric_value}")
                         observed_at = pd.Timestamp(timestamp)
                         observed_date = (
                             observed_at.tz_convert("America/New_York").date()
@@ -308,7 +320,7 @@ class PaperTradingBot:
                             else observed_at.date()
                         )
                         if observed_date <= latest_session:
-                            dated_values.append((observed_date, float(value)))
+                            dated_values.append((observed_date, numeric_value))
                     if not dated_values:
                         raise LookupError(
                             "VIX history has no observation for a completed market session"
@@ -319,8 +331,6 @@ class PaperTradingBot:
                             f"Stale VIX close: latest observation {observed_date}, "
                             f"expected {latest_session}"
                         )
-                    if not np.isfinite(vix) or vix < 0:
-                        raise ValueError(f"Invalid VIX value: {vix}")
                     return vix
                 except LookupError as exc:
                     last_error = exc

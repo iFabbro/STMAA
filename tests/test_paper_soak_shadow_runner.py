@@ -209,7 +209,7 @@ def test_shadow_runner_persists_exhausted_api_retries_and_stops_at_threshold(tmp
 
 
 
-def test_shadow_runner_recovers_from_transient_outage_without_inference_until_fresh_data(
+def test_shadow_runner_recovers_from_transient_vix_outage_without_inference_until_fresh_vix(
     tmp_path,
 ):
     database = tmp_path / "shadow-recovery.db"
@@ -226,7 +226,7 @@ def test_shadow_runner_recovers_from_transient_outage_without_inference_until_fr
     def provider():
         calls.append(clock())
         if len(calls) <= 2:
-            raise TransientMarketDataError("temporary DNS failure", attempts=6)
+            raise TransientMarketDataError("VIX temporary DNS failure", attempts=6)
         inference_calls.append(clock())
         return PaperSoakShadowObservation(
             health=healthy_health(),
@@ -262,7 +262,7 @@ def test_shadow_runner_recovers_from_transient_outage_without_inference_until_fr
     assert event_types.count("heartbeat") == 3
 
 
-def test_shadow_runner_stops_when_transport_outage_budget_is_exhausted(tmp_path):
+def test_shadow_runner_stops_when_vix_outage_budget_is_exhausted(tmp_path):
     database = tmp_path / "shadow-outage-budget.db"
     clock = FakeClock()
     monitor = PaperSoakMonitor(
@@ -275,7 +275,7 @@ def test_shadow_runner_stops_when_transport_outage_budget_is_exhausted(tmp_path)
 
     def provider():
         provider_calls.append(clock())
-        raise TransientMarketDataError("DNS unavailable", attempts=6)
+        raise TransientMarketDataError("VIX unavailable", attempts=6)
 
     runner = PaperSoakShadowRunner(
         monitor,

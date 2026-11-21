@@ -43,7 +43,12 @@ from src.execution.opg_scheduler import OpgSessionScheduler
 from src.strategy.weight_interface import WeightCentricPipeline, PortfolioWeights
 from src.strategy.risk_overlay import RiskOverlayModule
 from src.data.data_processor import DataProcessor
-from src.data.alpaca_feed import AlpacaFeed
+from src.data.alpaca_feed import (
+    AlpacaFeed,
+    MAX_TRANSIENT_API_ATTEMPTS,
+    TRANSIENT_API_BACKOFF_SECONDS,
+    TransientMarketDataError,
+)
 from src.config import TRANSACTION_COST, SLIPPAGE
 from src.utils.model_path import resolve_model_path
 try:
@@ -269,39 +274,81 @@ class PaperTradingBot:
         return completed.index[-1].date()
 
     def get_vix_value(self) -> float:
-        """Fetch a VIX close from the latest completed NYSE session; fail closed if stale."""
-        try:
-            history = yf.Ticker("^VIX").history(period="10d", interval="1d")
-            if history.empty or "Close" not in history.columns:
-                raise ValueError("VIX history is empty or has no Close column")
-            close = history["Close"].dropna()
-            if close.empty:
-                raise ValueError("VIX history has no valid closing value")
-
-            latest_session = self._latest_completed_vix_session_date()
-            dated_values = []
-            for timestamp, value in close.items():
-                observed_at = pd.Timestamp(timestamp)
-                if observed_at.tzinfo is not None:
-                    observed_date = observed_at.tz_convert("America/New_York").date()
-                else:
-                    observed_date = observed_at.date()
-                if observed_date <= latest_session:
-                    dated_values.append((observed_date, float(value)))
-            if not dated_values:
-                raise ValueError("VIX history has no observation for a completed market session")
-            observed_date, vix = max(dated_values, key=lambda item: item[0])
-            if observed_date != latest_session:
-                raise ValueError(
-                    f"Stale VIX close: latest observation {observed_date}, expected {latest_session}"
+        """Fetch the latest completed VIX close with bounded transient recovery."""
+        last_error = None
+        for attempt in range(1, MAX_TRANSIENT_API_ATTEMPTS + 1):
+            deadline = getattr(self, "_vix_outage_deadline", None)
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                raise TransientMarketDataError(
+                    "VIX outage recovery deadline expired",
+                    attempts=max(1, attempt - 1),
+                ) from last_error
+            timeout = 15.0 if remaining is None else min(15.0, remaining)
+            try:
+                history = yf.Ticker("^VIX").history(
+                    period="10d", interval="1d", timeout=timeout
                 )
-            if not np.isfinite(vix) or vix < 0:
-                raise ValueError(f"Invalid VIX value: {vix}")
-            return vix
-        except Exception as exc:
-            raise RuntimeError(
-                "Cannot obtain a valid VIX close (missing, invalid, or stale); refusing to submit new target weights"
-            ) from exc
+            except Exception as exc:
+                last_error = exc
+            else:
+                try:
+                    if history.empty or "Close" not in history.columns:
+                        raise LookupError("VIX history is empty or has no Close column")
+                    close = history["Close"].dropna()
+                    if close.empty:
+                        raise LookupError("VIX history has no valid closing value")
+                    latest_session = self._latest_completed_vix_session_date()
+                    dated_values = []
+                    for timestamp, value in close.items():
+                        observed_at = pd.Timestamp(timestamp)
+                        observed_date = (
+                            observed_at.tz_convert("America/New_York").date()
+                            if observed_at.tzinfo is not None
+                            else observed_at.date()
+                        )
+                        if observed_date <= latest_session:
+                            dated_values.append((observed_date, float(value)))
+                    if not dated_values:
+                        raise LookupError(
+                            "VIX history has no observation for a completed market session"
+                        )
+                    observed_date, vix = max(dated_values, key=lambda item: item[0])
+                    if observed_date != latest_session:
+                        raise LookupError(
+                            f"Stale VIX close: latest observation {observed_date}, "
+                            f"expected {latest_session}"
+                        )
+                    if not np.isfinite(vix) or vix < 0:
+                        raise ValueError(f"Invalid VIX value: {vix}")
+                    return vix
+                except LookupError as exc:
+                    last_error = exc
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "Cannot obtain a valid VIX close (invalid numeric value); "
+                        "refusing to submit new target weights"
+                    ) from exc
+            if attempt >= MAX_TRANSIENT_API_ATTEMPTS:
+                raise TransientMarketDataError(
+                    f"VIX data unavailable after {attempt} attempts",
+                    attempts=attempt,
+                ) from last_error
+            delay = min(
+                TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1)), 8.0
+            )
+            deadline = getattr(self, "_vix_outage_deadline", None)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TransientMarketDataError(
+                        "VIX outage recovery deadline expired", attempts=attempt
+                    ) from last_error
+                delay = min(delay, remaining)
+            time.sleep(delay)
+        raise TransientMarketDataError(
+            "VIX data unavailable", attempts=MAX_TRANSIENT_API_ATTEMPTS
+        ) from last_error
 
     def execute_trade(self, weights: PortfolioWeights, *, opg_context=None):
         """Serialize the risk decision and either DAY or explicitly selected OPG execution."""

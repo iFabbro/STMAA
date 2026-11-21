@@ -223,7 +223,7 @@ def test_get_vix_value_fails_closed_on_invalid_data(monkeypatch, history):
         def __init__(self, symbol):
             pass
 
-        def history(self, period, interval):
+        def history(self, period, interval, timeout=None):
             return history
 
     monkeypatch.setattr(trade.yf, "Ticker", FakeTicker)

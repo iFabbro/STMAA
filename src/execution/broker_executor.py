@@ -6,6 +6,9 @@ import tempfile
 import fcntl
 import time
 import threading
+import random
+
+import requests
 from contextlib import contextmanager, nullcontext
 import copy
 import uuid
@@ -27,6 +30,8 @@ from src.utils.startup_config import (
 )
 from src.data.alpaca_feed import (
     AlpacaFeed,
+    MAX_TRANSIENT_API_ATTEMPTS,
+    TRANSIENT_API_BACKOFF_SECONDS,
     EXECUTION_MAX_AGE_SECONDS,
     EXECUTION_FUTURE_TOLERANCE_SECONDS,
     QUOTE_WIDE_SPREAD_PCT,
@@ -856,11 +861,46 @@ class BrokerExecutor:
         with self.execution_lock():
             return self._get_account_status_locked()
 
+    def _get_account_with_transient_retry(self):
+        """Retry bounded transient HTTP transport failures for the read-only account call.
+
+        Validation, authentication, and other non-transport failures are not retried.
+        """
+        for attempt in range(1, MAX_TRANSIENT_API_ATTEMPTS + 1):
+            try:
+                return self.trading_client.get_account()
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as exc:
+                if attempt >= MAX_TRANSIENT_API_ATTEMPTS:
+                    self.logger.error(
+                        "Alpaca get_account transport failed after %s attempts: %s",
+                        attempt,
+                        exc,
+                    )
+                    raise
+                ceiling = min(
+                    TRANSIENT_API_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                    8.0,
+                )
+                delay = random.uniform(0.0, ceiling)
+                self.logger.warning(
+                    "Transient Alpaca get_account transport failure (%s/%s); "
+                    "retrying in %.2fs: %s",
+                    attempt,
+                    MAX_TRANSIENT_API_ATTEMPTS,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable account retry loop")
+
     def _get_account_status_locked(self) -> Dict:
         """Perform the account refresh while the caller owns the execution lock."""
         self._current_account_identity_verified = False
         try:
-            account = self.trading_client.get_account()
+            account = self._get_account_with_transient_retry()
             raw_status = getattr(account, "status", None)
             status_value = getattr(raw_status, "value", raw_status)
             account_status = str(status_value or "").strip().lower().rsplit(".", 1)[-1]
@@ -939,7 +979,11 @@ class BrokerExecutor:
             return data
         except Exception as e:
             self._current_account_identity_verified = False
-            self.logger.error(f"get_account_status error; broker equity is unverified: {e}")
+            self.logger.error(
+                "get_account_status error; broker equity is unverified: %s",
+                e,
+                exc_info=True,
+            )
             # Retain the last verified snapshot as historical data, but mark it stale
             # in memory and on disk so a restart cannot mistake it for a fresh read.
             self.state["account_data_fresh"] = False

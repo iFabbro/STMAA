@@ -7,6 +7,7 @@ The provider contract is read-only; this module never calls trading methods.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Mapping
@@ -17,6 +18,8 @@ from src.utils.paper_soak_stop_controller import (
     PaperSoakHealthSnapshot,
     PaperSoakStopController,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OBSERVATION_INTERVAL_SECONDS = 60.0
 DEFAULT_MAX_MARKET_DATA_OUTAGE_SECONDS = 10 * 60.0
@@ -294,12 +297,20 @@ class PaperSoakShadowRunner:
             self.monitor.finish(status="completed", reason="duration_elapsed")
             return run_id
         except Exception as exc:
+            logger.exception(
+                "Paper soak shadow runner failed (%s)",
+                type(exc).__name__,
+            )
             try:
                 self.monitor.record_event(
                     "shadow_runner_error",
                     "Paper soak shadow runner failed",
                     level="ERROR",
-                    payload={"error_type": type(exc).__name__},
+                    payload={
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc)[:1000],
+                        "attempts": getattr(exc, "attempts", None),
+                    },
                 )
                 self.monitor.finish(status="failed", reason="shadow_runner_error")
             except Exception:

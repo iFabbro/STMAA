@@ -4,7 +4,6 @@ Read-only preflight, then one explicitly bounded $10 notional Paper buy order.
 Never targets a Live endpoint and never retries an ambiguous submission.
 """
 import os
-import signal
 import sys
 import threading
 import time

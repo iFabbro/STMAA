@@ -3050,7 +3050,7 @@ class BrokerExecutor:
                     # A local guard rejection proves that no SDK submission was attempted.
                     # Record the current and remaining orders as not submitted; never look
                     # them up as if a POST may have reached the broker.
-                    for pending_symbol, pending_record in record["orders"].items():
+                    for pending_record in record["orders"].values():
                         if (
                             not pending_record.get("order_id")
                             and pending_record.get("status") in {"planned", "submission_pending", "not_submitted"}

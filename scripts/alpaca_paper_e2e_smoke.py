@@ -5,6 +5,7 @@ Never targets a Live endpoint and never retries an ambiguous submission.
 """
 import os
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -21,6 +22,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from src.execution.broker_executor import BrokerExecutor
 from src.execution.smoke_order_preflight import validate_smoke_order_preflight
+from src.execution.paper_smoke_control import install_stop_signal_handlers, submit_paper_smoke_order
 
 MAX_NOTIONAL_USD = Decimal("10.00")
 PAPER_ENDPOINT = "https://paper-api.alpaca.markets"
@@ -32,12 +34,17 @@ def main():
     if not key or not secret:
         raise SystemExit("FAIL: required Alpaca repository secrets are missing")
 
+    # Convert SIGINT/SIGTERM into a fail-closed latch checked at submission.
+    stop_event = threading.Event()
+    install_stop_signal_handlers(stop_event)
+
     # The SDK client must explicitly be Paper. Refuse if code/config drifts.
     executor = BrokerExecutor(
         api_key=key,
         api_secret=secret,
         base_url=PAPER_ENDPOINT,
         paper_trading=True,
+        stop_event=stop_event,
     )
     if executor.paper_trading is not True:
         raise SystemExit("FAIL: executor is not in Paper mode")
@@ -87,7 +94,7 @@ def main():
             client_order_id=client_order_id,
         )
         try:
-            order = executor.trading_client.submit_order(order_data=request)
+            order = submit_paper_smoke_order(executor, request)
         except Exception as exc:
             # Submission errors can be ambiguous: reconcile once by client ID.
             # Never retry submission automatically, even if reconciliation fails.

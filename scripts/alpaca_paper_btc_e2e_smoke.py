@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
 
 from alpaca.data.historical import CryptoHistoricalDataClient
 from alpaca.data.requests import CryptoLatestQuoteRequest
-from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 
@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 
 from src.execution.broker_executor import BrokerExecutor  # noqa: E402
 from src.execution.smoke_order_preflight import validate_smoke_order_preflight  # noqa: E402
+from src.execution.paper_smoke_control import install_stop_signal_handlers, submit_paper_smoke_order  # noqa: E402
 
 SYMBOL = "BTC/USD"
 MAX_NOTIONAL_USD = Decimal("10.00")
@@ -47,14 +48,19 @@ def main() -> int:
     if not key or not secret:
         raise SystemExit("FAIL: required Alpaca repository secrets are missing")
 
+    # Convert SIGINT/SIGTERM into a fail-closed latch checked at submission.
+    stop_event = threading.Event()
+    install_stop_signal_handlers(stop_event)
+
     # Explicitly pin all requests to the Paper environment.
-    client = TradingClient(key, secret, paper=True)
     executor = BrokerExecutor(
         api_key=key,
         api_secret=secret,
         base_url=PAPER_ENDPOINT,
         paper_trading=True,
+        stop_event=stop_event,
     )
+    client = executor.trading_client
     if executor.paper_trading is not True:
         raise SystemExit("FAIL: STMAA executor is not in Paper mode")
 
@@ -147,7 +153,7 @@ def main() -> int:
         )
 
         try:
-            order = client.submit_order(order_data=request)
+            order = submit_paper_smoke_order(executor, request)
         except Exception as exc:
             print(f"SUBMISSION: response ambiguous ({type(exc).__name__}); reconciling once.")
             try:

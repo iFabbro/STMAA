@@ -16,6 +16,28 @@ def test_stop_event_blocks_mutation_interlock_before_broker_validation():
         executor._assert_paper_mutation_allowed()
 
 
+
+def test_day_pre_submit_guard_rejection_clears_only_the_unsubmitted_intent():
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.stop_event = threading.Event()
+    executor.stop_event.set()
+    executor.state = {
+        "order_submission_unresolved": {
+            "AAPL": {"client_order_id": "blocked-aapl"},
+            "MSFT": {"client_order_id": "other-intent"},
+        }
+    }
+    executor._save_state = lambda: None
+
+    with pytest.raises(RuntimeError, match="shutdown stop signal is active"):
+        executor._assert_day_submission_allowed("AAPL", "blocked-aapl")
+
+    assert "AAPL" not in executor.state["order_submission_unresolved"]
+    assert executor.state["order_submission_unresolved"] == {
+        "MSFT": {"client_order_id": "other-intent"}
+    }
+
+
 def test_stop_event_unset_does_not_trigger_shutdown_block():
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.stop_event = threading.Event()

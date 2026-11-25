@@ -109,7 +109,7 @@ def test_stop_latched_before_liquidation_prevents_open_order_cancellation(
     executor.trading_client.close_position.assert_not_called()
 
 
-def test_stop_latched_before_emergency_close_prevents_close_request(
+def test_stop_latched_before_emergency_close_prevents_close_and_clears_unsubmitted_intent(
     stopped_executor_env,
 ):
     executor = stopped_executor_env
@@ -119,6 +119,33 @@ def test_stop_latched_before_emergency_close_prevents_close_request(
     ]
 
     with pytest.raises(RuntimeError, match="shutdown stop signal is active"):
+        executor._liquidate_all_positions([])
+
+    executor.trading_client.close_position.assert_not_called()
+    assert executor.state["emergency_liquidation_unresolved"] == {}
+
+
+def test_failed_close_intent_cleanup_restores_fail_closed_state(
+    stopped_executor_env,
+):
+    executor = stopped_executor_env
+    executor.stop_event.set()
+    executor.trading_client.get_all_positions.return_value = [
+        SimpleNamespace(symbol="AAPL", qty="2")
+    ]
+    original_save_state = executor._save_state
+    save_calls = 0
+
+    def fail_cleanup_save():
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError("simulated cleanup persistence failure")
+        original_save_state()
+
+    executor._save_state = fail_cleanup_save
+
+    with pytest.raises(RuntimeError, match="could not be durably cleared"):
         executor._liquidate_all_positions([])
 
     executor.trading_client.close_position.assert_not_called()

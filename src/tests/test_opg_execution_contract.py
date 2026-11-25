@@ -351,7 +351,6 @@ def test_opg_restart_reconciles_without_resubmission():
 def test_opg_stop_guard_rejection_records_not_submitted_without_broker_lookup():
     from src.execution.broker_executor import BrokerExecutor
     from src.execution.opg_sizing import build_opg_sizing_plan
-    import threading
 
     executor = BrokerExecutor.__new__(BrokerExecutor)
     executor.state = {

@@ -106,6 +106,7 @@ def main(argv=None):
         "end_date": str(history.index.max()),
         "observations": len(history),
     }
+    report["data_provenance"] = history.attrs["stmaa_data_provenance"]
     report["training_parameters"] = {
         "learning_rate": args.learning_rate,
         "n_steps": args.n_steps,

@@ -104,6 +104,10 @@ def prepare_historical_data(
     features = data.to_numpy(dtype=float)
     if not np.isfinite(features).all():
         raise ValueError("Historical PPO features contain non-finite values")
+    provenance = getattr(processor, "last_provenance", None)
+    if not isinstance(provenance, dict) or not provenance.get("manifest_sha256"):
+        raise ValueError("Historical market-data provenance manifest is missing")
+    data.attrs["stmaa_data_provenance"] = dict(provenance)
     return data
 
 
@@ -269,6 +273,7 @@ def main(argv=None):
         "gamma": args.gamma,
         "initial_capital": strategy_config.initial_capital,
         "dataset_sha256": training_dataset_sha256(history),
+        "data_provenance": history.attrs["stmaa_data_provenance"],
         "git_commit": training_git_commit(),
         "git_worktree_clean": training_git_worktree_clean(),
     }

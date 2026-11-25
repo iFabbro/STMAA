@@ -129,7 +129,10 @@ def test_training_cli_orchestrates_chronological_pipeline_without_external_servi
     class FakeProcessor:
         _field_level = staticmethod(real_data_processor._field_level)
         def __init__(self, _data_dir):
-            pass
+            self.last_provenance = {
+                "manifest_sha256": "c" * 64,
+                "manifest_path": "manifests/" + ("c" * 64) + ".json",
+            }
 
         def process(self, tickers, start_date, end_date):
             calls["data_request"] = (tickers, start_date, end_date)
@@ -180,6 +183,7 @@ def test_training_cli_orchestrates_chronological_pipeline_without_external_servi
     assert calls["metadata"]["git_commit"] == "b" * 40
     assert calls["metadata"]["git_worktree_clean"] is True
     assert calls["metadata"]["dataset_sha256"] == train.training_dataset_sha256(history)
+    assert calls["metadata"]["data_provenance"]["manifest_sha256"] == "c" * 64
 
     output = capsys.readouterr().out
     assert "PPO training and chronological holdout evaluation completed." in output

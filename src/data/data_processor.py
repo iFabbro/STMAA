@@ -6,8 +6,14 @@ import pandas as pd
 
 try:
     from src.data.feature_engineering import calculate_features
+    from src.data.dataset_provenance import (
+        build_data_request, persist_data_manifest, persist_frame_snapshot,
+    )
 except ModuleNotFoundError:
     from data.feature_engineering import calculate_features
+    from data.dataset_provenance import (
+        build_data_request, persist_data_manifest, persist_frame_snapshot,
+    )
 
 try:
     from src.data.alpaca_feed import AlpacaFeed
@@ -24,8 +30,11 @@ class DataProcessor:
         self.data_dir = data_dir
         self.raw_dir = data_dir / "raw"
         self.processed_dir = data_dir / "processed"
-        self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
+        self.manifests_dir = data_dir / "manifests"
+        self.manifests_dir.mkdir(parents=True, exist_ok=True)
+        self.last_provenance = None
+        self._pending_provenance = None
 
     def download_data(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """Download contract-compliant adjusted OHLCV data from Alpaca."""
@@ -34,8 +43,12 @@ class DataProcessor:
         data = AlpacaFeed().get_historical_ohlcv(tickers, start_date, end_date)
         if data.empty:
             raise ValueError("Market-data provider returned no rows")
-        raw_file = self.raw_dir / f"raw_{start_date}_{end_date}.csv"
-        data.to_csv(raw_file)
+        request = build_data_request(tickers, start_date, end_date)
+        raw_snapshot = persist_frame_snapshot(self.data_dir, "raw", request, data)
+        self._pending_provenance = {
+            "request": request,
+            "raw": raw_snapshot,
+        }
         return data
 
     @staticmethod
@@ -133,9 +146,21 @@ class DataProcessor:
 
     def process(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """Run download, causal cleaning, and indicator calculation."""
+        self.last_provenance = None
+        self._pending_provenance = None
         data = self.download_data(tickers, start_date, end_date)
         cleaned = self.clean_data(data)
         processed = self.add_technical_indicators(cleaned)
-        processed_file = self.processed_dir / f"processed_{start_date}_{end_date}.csv"
-        processed.to_csv(processed_file)
+        if not isinstance(self._pending_provenance, dict):
+            raise RuntimeError("Raw market-data provenance was not captured")
+        processed_snapshot = persist_frame_snapshot(
+            self.data_dir, "processed", self._pending_provenance["request"], processed
+        )
+        self.last_provenance = persist_data_manifest(
+            self.data_dir,
+            self._pending_provenance["request"],
+            self._pending_provenance["raw"],
+            processed_snapshot,
+        )
+        processed.attrs["stmaa_data_provenance"] = self.last_provenance
         return processed

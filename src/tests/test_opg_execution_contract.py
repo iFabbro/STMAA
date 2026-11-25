@@ -347,6 +347,48 @@ def test_opg_restart_reconciles_without_resubmission():
     executor.trading_client.submit_order.assert_not_called()
 
 
+
+def test_opg_stop_guard_rejection_records_not_submitted_without_broker_lookup():
+    from src.execution.broker_executor import BrokerExecutor
+    from src.execution.opg_sizing import build_opg_sizing_plan
+    import threading
+
+    executor = BrokerExecutor.__new__(BrokerExecutor)
+    executor.state = {
+        "account_mode": "paper",
+        "account_id": "paper-account-1",
+        "opg_batches": {},
+    }
+    executor._current_account_identity_verified = True
+    executor.preflight_opg_plan = Mock(return_value={"approved": True, "source": "test_stub"})
+    executor._save_state = Mock()
+    broker = SimpleNamespace(
+        submit_order=Mock(side_effect=AssertionError("stop guard must block SDK submission")),
+        get_order_by_client_id=Mock(side_effect=AssertionError("known pre-submit rejection needs no lookup")),
+    )
+    _configure_verified_paper_executor(executor, broker)
+    executor.stop_event.set()
+
+    plan = build_opg_sizing_plan(
+        equity=1000,
+        target_weights={"AAPL": 0.2, "MSFT": 0.2},
+        close_prices={"AAPL": 100, "MSFT": 100},
+        current_positions={"AAPL": 0, "MSFT": 0},
+    )
+
+    with pytest.raises(RuntimeError, match="shutdown stop signal is active"):
+        executor.execute_opg_plan(
+            plan, signal_bar_at="2026-11-03T21:00:00Z", target_session="2026-11-04"
+        )
+
+    broker.submit_order.assert_not_called()
+    broker.get_order_by_client_id.assert_not_called()
+    batch = next(iter(executor.state["opg_batches"].values()))
+    assert batch["status"] == "unresolved"
+    assert batch["blocking_reason"] == "paper_mutation_guard_rejected_before_sdk_submission"
+    assert {order["status"] for order in batch["orders"].values()} == {"not_submitted"}
+
+
 def test_opg_ambiguous_submission_stops_batch_without_resubmission():
     from src.execution.broker_executor import BrokerExecutor
 

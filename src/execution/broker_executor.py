@@ -207,6 +207,7 @@ class BrokerExecutor:
         initial_capital: float = 500000.0,
         configured_symbols: Optional[List[str]] = None,
         risk_limits: Optional[Dict[str, float]] = None,
+        stop_event: Optional[threading.Event] = None,
     ):
         # This executor is intentionally Paper-only. Reject unsafe configuration
         # before credentials, SDK clients, persistence, or any broker interaction.
@@ -255,6 +256,7 @@ class BrokerExecutor:
         self.initial_capital = initial_capital
         self.logger = logging.getLogger(__name__)
         self._execution_lock_local = threading.local()
+        self.stop_event = stop_event
 
         try:
             self.execution_lock_timeout_seconds = float(
@@ -344,6 +346,8 @@ class BrokerExecutor:
 
     def _assert_paper_mutation_allowed(self) -> None:
         """Fail closed unless this exact executor and SDK client target Alpaca Paper."""
+        if self.stop_event is not None and self.stop_event.is_set():
+            raise RuntimeError("Broker mutation blocked: shutdown stop signal is active")
         if getattr(self, "paper_trading", None) is not True:
             raise RuntimeError("Broker mutation blocked: executor is not Paper-only")
         if getattr(self, "base_url", None) != PAPER_API_BASE_URL:

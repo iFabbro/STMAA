@@ -8,6 +8,19 @@ import pytest
 
 
 
+def _configure_verified_paper_executor(executor, broker):
+    """Give __new__-constructed executors an explicit fake Paper boundary."""
+    import threading
+
+    executor.paper_trading = True
+    executor.base_url = "https://paper-api.alpaca.markets"
+    executor.stop_event = threading.Event()
+    executor.trading_client = broker
+    broker._base_url = "https://paper-api.alpaca.markets"
+    executor._paper_endpoint_verified = True
+    executor._paper_client_identity = id(broker)
+
+
 def _opg_api():
     from src.execution.opg_execution import (
         build_opg_batch_id,
@@ -236,7 +249,8 @@ def test_opg_batch_is_persisted_before_first_submission(monkeypatch):
                 time_in_force="opg", filled_qty="0",
             )
 
-    executor.trading_client = BrokerMock()
+    broker = BrokerMock()
+    _configure_verified_paper_executor(executor, broker)
     from src.execution.opg_sizing import build_opg_sizing_plan
 
     plan = build_opg_sizing_plan(
@@ -274,7 +288,7 @@ def test_opg_duplicate_batch_returns_existing_record_without_resubmission():
         submit_order=Mock(side_effect=submit),
         get_order_by_id=Mock(return_value=broker_order),
     )
-    executor.trading_client = broker
+    _configure_verified_paper_executor(executor, broker)
     plan = build_opg_sizing_plan(
         equity=1000, target_weights={"AAPL": 0.2},
         close_prices={"AAPL": 100}, current_positions={"AAPL": 0},
@@ -350,7 +364,8 @@ def test_opg_ambiguous_submission_stops_batch_without_resubmission():
         def get_order_by_client_id(self, client_order_id):
             raise RuntimeError("temporarily not visible")
 
-    executor.trading_client = BrokerMock()
+    broker = BrokerMock()
+    _configure_verified_paper_executor(executor, broker)
     executor._save_state = lambda: None
     from src.execution.opg_sizing import build_opg_sizing_plan
 

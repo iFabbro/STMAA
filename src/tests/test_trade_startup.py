@@ -138,6 +138,7 @@ def test_validated_limits_and_credentials_reach_real_bot_components(monkeypatch)
             "max_position_pct": 0.20,
             "max_drawdown": 0.12,
         },
+        "stop_event": trade.STOP_EVENT,
     }
     assert observed["feed"] == {
         "api_key": "paper-key-example",

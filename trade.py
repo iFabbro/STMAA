@@ -59,10 +59,12 @@ except Exception:
     PPO_AVAILABLE = False
 
 running = True
+STOP_EVENT = threading.Event()
 
 def signal_handler(sig, frame):
     global running
     running = False
+    STOP_EVENT.set()
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
@@ -100,6 +102,7 @@ class PaperTradingBot:
                 "max_position_pct": float(max_position_size),
                 "max_drawdown": float(max_drawdown_threshold),
             },
+            stop_event=STOP_EVENT,
         )
 
         self.pipeline = WeightCentricPipeline(initial_capital=initial_capital)

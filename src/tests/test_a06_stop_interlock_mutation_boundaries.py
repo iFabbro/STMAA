@@ -26,6 +26,7 @@ def stopped_executor_env(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             self._base_url = broker_executor_module.PAPER_API_BASE_URL
             self.submit_order = Mock()
+            self.get_order_by_client_id = Mock()
             self.cancel_order_by_id = Mock()
             self.close_position = Mock()
             self.get_all_positions = Mock(return_value=[])
@@ -92,6 +93,41 @@ def test_day_stop_latched_during_execution_preflight_prevents_sdk_submission(
     executor.trading_client.submit_order.assert_not_called()
     assert executor.stop_event.is_set()
     assert executor.state["order_submission_unresolved"] == {}
+
+
+def test_opg_stop_latched_during_preflight_prevents_sdk_submission(
+    stopped_executor_env,
+):
+    from src.execution.opg_sizing import build_opg_sizing_plan
+
+    executor = stopped_executor_env
+    plan = build_opg_sizing_plan(
+        equity=1_000.0,
+        sizing_capital=1_000.0,
+        target_weights={"AAPL": 0.20},
+        close_prices={"AAPL": 100.0},
+        current_positions={"AAPL": 0},
+    )
+
+    def latch_stop_during_preflight(_plan):
+        executor.stop_event.set()
+        return {"approved": True, "source": "mocked_preflight"}
+
+    executor.preflight_opg_plan = Mock(side_effect=latch_stop_during_preflight)
+
+    with pytest.raises(RuntimeError, match="shutdown stop signal is active"):
+        executor.execute_opg_plan(
+            plan,
+            signal_bar_at="2026-11-24T21:00:00Z",
+            target_session="2026-11-25",
+        )
+
+    executor.trading_client.submit_order.assert_not_called()
+    executor.trading_client.get_order_by_client_id.assert_not_called()
+    batch = next(iter(executor.state["opg_batches"].values()))
+    assert batch["status"] == "unresolved"
+    assert batch["blocking_reason"] == "paper_mutation_guard_rejected_before_sdk_submission"
+    assert {order["status"] for order in batch["orders"].values()} == {"not_submitted"}
 
 
 def test_stop_latched_before_liquidation_prevents_open_order_cancellation(

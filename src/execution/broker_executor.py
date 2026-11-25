@@ -366,6 +366,27 @@ class BrokerExecutor:
         if str(client_base_url).rstrip("/") != PAPER_API_BASE_URL:
             raise RuntimeError("Broker mutation blocked: SDK client endpoint is not Alpaca Paper")
 
+    def _assert_day_submission_allowed(self, ticker: str, client_order_id: str) -> None:
+        """Reject a pre-submit guard failure without misclassifying it as an ambiguous POST."""
+        try:
+            self._assert_paper_mutation_allowed()
+        except Exception:
+            unresolved = dict(self.state.get("order_submission_unresolved", {}))
+            intent = unresolved.get(ticker)
+            if isinstance(intent, dict) and intent.get("client_order_id") == client_order_id:
+                previous_unresolved = self.state.get("order_submission_unresolved", {})
+                unresolved.pop(ticker, None)
+                self.state["order_submission_unresolved"] = unresolved
+                try:
+                    self._save_state()
+                except Exception as persist_error:
+                    self.state["order_submission_unresolved"] = previous_unresolved
+                    raise RuntimeError(
+                        "Pre-submit guard rejected the DAY order, but its unsubmitted intent "
+                        "could not be durably cleared; execution remains blocked"
+                    ) from persist_error
+            raise
+
     def _load_state(self):
         if not self.state_file.exists():
             self._save_state()
@@ -3025,6 +3046,26 @@ class BrokerExecutor:
                 )
                 try:
                     self._assert_paper_mutation_allowed()
+                except Exception:
+                    # A local guard rejection proves that no SDK submission was attempted.
+                    # Record the current and remaining orders as not submitted; never look
+                    # them up as if a POST may have reached the broker.
+                    for pending_record in record["orders"].values():
+                        if (
+                            not pending_record.get("order_id")
+                            and pending_record.get("status") in {"planned", "submission_pending", "not_submitted"}
+                        ):
+                            pending_record["status"] = "not_submitted"
+                            pending_record["blocking_reason"] = (
+                                "paper_mutation_guard_rejected_before_sdk_submission"
+                            )
+                    record["status"] = "unresolved"
+                    record["blocking_reason"] = (
+                        "paper_mutation_guard_rejected_before_sdk_submission"
+                    )
+                    self._persist_opg_batch(batch_id, record)
+                    raise
+                try:
                     broker_order = self.trading_client.submit_order(request)
                     order_id = self._validate_opg_broker_order(broker_order, order_record)
                 except Exception as submit_error:
@@ -3730,11 +3771,28 @@ class BrokerExecutor:
                     continue
 
                 client_order_id = str(uuid.uuid4())
+                order_type = "limit" if side == OrderSide.BUY else "market"
+                limit_price = price if side == OrderSide.BUY else None
+                if side == OrderSide.BUY:
+                    order_req = LimitOrderRequest(
+                        symbol=ticker,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=price,
+                        client_order_id=client_order_id,
+                    )
+                else:
+                    order_req = MarketOrderRequest(
+                        symbol=ticker,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                        client_order_id=client_order_id,
+                    )
                 # Persist intent before calling the broker: a lost response must not
                 # cause an automatic duplicate order on this or a later process run.
                 unresolved = dict(self.state.get("order_submission_unresolved", {}))
-                order_type = "limit" if side == OrderSide.BUY else "market"
-                limit_price = price if side == OrderSide.BUY else None
                 unresolved[ticker] = {
                     "client_order_id": client_order_id,
                     "side": side.value,
@@ -3750,25 +3808,10 @@ class BrokerExecutor:
                 }
                 self.state["order_submission_unresolved"] = unresolved
                 self._save_state()
+                # Keep the final local safety check outside the ambiguous-POST
+                # handler: a guard rejection proves that no SDK call was made.
+                self._assert_day_submission_allowed(ticker, client_order_id)
                 try:
-                    if side == OrderSide.BUY:
-                        order_req = LimitOrderRequest(
-                            symbol=ticker,
-                            qty=qty,
-                            side=side,
-                            time_in_force=TimeInForce.DAY,
-                            limit_price=price,
-                            client_order_id=client_order_id,
-                        )
-                    else:
-                        order_req = MarketOrderRequest(
-                            symbol=ticker,
-                            qty=qty,
-                            side=side,
-                            time_in_force=TimeInForce.DAY,
-                            client_order_id=client_order_id,
-                        )
-                    self._assert_paper_mutation_allowed()
                     order = self.trading_client.submit_order(order_req)
                     order_id = getattr(order, "id", None)
                     if not order_id:

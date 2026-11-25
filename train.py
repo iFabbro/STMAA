@@ -273,7 +273,7 @@ def main(argv=None):
         "gamma": args.gamma,
         "initial_capital": strategy_config.initial_capital,
         "dataset_sha256": training_dataset_sha256(history),
-        "data_provenance": history.attrs["stmaa_data_provenance"],
+        "data_provenance": history.attrs.get("stmaa_data_provenance"),
         "git_commit": training_git_commit(),
         "git_worktree_clean": training_git_worktree_clean(),
     }

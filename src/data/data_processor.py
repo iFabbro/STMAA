@@ -30,6 +30,7 @@ class DataProcessor:
         self.data_dir = data_dir
         self.raw_dir = data_dir / "raw"
         self.processed_dir = data_dir / "processed"
+        self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         self.manifests_dir = data_dir / "manifests"
         self.manifests_dir.mkdir(parents=True, exist_ok=True)

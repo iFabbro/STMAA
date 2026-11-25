@@ -387,6 +387,31 @@ class BrokerExecutor:
                     ) from persist_error
             raise
 
+    def _assert_liquidation_close_allowed(self, symbol: str, created_at: str) -> None:
+        """Clear a close intent when the local guard proves no SDK request was sent."""
+        try:
+            self._assert_paper_mutation_allowed()
+        except Exception:
+            unresolved = dict(self.state.get("emergency_liquidation_unresolved", {}))
+            intent = unresolved.get(symbol)
+            if (
+                isinstance(intent, dict)
+                and intent.get("created_at") == created_at
+                and intent.get("reason") == "close_submission_outcome_unconfirmed"
+            ):
+                previous_unresolved = self.state.get("emergency_liquidation_unresolved", {})
+                unresolved.pop(symbol, None)
+                self.state["emergency_liquidation_unresolved"] = unresolved
+                try:
+                    self._save_state()
+                except Exception as persist_error:
+                    self.state["emergency_liquidation_unresolved"] = previous_unresolved
+                    raise RuntimeError(
+                        "Pre-submit guard rejected the emergency close, but its unsubmitted intent "
+                        "could not be durably cleared; execution remains blocked"
+                    ) from persist_error
+            raise
+
     def _load_state(self):
         if not self.state_file.exists():
             self._save_state()
@@ -1862,8 +1887,9 @@ class BrokerExecutor:
             # Persist the exact latest quantity/side before sending the request.
             # The close-position endpoint closes the broker's current full
             # position; this quantity is evidence for later reconciliation.
+            close_intent_created_at = datetime.now(timezone.utc).isoformat()
             unresolved[candidate_symbol] = {
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": close_intent_created_at,
                 "requested_qty": abs(quantity),
                 "expected_side": "sell" if quantity > 0 else "buy",
                 "reason": "close_submission_outcome_unconfirmed",
@@ -1871,7 +1897,12 @@ class BrokerExecutor:
             self.state["emergency_liquidation_unresolved"] = unresolved
             self._save_state()
 
-            self._assert_paper_mutation_allowed()
+            # A local guard rejection proves close_position was never invoked.
+            # Remove only this exact unsubmitted intent; keep it unresolved if
+            # that cleanup cannot be durably committed.
+            self._assert_liquidation_close_allowed(
+                candidate_symbol, close_intent_created_at
+            )
             order = self.trading_client.close_position(candidate_symbol)
             order_id = getattr(order, "id", None)
             if order_id is None:

@@ -138,6 +138,7 @@ def _real_executor_with_fake_broker(state_file: Path, broker: FakePaperTradingCl
     broker._base_url = "https://paper-api.alpaca.markets"
     executor._paper_client_identity = id(broker)
     executor._paper_endpoint_verified = True
+    executor.stop_event = threading.Event()
     executor.metrics = SimpleNamespace(get_all_metrics=lambda: {})
     executor.state_file = state_file
     executor._persisted_state_revision = -1

@@ -90,11 +90,11 @@ def _write_immutable(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-    except FileExistsError:
+    except FileExistsError as exc:
         if path.is_symlink() or not path.is_file():
-            raise RuntimeError(f"Conflicting dataset artifact path: {path}")
+            raise RuntimeError(f"Conflicting dataset artifact path: {path}") from exc
         if sha256_bytes(path.read_bytes()) != expected:
-            raise RuntimeError(f"Existing content-addressed artifact is corrupt: {path}")
+            raise RuntimeError(f"Existing content-addressed artifact is corrupt: {path}") from exc
 
 
 def persist_frame_snapshot(

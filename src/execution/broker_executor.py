@@ -3771,11 +3771,28 @@ class BrokerExecutor:
                     continue
 
                 client_order_id = str(uuid.uuid4())
+                order_type = "limit" if side == OrderSide.BUY else "market"
+                limit_price = price if side == OrderSide.BUY else None
+                if side == OrderSide.BUY:
+                    order_req = LimitOrderRequest(
+                        symbol=ticker,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=price,
+                        client_order_id=client_order_id,
+                    )
+                else:
+                    order_req = MarketOrderRequest(
+                        symbol=ticker,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                        client_order_id=client_order_id,
+                    )
                 # Persist intent before calling the broker: a lost response must not
                 # cause an automatic duplicate order on this or a later process run.
                 unresolved = dict(self.state.get("order_submission_unresolved", {}))
-                order_type = "limit" if side == OrderSide.BUY else "market"
-                limit_price = price if side == OrderSide.BUY else None
                 unresolved[ticker] = {
                     "client_order_id": client_order_id,
                     "side": side.value,
@@ -3791,25 +3808,10 @@ class BrokerExecutor:
                 }
                 self.state["order_submission_unresolved"] = unresolved
                 self._save_state()
+                # Keep the final local safety check outside the ambiguous-POST
+                # handler: a guard rejection proves that no SDK call was made.
                 self._assert_day_submission_allowed(ticker, client_order_id)
                 try:
-                    if side == OrderSide.BUY:
-                        order_req = LimitOrderRequest(
-                            symbol=ticker,
-                            qty=qty,
-                            side=side,
-                            time_in_force=TimeInForce.DAY,
-                            limit_price=price,
-                            client_order_id=client_order_id,
-                        )
-                    else:
-                        order_req = MarketOrderRequest(
-                            symbol=ticker,
-                            qty=qty,
-                            side=side,
-                            time_in_force=TimeInForce.DAY,
-                            client_order_id=client_order_id,
-                        )
                     order = self.trading_client.submit_order(order_req)
                     order_id = getattr(order, "id", None)
                     if not order_id:

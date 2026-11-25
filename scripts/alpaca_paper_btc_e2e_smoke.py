@@ -6,7 +6,6 @@ ambiguous submission by client_order_id, and never retries or cancels it.
 from __future__ import annotations
 
 import os
-import signal
 import sys
 import threading
 import time

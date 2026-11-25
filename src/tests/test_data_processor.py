@@ -1,5 +1,7 @@
 """Regression tests for causal single- and multi-ticker market-data processing."""
 from pathlib import Path
+import hashlib
+import json
 import sys
 
 import numpy as np
@@ -171,3 +173,48 @@ def test_alpaca_rsi_matches_historical_processor_on_zero_loss_windows(prices, ex
 
     np.testing.assert_allclose(actual.to_numpy(), expected.to_numpy(), equal_nan=True)
     assert actual.iloc[-1] == pytest.approx(expected_value)
+
+
+
+def test_process_persists_content_addressed_snapshots_and_manifest(monkeypatch, processor):
+    index = pd.date_range("2024-01-01", periods=40, freq="D")
+    responses = {
+        "AAA": pd.concat({"AAA": _ohlcv(index)}, axis=1),
+        "BBB": pd.concat({"BBB": _ohlcv(index, offset=25)}, axis=1),
+    }
+
+    class FakeAlpacaFeed:
+        def get_historical_ohlcv(self, tickers, start_date, end_date):
+            return responses[tickers[0]].copy()
+
+    monkeypatch.setattr("src.data.data_processor.AlpacaFeed", FakeAlpacaFeed)
+
+    processor.process(["AAA"], "2024-01-01", "2024-02-10")
+    first = dict(processor.last_provenance)
+    processor.process(["BBB"], "2024-01-01", "2024-02-10")
+    second = dict(processor.last_provenance)
+
+    assert first["manifest_sha256"] != second["manifest_sha256"]
+    assert first["raw"]["path"] != second["raw"]["path"]
+    assert first["processed"]["path"] != second["processed"]["path"]
+
+    for provenance in (first, second):
+        manifest_path = processor.data_dir / provenance["manifest_path"]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        recorded_digest = manifest.pop("manifest_sha256")
+        canonical = json.dumps(
+            manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        assert hashlib.sha256(canonical).hexdigest() == recorded_digest
+
+        for kind in ("raw", "processed"):
+            snapshot = provenance[kind]
+            payload = (processor.data_dir / snapshot["path"]).read_bytes()
+            assert hashlib.sha256(payload).hexdigest() == snapshot["sha256"]
+            assert len(payload) == snapshot["size_bytes"]
+
+    assert first["request"]["tickers"] == ["AAA"]
+    assert second["request"]["tickers"] == ["BBB"]
+    assert first["request"]["market_data_contract"]["feed"] == "sip"
+    assert first["request"]["market_data_contract"]["adjustment"] == "all"

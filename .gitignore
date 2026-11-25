@@ -8,6 +8,7 @@ models/*.pth
 models/*.zip
 data/raw/*.csv
 data/processed/*.csv
+data/manifests/*.json
 logs/*.log
 *.log
 .python-version

@@ -276,6 +276,12 @@ def main(argv=None):
             if "runs" in ppo_report
             else compare_walk_forward_report(history, ppo_report, include_timeseries=args.include_timeseries)
         )
+        comparison["benchmark_data_provenance"] = history.attrs.get("stmaa_data_provenance")
+        comparison["ppo_source_data_provenance"] = ppo_report.get("data_provenance")
+        comparison["ppo_source_data_provenance_status"] = (
+            "RECORDED" if isinstance(ppo_report.get("data_provenance"), dict)
+            else "NOT_RECORDED_IN_SOURCE_REPORT"
+        )
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
 

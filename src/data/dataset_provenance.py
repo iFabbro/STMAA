@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +57,44 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def source_revision() -> dict[str, Any]:
+    """Capture the repository commit and whether its worktree is clean."""
+    repository_root = Path(__file__).resolve().parents[2]
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=repository_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"git_commit": None, "git_worktree_clean": None}
+
+    commit = commit_result.stdout.strip().lower()
+    if (
+        commit_result.returncode != 0
+        or len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        commit = None
+    clean = (
+        not status_result.stdout.strip()
+        if status_result.returncode == 0
+        else None
+    )
+    return {"git_commit": commit, "git_worktree_clean": clean}
+
+
 def build_data_request(
     tickers: list[str], start_date: str, end_date: str
 ) -> dict[str, Any]:
@@ -72,6 +112,7 @@ def build_data_request(
         "start_date_inclusive": str(start_date),
         "end_date_exclusive": str(end_date),
         "market_data_contract": contract,
+        "source_revision": source_revision(),
     }
 
 
@@ -131,6 +172,9 @@ def persist_data_manifest(
     """Persist a self-identifying manifest that binds request, raw and processed data."""
     body = {
         "schema_version": PROVENANCE_SCHEMA_VERSION,
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(
+            timespec="microseconds"
+        ).replace("+00:00", "Z"),
         "request": request,
         "request_sha256": sha256_bytes(canonical_json_bytes(request)),
         "raw": raw_snapshot,

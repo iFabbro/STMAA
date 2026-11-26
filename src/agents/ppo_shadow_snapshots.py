@@ -15,14 +15,15 @@ def _canonical(value):
 class PPOShadowSnapshotStore:
     """Persist exact DataFrame inputs as immutable SHA-256-addressed JSON artifacts."""
 
-    def __init__(self, ledger_path):
+    def __init__(self, ledger_path, create=True):
         ledger = Path(ledger_path)
         self.root = ledger.with_name(ledger.name + ".snapshots")
         if self.root.is_symlink():
             raise ValueError("Snapshot directory must not be a symlink")
-        self.root.mkdir(mode=0o700, parents=False, exist_ok=True)
-        if not stat.S_ISDIR(self.root.stat().st_mode):
-            raise ValueError("Snapshot path must be a directory")
+        if create:
+            self.root.mkdir(mode=0o700, parents=False, exist_ok=True)
+            if not stat.S_ISDIR(self.root.stat().st_mode):
+                raise ValueError("Snapshot path must be a directory")
 
     @staticmethod
     def _payload(frame, role, inference_context=None):

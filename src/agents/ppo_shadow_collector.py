@@ -42,8 +42,8 @@ def _verify_activation_git_binding(record):
     freeze_commit = record["freeze_register_commit"]
     _run_git(repo_root, "merge-base", "--is-ancestor", freeze_commit, head)
     approval = record.get("approval_evidence")
-    if not isinstance(approval, dict) or approval.get("merge_commit_sha") != head:
-        raise ValueError("Activation approval evidence is not bound to the executing merged commit")
+    if not isinstance(approval, dict) or approval.get("merge_commit_sha") != freeze_commit:
+        raise ValueError("Activation freeze approval evidence is not bound to the committed freeze register")
     register_path = repo_root / "docs" / "PPO_HOLDOUT_FREEZE_REGISTER.md"
     if register_path.is_symlink() or not register_path.is_file():
         raise ValueError("Approved PPO holdout freeze register is missing or unsafe")
@@ -167,8 +167,8 @@ def _load_activation_record(path, provenance, effective_config):
     )
     if approval.get("url") != expected_review_url:
         raise ValueError("GitHub approval evidence URL is not canonical")
-    if approval["merge_commit_sha"] != record["collector_commit"]:
-        raise ValueError("Approved GitHub merge commit must equal the executing collector commit")
+    if approval["merge_commit_sha"] != record["freeze_register_commit"]:
+        raise ValueError("Approved GitHub merge commit must equal the committed freeze-register revision")
 
     _verify_activation_git_binding(record)
     if record.get("freeze_register_status") != "approved":

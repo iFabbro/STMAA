@@ -51,7 +51,7 @@ def _verify_activation_git_binding(record):
     if not frozen_register or frozen_register != current_register:
         raise ValueError("Activation freeze_register_commit does not identify the current freeze register")
     required_markers = (
-        b"**Status: APPROVED — HOLDOUT FROZEN — COLLECTION NOT AUTHORIZED**",
+        "**Status: APPROVED — HOLDOUT FROZEN — COLLECTION NOT AUTHORIZED**".encode("utf-8"),
         b"| Freeze approval | GRANTED |",
     )
     if any(marker not in current_register for marker in required_markers):

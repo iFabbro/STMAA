@@ -537,3 +537,72 @@ def test_activation_git_binding_requires_explicit_approved_register_markers(monk
     )
     with pytest.raises(ValueError, match="not explicitly approved"):
         shadow_collector._verify_activation_git_binding(record)
+
+
+def _rewrite_ledger_with_recomputed_hash_chain(path, records):
+    path.unlink()
+    ledger = PPOShadowLedger(path)
+    for record in records:
+        ledger.append(record["payload"])
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda transition: transition["metrics"].update(step_return=0.25),
+    lambda transition: transition["metrics"].update(cash=transition["metrics"]["cash"] + 25.0),
+    lambda transition: transition["metrics"]["shares"].update(
+        AAA=transition["metrics"]["shares"]["AAA"] + 1.0
+    ),
+    lambda transition: transition["metrics"].update(
+        transaction_cost=transition["metrics"]["transaction_cost"] + 1.0
+    ),
+    lambda transition: transition["metrics"].update(turnover=transition["metrics"]["turnover"] + 0.1),
+    lambda transition: transition["portfolio"]["shares"].update(
+        AAA=transition["portfolio"]["shares"]["AAA"] + 1.0
+    ),
+])
+def test_semantic_replay_recomputes_portfolio_accounting_after_hash_rechain(
+    mutate, tmp_path, monkeypatch
+):
+    feed = FakeFeed()
+    path = tmp_path / "semantic-accounting.jsonl"
+    collector = make_collector(
+        monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000
+    )
+    collector.collect_once()
+    feed.session = "2026-01-05"
+    collector.collect_once()
+
+    records = PPOShadowLedger(path).read()
+    transition = next(
+        record["payload"] for record in records
+        if record["payload"].get("type") == "portfolio_transition"
+    )
+    mutate(transition)
+    _rewrite_ledger_with_recomputed_hash_chain(path, records)
+
+    with pytest.raises(ValueError, match="Replay accounting mismatch"):
+        replay_shadow_ledger(path)
+
+
+def test_semantic_replay_recomputes_benchmark_return_after_hash_rechain(
+    tmp_path, monkeypatch
+):
+    feed = FakeFeed()
+    path = tmp_path / "benchmark-accounting.jsonl"
+    collector = make_collector(
+        monkeypatch, FakeAgent(), feed, path, authorized=True, initial_capital=10000
+    )
+    collector.collect_once()
+    feed.session = "2026-01-05"
+    collector.collect_once()
+
+    records = PPOShadowLedger(path).read()
+    transition = next(
+        record["payload"] for record in records
+        if record["payload"].get("type") == "portfolio_transition"
+    )
+    transition["benchmark_metrics"]["step_return"] = 0.75
+    _rewrite_ledger_with_recomputed_hash_chain(path, records)
+
+    with pytest.raises(ValueError, match="Replay accounting mismatch"):
+        replay_shadow_ledger(path)

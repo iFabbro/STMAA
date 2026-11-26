@@ -6,6 +6,8 @@ This register records model/configuration identity and the gates that must pass 
 
 **Update 2026-11-25:** this document has been refreshed against repository `main` at `001a66cddf134ea7c5344ff292a1c08d0458c198`. Collector PR #334 is merged. The local operator inventory was repeated on 2026-11-25 and is recorded in §9. The collector remains disabled by default; the activation-hardening gates below remain open. This update does not approve a freeze or authorize collection.
 
+**Audit remediation update 2026-11-26:** A03 remediation was integrated on `main` at `09b5eb55985b93c1c8b3a2ac1fac5ed202a16177`. PR #390 bound activation to the exact clean collector revision and committed freeze-register bytes; PR #391 enforced strict boolean authorization; PR #394 added structured operator identity/scope and traceable GitHub review evidence; PR #395 added snapshot-backed independent semantic replay of portfolio and benchmark accounting. The post-merge CI and security workflows for this exact `main` commit completed successfully. These changes do not approve a freeze or authorize collection. The current audited source baseline is not an activation record; the holdout remains **PRE-FREEZE — NOT ACTIVE — COLLECTION NOT AUTHORIZED**.
+
 ## 1. Verified source and artifact identity
 
 | Field | Verified value |
@@ -95,25 +97,20 @@ The 15% drawdown threshold is an evaluation criterion, not a runtime liquidation
 
 ## 5. Collector capability audit
 
-**Current result: IMPLEMENTED — ACTIVATION HARDENING INCOMPLETE.**
+**Current result: IMPLEMENTED — HOLDOUT ACTIVATION NOT APPROVED.**
 
-Collector PR #334 was merged into `main` at `d6bf905a2956caec0eb742f9f814f05cfca7edda`. It added:
+The collector implementation originated in PR #334 (merge commit `d6bf905a2956caec0eb742f9f814f05cfca7edda`). Subsequent A03 hardening is integrated in the audited `main` baseline `09b5eb55985b93c1c8b3a2ac1fac5ed202a16177`:
 
-1. A standalone collector using `PPOAgent.predict_weights()` and completed Alpaca SIP daily bars.
-2. Next-session-Open virtual execution, overnight-gap accounting, close marking, turnover costs, slippage, and 20%/50% allocation caps.
-3. A same-capital SPY 100% buy-and-hold benchmark, entered at the first next-session Open.
-4. An append-only JSONL ledger with sequence numbers, SHA-256 hash chaining, exclusive process lock, and `fsync`.
-5. Decision/transition persistence, provenance checks, deterministic replay, and regression tests for accounting, tampering, duplicate/skipped sessions, restart/retry, and known broker endpoint isolation.
-6. Explicit activation flags; importing the module does not start collection, and unauthorized `collect_once()` fails before creating the ledger.
+1. **PR #390:** activation is bound to the exact executing collector commit, a clean worktree, the committed freeze-register bytes, and the freeze-register commit's ancestry.
+2. **PR #391:** `collection_authorized` must be an actual Python `bool`; truthy strings, numbers, containers, `None`, and NumPy booleans are rejected.
+3. **PR #394:** activation requires structured GitHub operator identity and exact read-only collection scope, plus attributable GitHub PR-review evidence. The review merge commit must equal the freeze-register commit.
+4. **PR #395:** replay independently recomputes every portfolio and benchmark transition from immutable market-data snapshots and prior replayed state, including returns, turnover, traded notional, costs, cash, shares, weights, and persisted states. The final evaluator performs this replay read-only.
 
-The implementation does **not** yet close all activation gates. The prior code audit identified:
+The operational collector constructor does not accept injected provenance; provenance is derived from the loaded agent and validated artifact/manifest. Regression tests explicitly reject a `provenance` constructor argument. Tests also cover partial trailing ledger writes, concurrent reader/writer access, semantic tampering after recomputing the ledger hash chain, duplicate/skipped sessions, restart/retry, and known broker execution imports/calls. The documented recovery rule is non-destructive: preserve the original ledger and create a forensic copy; the collector does not truncate or repair damaged evidence.
 
-- `activation_reference` is only checked for non-empty text; it is not verified against an approved freeze-register/activation record.
-- The constructor permits injected provenance, so the operational entry point must prevent arbitrary provenance from bypassing artifact/manifest verification (test injection must remain test-only).
-- Replay verifies the record chain and reconstructs state, but does not yet validate the full semantic state machine across every decision/transition sequence.
-- Hash chaining detects alteration but does not prove semantic correctness; malformed/partial trailing writes fail closed and recovery must remain a documented, non-destructive operator procedure.
+Activation approval evidence is attributable and independently checkable, but it is **not a cryptographic signature** and the collector does not query GitHub online. The operator must independently verify the cited review. Static AST checks cover the enumerated import/call paths and do not prove the absence of every conceivable indirect execution path.
 
-The collector does not submit, replace, cancel, or close broker orders and does not import the trading executor or Alpaca Trading Client. Static AST checks cover known imports/calls, not every conceivable indirect path. No Paper or live orders are authorized.
+The collector remains read-only with respect to broker trading: it does not submit, replace, cancel, or close orders and does not import the trading executor or Alpaca Trading Client. No Paper or live orders are authorized. The remaining unchecked items below are freeze-host verification and explicit activation/collection gates, not permission to start collection.
 
 ## 6. Mandatory implementation and activation gates
 
@@ -126,12 +123,13 @@ The collector does not submit, replace, cancel, or close broker orders and does 
 - [x] Add append-only hash-chained ledger, sequence numbers, exclusive lock, `fsync`, and fail-closed handling for malformed/tampered records (PR #334 merged; recovery procedure still needs explicit operator documentation).
 - [x] Add regression tests for accounting, provenance, hash-chain tampering, duplicate/skipped sessions, restart/retry, replay, and known broker endpoint isolation (PR #334 CI passed historically).
 - [x] Bind activation to a structured operator identity, exact authorization scope, and traceable GitHub PR-review evidence whose merge commit equals the freeze-register revision; require that revision to be an ancestor of the executing collector commit and retain external review verification as an operator step.
-- [ ] Remove arbitrary provenance injection from the operational activation path while retaining isolated test fixtures.
+- [x] Require `collection_authorized` to be a strict boolean and reject truthy non-boolean values (PR #391).
+- [x] Remove arbitrary provenance injection from the operational activation path; the constructor derives provenance from the validated agent and rejects an injected `provenance` argument (regression test present).
 - [x] Strengthen replay to recompute each portfolio and benchmark transition from immutable market-data snapshots and prior replayed state; validate returns, turnover, costs, cash, shares, weights, and persisted state even when the ledger hash chain is recomputed.
-- [ ] Add explicit tests for partial trailing writes, concurrent reader/writer behavior, and a documented non-destructive recovery procedure; do not auto-repair or discard ledger evidence.
-- [ ] Re-audit the import/call graph and runtime client construction to strengthen the no-trading isolation evidence.
-- [ ] Define the final evaluator and one-shot report acceptance rules for 252 valid completed sessions; ensure intermediate access cannot enable tuning or selection.
-- [ ] Review hardening changes in a dedicated PR; merge only after all required CI/security checks are green.
+- [x] Add tests for partial trailing writes and concurrent reader/writer behavior, and document non-destructive recovery; damaged evidence is preserved and never auto-repaired.
+- [x] Re-audit the known import/call graph and runtime client construction: AST regression tests reject known broker execution imports/calls; the collector factory uses the historical market-data client only. Static checks do not prove the absence of every indirect path.
+- [x] Define the final evaluator and one-shot report acceptance rules for exactly 252 valid completed sessions; intermediate raw-ledger access remains an operator-control limitation.
+- [x] Review and merge the hardening changes in dedicated PRs #390, #391, #394, and #395 after required CI/security checks passed.
 - [ ] After hardening and freeze approval, create an immutable activation record containing exact collector commit, artifact/manifest/config hashes, start-session rule, and explicit operator authorization.
 - [ ] Only then begin collection.
 
@@ -153,7 +151,7 @@ The project sequence and gate remain unchanged: no holdout activation, PPO tunin
 
 | Field | Value |
 |---|---|
-| Collector commit | `d6bf905a2956caec0eb742f9f814f05cfca7edda` (implementation merged; activation hardening pending) |
+| Collector commit | NOT SET — no activation record exists; current audited source baseline is `${base}`, not a freeze or activation approval |
 | Freeze record commit | NOT SET — this register is not an approved freeze record |
 | Artifact SHA-256 reverified on freeze host | NOT SET |
 | Effective config SHA-256 | NOT SET |

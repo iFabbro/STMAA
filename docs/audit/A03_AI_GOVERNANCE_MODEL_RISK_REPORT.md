@@ -94,8 +94,8 @@ All listed jobs completed with conclusion `success`. These are post-merge runs o
 
 ## 7. Audit decision and next gate
 
-**A03: CLOSED — PASS WITH RESIDUAL RISKS — 8/10**, for the approved source-review, governance-control, documentation, and offline/mock retest scope.
+**Proposed A03 disposition: CLOSED — PASS WITH RESIDUAL RISKS — 8/10**, effective after this documentation closeout PR is merged, for the approved source-review, governance-control, documentation, and offline/mock retest scope.
 
-The next audit in the approved sequence is **A04 — Quantitative & Statistical Validation**, beginning with the comparative benchmark. No PPO tuning, optimization, training, or retraining is permitted before the A04 benchmark and its gates are complete.
+After this documentation closeout PR is merged, the next audit in the approved sequence is **A04 — Quantitative & Statistical Validation**, beginning with the comparative benchmark. No PPO tuning, optimization, training, or retraining is permitted before the A04 benchmark and its gates are complete.
 
 A03 closure does not approve or activate the prospective holdout, authorize Paper orders, authorize Live Trading, or change any operational configuration or risk cap.

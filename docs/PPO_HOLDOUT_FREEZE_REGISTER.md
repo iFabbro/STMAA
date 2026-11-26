@@ -127,7 +127,7 @@ The collector does not submit, replace, cancel, or close broker orders and does 
 - [x] Add regression tests for accounting, provenance, hash-chain tampering, duplicate/skipped sessions, restart/retry, replay, and known broker endpoint isolation (PR #334 CI passed historically).
 - [x] Bind activation to a structured operator identity, exact authorization scope, and traceable GitHub PR-review evidence whose merge commit equals the freeze-register revision; require that revision to be an ancestor of the executing collector commit and retain external review verification as an operator step.
 - [ ] Remove arbitrary provenance injection from the operational activation path while retaining isolated test fixtures.
-- [ ] Strengthen replay to validate the complete semantic decision → next-session transition state machine, not only hash integrity and reconstructed terminal state.
+- [x] Strengthen replay to recompute each portfolio and benchmark transition from immutable market-data snapshots and prior replayed state; validate returns, turnover, costs, cash, shares, weights, and persisted state even when the ledger hash chain is recomputed.
 - [ ] Add explicit tests for partial trailing writes, concurrent reader/writer behavior, and a documented non-destructive recovery procedure; do not auto-repair or discard ledger evidence.
 - [ ] Re-audit the import/call graph and runtime client construction to strengthen the no-trading isolation evidence.
 - [ ] Define the final evaluator and one-shot report acceptance rules for 252 valid completed sessions; ensure intermediate access cannot enable tuning or selection.

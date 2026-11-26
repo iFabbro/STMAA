@@ -89,6 +89,7 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
     mirrors_ok = True
     comparisons_ok = True
     exposure_ok = True
+    exposure_fail = False
     benchmark_returns = {
         key: [] for key in (
             "equal_weight_buy_and_hold", "spy_50pct_exposure", "spy_100pct_exposure"
@@ -140,14 +141,42 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
                 benchmark_returns[name].append(value)
 
         matched_rows = shared.get("ppo_exposure_matched_equal_weight_by_seed")
-        matched_map = {
-            row.get("seed"): row for row in matched_rows if isinstance(row, dict)
-        } if isinstance(matched_rows, list) else {}
-        if (
-            not isinstance(matched_rows, list) or len(matched_map) != len(seeds)
-            or set(matched_map) != set(seeds)
-        ):
+        matched_map = {}
+        if not isinstance(matched_rows, list):
             exposure_ok = False
+        else:
+            matched_seed_values = []
+            malformed_matched_rows = False
+            for matched_row in matched_rows:
+                if (
+                    not isinstance(matched_row, dict)
+                    or not isinstance(matched_row.get("seed"), int)
+                    or isinstance(matched_row.get("seed"), bool)
+                ):
+                    malformed_matched_rows = True
+                    continue
+                matched_seed_values.append(matched_row["seed"])
+                matched_map[matched_row["seed"]] = matched_row
+
+            duplicate_matched_seeds = (
+                len(matched_seed_values) != len(set(matched_seed_values))
+            )
+            unexpected_matched_seeds = (
+                set(matched_seed_values) - set(seeds)
+            )
+            if malformed_matched_rows or duplicate_matched_seeds or unexpected_matched_seeds:
+                exposure_ok = False
+                exposure_fail = True
+                issues.append(
+                    f"Fold {fold_id!r} has malformed, duplicated, or unexpected "
+                    "exposure-matched seed rows."
+                )
+            elif (
+                len(matched_seed_values) != len(seeds)
+                or set(matched_seed_values) != set(seeds)
+            ):
+                # Missing per-seed evidence remains INCONCLUSIVE, not PASS.
+                exposure_ok = False
 
         for seed in seeds:
             seed_result = seed_map.get(seed)
@@ -327,7 +356,9 @@ def audit_multi_seed_benchmark_report(report: dict[str, Any]) -> dict[str, Any]:
             summary_ok = False
             issues.append(f"summary mean/median for {name} differs from fold-level benchmark returns.")
     checks["benchmark_summary_consistency"] = "PASS" if summary_ok else "FAIL"
-    checks["exposure_matched_seed_coverage"] = "PASS" if exposure_ok else "INCONCLUSIVE"
+    checks["exposure_matched_seed_coverage"] = (
+        "FAIL" if exposure_fail else "PASS" if exposure_ok else "INCONCLUSIVE"
+    )
     if not exposure_ok and not any("exposure-matched" in issue for issue in issues):
         issues.append("Per-seed exposure-matched results are absent; legacy shared results are not sufficient.")
 

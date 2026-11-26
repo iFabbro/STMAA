@@ -150,3 +150,56 @@ def test_consistency_audit_detects_seed_comparison_mirror_mismatch():
     result = audit_multi_seed_benchmark_report(report)
     assert result["status"] == "FAIL"
     assert result["checks"]["seed_fold_mirrors"] == "FAIL"
+
+
+def _add_inconclusive_matched_rows(report):
+    for fold in report["folds"]:
+        fold["ppo_exposure_matched_equal_weight_by_seed"] = [
+            {"seed": seed, "status": "INCONCLUSIVE", "metrics": None}
+            for seed in report["seeds"]
+        ]
+
+
+def test_consistency_audit_rejects_duplicate_matched_seed_even_if_last_row_is_valid():
+    report = _report()
+    _add_inconclusive_matched_rows(report)
+    fold = report["folds"][0]
+    inconsistent_duplicate = {
+        "seed": 7,
+        "status": "AVAILABLE",
+        "metrics": {"total_return": 0.99},
+    }
+    # The old dict conversion silently discarded this first row because the
+    # later row for seed 7 was valid and overwrote it.
+    fold["ppo_exposure_matched_equal_weight_by_seed"].insert(
+        0, inconsistent_duplicate
+    )
+
+    result = audit_multi_seed_benchmark_report(report)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["exposure_matched_seed_coverage"] == "FAIL"
+    assert any("duplicated" in issue for issue in result["issues"])
+
+
+def test_consistency_audit_rejects_unexpected_matched_seed():
+    report = _report()
+    _add_inconclusive_matched_rows(report)
+    report["folds"][0]["ppo_exposure_matched_equal_weight_by_seed"][1]["seed"] = 99
+
+    result = audit_multi_seed_benchmark_report(report)
+
+    assert result["status"] == "FAIL"
+    assert result["checks"]["exposure_matched_seed_coverage"] == "FAIL"
+
+
+def test_consistency_audit_keeps_missing_matched_seed_evidence_inconclusive():
+    report = _report()
+    _add_inconclusive_matched_rows(report)
+    report["folds"][0]["ppo_exposure_matched_equal_weight_by_seed"].pop()
+
+    result = audit_multi_seed_benchmark_report(report)
+
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["checks"]["exposure_matched_seed_coverage"] == "INCONCLUSIVE"
+

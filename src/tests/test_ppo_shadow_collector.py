@@ -509,6 +509,7 @@ def _mock_activation_git(monkeypatch, *, head=None, status=b"", frozen=None, cur
     return {
         "freeze_register_commit": "1" * 40,
         "collector_commit": head,
+        "approval_evidence": {"merge_commit_sha": head},
     }
 
 

@@ -537,3 +537,12 @@ def test_activation_git_binding_requires_explicit_approved_register_markers(monk
     )
     with pytest.raises(ValueError, match="not explicitly approved"):
         shadow_collector._verify_activation_git_binding(record)
+
+
+@pytest.mark.parametrize("invalid", ["false", "true", 0, 1, None, [], {}, np.bool_(True)])
+def test_collector_rejects_non_boolean_collection_authorization(invalid, tmp_path, monkeypatch):
+    with pytest.raises(TypeError, match="collection_authorized must be a bool"):
+        PPOShadowCollector(
+            FakeAgent(), FakeFeed(), tmp_path / "invalid-authorization.jsonl",
+            ["AAA", "BBB"], collection_authorized=invalid,
+        )

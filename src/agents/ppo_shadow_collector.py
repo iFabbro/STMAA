@@ -169,7 +169,9 @@ class PPOShadowCollector:
         self.ledger = PPOShadowLedger(ledger_path)
         self.tickers = tuple(tickers)
         self.benchmark_ticker = benchmark_ticker
-        self.collection_authorized = bool(collection_authorized)
+        if type(collection_authorized) is not bool:
+            raise TypeError("collection_authorized must be a bool")
+        self.collection_authorized = collection_authorized
         if not self.collection_authorized and activation_record_path is not None:
             raise ValueError("Activation record supplied while shadow collection is disabled")
         self.provenance = _agent_provenance(agent)

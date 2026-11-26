@@ -1,6 +1,7 @@
 """Independent read-only PPO shadow collector; no broker execution imports."""
 import hashlib
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,44 @@ from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
 
 def _canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def _run_git(repo_root, *args):
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, check=True,
+            capture_output=True, text=False,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("Unable to verify activation Git provenance") from exc
+
+
+def _verify_activation_git_binding(record):
+    """Bind activation approval to the exact clean collector and freeze-register revisions."""
+    repo_root = Path(__file__).resolve().parents[2]
+    head = _run_git(repo_root, "rev-parse", "--verify", "HEAD").stdout.decode("ascii").strip()
+    if head != record["collector_commit"]:
+        raise ValueError("Activation collector_commit does not match the executing source revision")
+    status = _run_git(repo_root, "status", "--porcelain", "--untracked-files=all").stdout
+    if status:
+        raise ValueError("Activation requires a clean collector worktree")
+    freeze_commit = record["freeze_register_commit"]
+    _run_git(repo_root, "merge-base", "--is-ancestor", freeze_commit, head)
+    register_path = repo_root / "docs" / "PPO_HOLDOUT_FREEZE_REGISTER.md"
+    if register_path.is_symlink() or not register_path.is_file():
+        raise ValueError("Approved PPO holdout freeze register is missing or unsafe")
+    current_register = register_path.read_bytes()
+    frozen_register = _run_git(
+        repo_root, "show", f"{freeze_commit}:docs/PPO_HOLDOUT_FREEZE_REGISTER.md"
+    ).stdout
+    if not frozen_register or frozen_register != current_register:
+        raise ValueError("Activation freeze_register_commit does not identify the current freeze register")
+    required_markers = (
+        "**Status: APPROVED — HOLDOUT FROZEN — COLLECTION NOT AUTHORIZED**".encode("utf-8"),
+        b"| Freeze approval | GRANTED |",
+    )
+    if any(marker not in current_register for marker in required_markers):
+        raise ValueError("The committed PPO holdout freeze register is not explicitly approved")
 
 
 def _agent_provenance(agent):
@@ -92,6 +131,7 @@ def _load_activation_record(path, provenance, effective_config):
         if len(value) != 40 or value != value.lower() or any(
                 char not in "0123456789abcdef" for char in value):
             raise ValueError(f"Activation record has an invalid {key}")
+    _verify_activation_git_binding(record)
     if record.get("freeze_register_status") != "approved":
         raise ValueError("PPO holdout freeze register is not explicitly approved")
     try:

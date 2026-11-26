@@ -532,7 +532,7 @@ def test_activation_git_binding_requires_explicit_approved_register_markers(monk
     record = _mock_activation_git(monkeypatch)
     monkeypatch.setattr(
         Path, "read_bytes",
-        lambda self: b"**Status: PRE-FREEZE — NOT ACTIVE**\n| Freeze approval | NOT GRANTED |",
+        lambda self: "**Status: PRE-FREEZE — NOT ACTIVE**\n| Freeze approval | NOT GRANTED |".encode("utf-8"),
     )
     with pytest.raises(ValueError, match="not explicitly approved"):
         shadow_collector._verify_activation_git_binding(record)

@@ -12,7 +12,7 @@ from src.agents.ppo_shadow_collector import PPOShadowCollector, _agent_provenanc
 from src.data.market_data_contract import market_data_contract
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
-from src.agents.ppo_shadow_replay import replay_shadow_ledger
+from src.agents.ppo_shadow_replay import replay_shadow_ledger, replay_shadow_records
 from src.agents.ppo_shadow_snapshots import PPOShadowSnapshotStore
 import src.agents.ppo_shadow_evaluator as shadow_evaluator
 from src.agents.ppo_shadow_evaluator import evaluate_shadow_holdout
@@ -370,3 +370,98 @@ def test_holdout_evaluator_waits_for_exact_complete_window_and_is_one_shot(
     assert report["input_snapshot_evidence"]["verified_references"] == 8
     with pytest.raises(FileExistsError, match="never overwritten"):
         evaluate_shadow_holdout(path, report_path)
+
+
+def _semantic_replay_records(
+    weights=None, metrics=None, benchmark=None, benchmark_metrics=None
+):
+    config = {
+        "tickers": ["AAA", "BBB"],
+        "max_position_size": 0.2,
+        "max_gross_exposure": 0.5,
+    }
+    portfolio = PPOShadowPortfolio(("AAA", "BBB"), initial_capital=10000).to_state()
+    decision = {
+        "type": "decision",
+        "session": "2026-01-02",
+        "target_weights": weights or {"AAA": 0.2, "BBB": 0.1},
+    }
+    transition = {
+        "type": "portfolio_transition",
+        "session": "2026-01-05",
+        "signal_session": "2026-01-02",
+        "portfolio": portfolio,
+        "metrics": metrics or {
+            "session": "2026-01-05", "equity_close": 10000.0,
+            "step_return": 0.0, "turnover": 0.0,
+        },
+        "benchmark": benchmark or {
+            "ticker": "SPY", "shares": 100.0, "last_equity": 10000.0,
+        },
+        "benchmark_metrics": benchmark_metrics or {
+            "session": "2026-01-05", "ticker": "SPY",
+            "equity_close": 10000.0, "step_return": 0.0,
+        },
+    }
+    return [
+        {"payload": {"type": "run_metadata", "schema": "ppo_shadow_v1",
+                     "config": config, "provenance": TEST_PROVENANCE}, "hash": "0" * 64},
+        {"payload": decision, "hash": "1" * 64},
+        {"payload": transition, "hash": "2" * 64},
+    ]
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_semantic_replay_rejects_non_finite_decision_weights(invalid):
+    records = _semantic_replay_records(weights={"AAA": invalid, "BBB": 0.1})
+    with pytest.raises(ValueError, match="finite numeric"):
+        replay_shadow_records(records)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("equity_close", float("nan")),
+        ("step_return", float("inf")),
+        ("turnover", float("-inf")),
+    ],
+)
+def test_semantic_replay_rejects_non_finite_portfolio_metrics(field, value):
+    metrics = {
+        "session": "2026-01-05", "equity_close": 10000.0,
+        "step_return": 0.0, "turnover": 0.0,
+    }
+    metrics[field] = value
+    records = _semantic_replay_records(metrics=metrics)
+    with pytest.raises(ValueError, match="Portfolio transition metrics"):
+        replay_shadow_records(records)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("shares", float("inf")),
+        ("last_equity", float("nan")),
+    ],
+)
+def test_semantic_replay_rejects_non_finite_benchmark_state(field, value):
+    benchmark = {"ticker": "SPY", "shares": 100.0, "last_equity": 10000.0}
+    benchmark[field] = value
+    records = _semantic_replay_records(benchmark=benchmark)
+    with pytest.raises(ValueError, match="Invalid persisted benchmark state"):
+        replay_shadow_records(records)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("equity_close", float("nan")), ("step_return", float("inf"))],
+)
+def test_semantic_replay_rejects_non_finite_benchmark_metrics(field, value):
+    benchmark_metrics = {
+        "session": "2026-01-05", "ticker": "SPY",
+        "equity_close": 10000.0, "step_return": 0.0,
+    }
+    benchmark_metrics[field] = value
+    records = _semantic_replay_records(benchmark_metrics=benchmark_metrics)
+    with pytest.raises(ValueError, match="Benchmark transition metrics"):
+        replay_shadow_records(records)

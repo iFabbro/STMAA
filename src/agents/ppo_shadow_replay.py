@@ -1,8 +1,30 @@
 """Deterministic semantic replay for PPO shadow ledgers."""
+import math
+
 import pandas_market_calendars as mcal
 
 from src.agents.ppo_shadow_ledger import PPOShadowLedger
 from src.agents.ppo_shadow_portfolio import PPOShadowPortfolio
+
+
+def _is_finite_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError):
+        return False
+
+
+def _validate_finite_numeric_values(value, context):
+    if isinstance(value, dict):
+        for item in value.values():
+            _validate_finite_numeric_values(item, context)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_finite_numeric_values(item, context)
+    elif isinstance(value, (int, float)) and not _is_finite_number(value):
+        raise ValueError(f"{context} contains a non-finite numeric value")
 
 
 def _is_nyse_session(value):
@@ -24,8 +46,8 @@ def _validate_decision(event, config):
             or not _is_nyse_session(session)):
         raise ValueError("Malformed shadow decision event or non-session date")
     values = list(weights.values())
-    if any(not isinstance(value, (int, float)) for value in values):
-        raise ValueError("Shadow decision weights must be numeric")
+    if any(not _is_finite_number(value) for value in values):
+        raise ValueError("Shadow decision weights must be finite numeric values")
     if (any(value < 0 or value > config["max_position_size"] + 1e-8 for value in values)
             or sum(values) > config["max_gross_exposure"] + 1e-8):
         raise ValueError("Shadow decision violates frozen allocation caps")
@@ -46,17 +68,21 @@ def _validate_transition(event, pending, config):
     benchmark_metrics = event.get("benchmark_metrics")
     if not isinstance(benchmark, dict) or not isinstance(metrics, dict) or not isinstance(benchmark_metrics, dict):
         raise ValueError("Shadow transition is missing portfolio or benchmark metrics")
+    _validate_finite_numeric_values(metrics, "Portfolio transition metrics")
+    _validate_finite_numeric_values(benchmark_metrics, "Benchmark transition metrics")
     if metrics.get("session") != session or benchmark_metrics.get("session") != session:
         raise ValueError("Portfolio/benchmark transition session mismatch")
     if benchmark_metrics.get("ticker") != benchmark.get("ticker") or not isinstance(benchmark.get("ticker"), str):
         raise ValueError("Benchmark transition ticker mismatch")
-    if (not isinstance(benchmark.get("shares"), (int, float)) or benchmark["shares"] <= 0
-            or not isinstance(benchmark.get("last_equity"), (int, float))
+    if (not _is_finite_number(benchmark.get("shares")) or benchmark["shares"] <= 0
+            or not _is_finite_number(benchmark.get("last_equity"))
             or benchmark["last_equity"] <= 0):
         raise ValueError("Invalid persisted benchmark state")
-    if abs(float(metrics.get("equity_close", float("nan"))) - portfolio.last_equity) > 1e-7:
+    if (not _is_finite_number(metrics.get("equity_close"))
+            or abs(float(metrics["equity_close"]) - portfolio.last_equity) > 1e-7):
         raise ValueError("Portfolio transition metrics disagree with persisted portfolio state")
-    if abs(float(benchmark_metrics.get("equity_close", float("nan"))) - benchmark["last_equity"]) > 1e-7:
+    if (not _is_finite_number(benchmark_metrics.get("equity_close"))
+            or abs(float(benchmark_metrics["equity_close"]) - benchmark["last_equity"]) > 1e-7):
         raise ValueError("Benchmark metrics disagree with persisted benchmark state")
     return portfolio, benchmark, benchmark_metrics
 

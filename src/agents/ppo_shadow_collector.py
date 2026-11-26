@@ -41,6 +41,9 @@ def _verify_activation_git_binding(record):
         raise ValueError("Activation requires a clean collector worktree")
     freeze_commit = record["freeze_register_commit"]
     _run_git(repo_root, "merge-base", "--is-ancestor", freeze_commit, head)
+    approval = record.get("approval_evidence")
+    if not isinstance(approval, dict) or approval.get("merge_commit_sha") != head:
+        raise ValueError("Activation approval evidence is not bound to the executing merged commit")
     register_path = repo_root / "docs" / "PPO_HOLDOUT_FREEZE_REGISTER.md"
     if register_path.is_symlink() or not register_path.is_file():
         raise ValueError("Approved PPO holdout freeze register is missing or unsafe")
@@ -121,9 +124,8 @@ def _load_activation_record(path, provenance, effective_config):
         raise ValueError("Activation record is not valid UTF-8 JSON") from exc
     if not isinstance(record, dict) or record.get("schema") != "stmaa_ppo_shadow_activation_v1":
         raise ValueError("Unsupported or missing activation record schema")
-    required = ("freeze_register_commit", "collector_commit", "operator_authorization",
-                "approved_at_utc", "first_session", "model_sha256", "manifest_sha256",
-                "strategy_config_sha256")
+    required = ("freeze_register_commit", "collector_commit", "approved_at_utc",
+                "first_session", "model_sha256", "manifest_sha256", "strategy_config_sha256")
     if any(not isinstance(record.get(key), str) or not record[key].strip() for key in required):
         raise ValueError("Activation record is missing a required approval field")
     for key in ("freeze_register_commit", "collector_commit"):
@@ -131,6 +133,43 @@ def _load_activation_record(path, provenance, effective_config):
         if len(value) != 40 or value != value.lower() or any(
                 char not in "0123456789abcdef" for char in value):
             raise ValueError(f"Activation record has an invalid {key}")
+
+    operator = record.get("operator_authorization")
+    if not isinstance(operator, dict):
+        raise ValueError("Activation record requires structured operator identity and scope")
+    if (operator.get("provider") != "github"
+            or not isinstance(operator.get("login"), str)
+            or not operator["login"].strip()
+            or type(operator.get("id")) is not int or operator["id"] <= 0
+            or operator.get("scope") != "prospective_read_only_ppo_shadow_holdout_collection"):
+        raise ValueError("Activation operator identity or explicit authorization scope is invalid")
+
+    approval = record.get("approval_evidence")
+    if not isinstance(approval, dict):
+        raise ValueError("Activation record requires verifiable GitHub approval evidence")
+    if (approval.get("provider") != "github"
+            or approval.get("repository") != "iFabbro/STMAA"
+            or type(approval.get("pull_request_number")) is not int
+            or approval["pull_request_number"] <= 0
+            or type(approval.get("review_id")) is not int or approval["review_id"] <= 0
+            or not isinstance(approval.get("reviewer_login"), str)
+            or not approval["reviewer_login"].strip()
+            or approval.get("review_state") != "APPROVED"):
+        raise ValueError("GitHub approval evidence is incomplete or not approved")
+    for key in ("reviewed_commit", "merge_commit_sha"):
+        value = approval.get(key)
+        if (not isinstance(value, str) or len(value) != 40 or value != value.lower()
+                or any(char not in "0123456789abcdef" for char in value)):
+            raise ValueError(f"GitHub approval evidence has an invalid {key}")
+    expected_review_url = (
+        f"https://github.com/iFabbro/STMAA/pull/{approval['pull_request_number']}"
+        f"#pullrequestreview-{approval['review_id']}"
+    )
+    if approval.get("url") != expected_review_url:
+        raise ValueError("GitHub approval evidence URL is not canonical")
+    if approval["merge_commit_sha"] != record["collector_commit"]:
+        raise ValueError("Approved GitHub merge commit must equal the executing collector commit")
+
     _verify_activation_git_binding(record)
     if record.get("freeze_register_status") != "approved":
         raise ValueError("PPO holdout freeze register is not explicitly approved")

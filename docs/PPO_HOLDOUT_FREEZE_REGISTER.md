@@ -151,7 +151,7 @@ The project sequence and gate remain unchanged: no holdout activation, PPO tunin
 
 | Field | Value |
 |---|---|
-| Collector commit | NOT SET — no activation record exists; current audited source baseline is `${base}`, not a freeze or activation approval |
+| Collector commit | NOT SET — no activation record exists; current audited source baseline is `09b5eb55985b93c1c8b3a2ac1fac5ed202a16177`, not a freeze or activation approval |
 | Freeze record commit | NOT SET — this register is not an approved freeze record |
 | Artifact SHA-256 reverified on freeze host | NOT SET |
 | Effective config SHA-256 | NOT SET |

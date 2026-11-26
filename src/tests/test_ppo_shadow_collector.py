@@ -125,7 +125,18 @@ def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_cap
         digest = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         activation = {"schema": "stmaa_ppo_shadow_activation_v1", "freeze_register_status": "approved",
             "freeze_register_commit": "1" * 40, "collector_commit": "2" * 40,
-            "operator_authorization": "approved by test fixture", "approved_at_utc": "2026-01-01T00:00:00Z",
+            "operator_authorization": {
+                "provider": "github", "login": "test-operator", "id": 12345,
+                "scope": "prospective_read_only_ppo_shadow_holdout_collection",
+            },
+            "approval_evidence": {
+                "provider": "github", "repository": "iFabbro/STMAA",
+                "pull_request_number": 390, "review_id": 98765,
+                "reviewer_login": "test-reviewer", "review_state": "APPROVED",
+                "reviewed_commit": "3" * 40, "merge_commit_sha": "2" * 40,
+                "url": "https://github.com/iFabbro/STMAA/pull/390#pullrequestreview-98765",
+            },
+            "approved_at_utc": "2026-01-01T00:00:00Z",
             "first_session": "2026-01-02", "model_sha256": TEST_PROVENANCE["model_sha256"],
             "manifest_sha256": TEST_PROVENANCE["manifest_sha256"], "strategy_config_sha256": digest}
         activation_path = path.with_suffix(".activation.json")
@@ -537,3 +548,30 @@ def test_activation_git_binding_requires_explicit_approved_register_markers(monk
     )
     with pytest.raises(ValueError, match="not explicitly approved"):
         shadow_collector._verify_activation_git_binding(record)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda record: record.update(operator_authorization="approved by operator"),
+    lambda record: record["operator_authorization"].update(id=True),
+    lambda record: record["operator_authorization"].update(scope="all trading operations"),
+    lambda record: record["approval_evidence"].update(review_state="COMMENTED"),
+    lambda record: record["approval_evidence"].update(merge_commit_sha="4" * 40),
+    lambda record: record["approval_evidence"].update(url="https://example.com/approval"),
+])
+def test_activation_rejects_unattributable_or_unbound_approval_evidence(
+    mutate, tmp_path, monkeypatch
+):
+    collector = make_collector(
+        monkeypatch, FakeAgent(), FakeFeed(), tmp_path / "activation.jsonl",
+        authorized=True, initial_capital=10000,
+    )
+    record = dict(collector.activation_record)
+    record["operator_authorization"] = dict(collector.activation_record["operator_authorization"])
+    record["approval_evidence"] = dict(collector.activation_record["approval_evidence"])
+    mutate(record)
+    activation_path = tmp_path / "invalid-approval.json"
+    activation_path.write_text(json.dumps(record))
+    with pytest.raises(ValueError):
+        shadow_collector._load_activation_record(
+            activation_path, collector.provenance, collector.defaults
+        )

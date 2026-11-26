@@ -125,7 +125,7 @@ The collector does not submit, replace, cancel, or close broker orders and does 
 - [x] Persist decision/transition records, provenance, portfolio state, SPY benchmark state, and data fingerprints (PR #334 merged).
 - [x] Add append-only hash-chained ledger, sequence numbers, exclusive lock, `fsync`, and fail-closed handling for malformed/tampered records (PR #334 merged; recovery procedure still needs explicit operator documentation).
 - [x] Add regression tests for accounting, provenance, hash-chain tampering, duplicate/skipped sessions, restart/retry, replay, and known broker endpoint isolation (PR #334 CI passed historically).
-- [ ] Bind activation to a verifiable approved freeze/activation record; reject arbitrary non-empty activation references.
+- [x] Bind activation to a structured operator identity, exact authorization scope, and traceable GitHub PR-review evidence whose merge commit equals the freeze-register revision; require that revision to be an ancestor of the executing collector commit and retain external review verification as an operator step.
 - [ ] Remove arbitrary provenance injection from the operational activation path while retaining isolated test fixtures.
 - [ ] Strengthen replay to validate the complete semantic decision → next-session transition state machine, not only hash integrity and reconstructed terminal state.
 - [ ] Add explicit tests for partial trailing writes, concurrent reader/writer behavior, and a documented non-destructive recovery procedure; do not auto-repair or discard ledger evidence.

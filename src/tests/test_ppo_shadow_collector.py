@@ -116,6 +116,7 @@ TEST_PROVENANCE = {"model_sha256": "a" * 64, "manifest_sha256": "b" * 64,
 
 def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_capital=100000.0):
     monkeypatch.setattr(shadow_collector, "_agent_provenance", lambda _agent: TEST_PROVENANCE)
+    monkeypatch.setattr(shadow_collector, "_verify_activation_git_binding", lambda _record: None)
     options = dict(initial_capital=initial_capital, collection_authorized=authorized)
     if authorized:
         config = {"tickers": ("AAA", "BBB"), "initial_capital": initial_capital,
@@ -465,3 +466,73 @@ def test_semantic_replay_rejects_non_finite_benchmark_metrics(field, value):
     records = _semantic_replay_records(benchmark_metrics=benchmark_metrics)
     with pytest.raises(ValueError, match="Benchmark transition metrics"):
         replay_shadow_records(records)
+
+
+def _mock_activation_git(monkeypatch, *, head=None, status=b"", frozen=None, current=None,
+                         ancestor=True):
+    head = head or "2" * 40
+    frozen = frozen if frozen is not None else b"approved freeze register"
+    current = current if current is not None else frozen
+    outputs = {
+        ("rev-parse", "--verify", "HEAD"): head.encode("ascii"),
+        ("status", "--porcelain", "--untracked-files=all"): status,
+        ("show", f"{'1' * 40}:docs/PPO_HOLDOUT_FREEZE_REGISTER.md"): frozen,
+    }
+
+    def fake_run_git(_root, *args):
+        if args == ("merge-base", "--is-ancestor", "1" * 40, head):
+            if not ancestor:
+                raise ValueError("Unable to verify activation Git provenance")
+            return SimpleNamespace(stdout=b"")
+        if args not in outputs:
+            raise AssertionError(f"Unexpected git command: {args}")
+        return SimpleNamespace(stdout=outputs[args])
+
+    monkeypatch.setattr(shadow_collector, "_run_git", fake_run_git)
+    monkeypatch.setattr(
+        Path, "read_bytes",
+        lambda self: current if self.name == "PPO_HOLDOUT_FREEZE_REGISTER.md" else b"",
+    )
+    monkeypatch.setattr(Path, "is_symlink", lambda self: False)
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+    return {
+        "freeze_register_commit": "1" * 40,
+        "collector_commit": head,
+    }
+
+
+def test_activation_git_binding_requires_exact_executing_collector_commit(monkeypatch):
+    record = _mock_activation_git(monkeypatch, head="3" * 40)
+    record["collector_commit"] = "2" * 40
+    with pytest.raises(ValueError, match="executing source revision"):
+        shadow_collector._verify_activation_git_binding(record)
+
+
+def test_activation_git_binding_rejects_dirty_worktree(monkeypatch):
+    record = _mock_activation_git(monkeypatch, status=b" M src/agents/ppo_shadow_collector.py")
+    with pytest.raises(ValueError, match="clean collector worktree"):
+        shadow_collector._verify_activation_git_binding(record)
+
+
+def test_activation_git_binding_requires_freeze_register_bytes_from_declared_commit(monkeypatch):
+    record = _mock_activation_git(
+        monkeypatch, frozen=b"committed register", current=b"changed working copy"
+    )
+    with pytest.raises(ValueError, match="does not identify the current freeze register"):
+        shadow_collector._verify_activation_git_binding(record)
+
+
+def test_activation_git_binding_rejects_freeze_commit_not_ancestor(monkeypatch):
+    record = _mock_activation_git(monkeypatch, ancestor=False)
+    with pytest.raises(ValueError, match="Git provenance"):
+        shadow_collector._verify_activation_git_binding(record)
+
+
+def test_activation_git_binding_requires_explicit_approved_register_markers(monkeypatch):
+    record = _mock_activation_git(monkeypatch)
+    monkeypatch.setattr(
+        Path, "read_bytes",
+        lambda self: b"**Status: PRE-FREEZE — NOT ACTIVE**\n| Freeze approval | NOT GRANTED |",
+    )
+    with pytest.raises(ValueError, match="not explicitly approved"):
+        shadow_collector._verify_activation_git_binding(record)

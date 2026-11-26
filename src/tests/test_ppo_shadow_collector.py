@@ -529,10 +529,11 @@ def test_activation_git_binding_rejects_freeze_commit_not_ancestor(monkeypatch):
 
 
 def test_activation_git_binding_requires_explicit_approved_register_markers(monkeypatch):
-    record = _mock_activation_git(monkeypatch)
-    monkeypatch.setattr(
-        Path, "read_bytes",
-        lambda self: "**Status: PRE-FREEZE — NOT ACTIVE**\n| Freeze approval | NOT GRANTED |".encode("utf-8"),
+    negative_register = (
+        "**Status: PRE-FREEZE — NOT ACTIVE**\n| Freeze approval | NOT GRANTED |"
+    ).encode("utf-8")
+    record = _mock_activation_git(
+        monkeypatch, frozen=negative_register, current=negative_register
     )
     with pytest.raises(ValueError, match="not explicitly approved"):
         shadow_collector._verify_activation_git_binding(record)

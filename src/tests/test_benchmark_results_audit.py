@@ -163,7 +163,6 @@ def test_consistency_audit_rejects_duplicate_matched_seed_even_if_last_row_is_va
     report = _report()
     _add_inconclusive_matched_rows(report)
     fold = report["folds"][0]
-    valid_seed_7 = copy.deepcopy(fold["ppo_exposure_matched_equal_weight_by_seed"][0])
     inconsistent_duplicate = {
         "seed": 7,
         "status": "AVAILABLE",

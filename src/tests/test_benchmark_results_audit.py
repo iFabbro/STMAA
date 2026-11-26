@@ -151,6 +151,7 @@ def test_consistency_audit_detects_seed_comparison_mirror_mismatch():
     assert result["status"] == "FAIL"
     assert result["checks"]["seed_fold_mirrors"] == "FAIL"
 
+
 def _add_inconclusive_matched_rows(report):
     for fold in report["folds"]:
         fold["ppo_exposure_matched_equal_weight_by_seed"] = [

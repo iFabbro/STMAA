@@ -133,7 +133,7 @@ def make_collector(monkeypatch, agent, feed, path, authorized=False, initial_cap
                 "provider": "github", "repository": "iFabbro/STMAA",
                 "pull_request_number": 390, "review_id": 98765,
                 "reviewer_login": "test-reviewer", "review_state": "APPROVED",
-                "reviewed_commit": "3" * 40, "merge_commit_sha": "2" * 40,
+                "reviewed_commit": "3" * 40, "merge_commit_sha": "1" * 40,
                 "url": "https://github.com/iFabbro/STMAA/pull/390#pullrequestreview-98765",
             },
             "approved_at_utc": "2026-01-01T00:00:00Z",
@@ -509,7 +509,7 @@ def _mock_activation_git(monkeypatch, *, head=None, status=b"", frozen=None, cur
     return {
         "freeze_register_commit": "1" * 40,
         "collector_commit": head,
-        "approval_evidence": {"merge_commit_sha": head},
+        "approval_evidence": {"merge_commit_sha": "1" * 40},
     }
 
 

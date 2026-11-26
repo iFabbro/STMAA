@@ -20,7 +20,7 @@ At startup, the operational constructor always recomputes the loaded PPO artifac
 
 The JSONL ledger uses monotonically increasing sequence numbers, previous-record hashes, SHA-256 record hashes, shared reader / exclusive writer process locks, complete-write loops, and fsync. Symlink paths are rejected. A partial, malformed, reordered, or modified record fails closed; the collector never truncates or repairs a damaged ledger. Preserve the original file and create a forensic copy before any manual recovery. Protect the ledger and lock file with restrictive permissions and backups.
 
-Replay validates both the hash chain and the semantic state machine: one decision may be pending at a time; each transition must consume that decision on the immediately following NYSE session; a new decision must occur on the transition session; portfolio and benchmark state/metrics must agree; target weights must match the frozen ticker set and allocation caps. A hash chain proves record integrity, not truthfulness of external market data or the correctness of an operator-approved activation.
+Replay validates the hash chain and independently recomputes each portfolio and benchmark transition from the preceding replayed state, the pending target, and the transition session's immutable model/benchmark input snapshots. It checks next-NYSE-session ordering, target allocation caps, open/close equity, step returns, turnover, traded notional, transaction costs, cash, shares, close weights, benchmark shares/equity/returns, and persisted portfolio/benchmark state. Missing or invalid snapshots fail closed. The final evaluator performs this semantic replay before deriving holdout metrics. A hash chain proves record integrity, not truthfulness of external market data or the correctness of an operator-approved activation.
 
 ## Activation
 
@@ -35,7 +35,7 @@ Run:
     uv run --locked pytest src/tests/test_ppo_shadow_collector.py -q
     uv run --locked ruff check src/agents/ppo_shadow_*.py src/tests/test_ppo_shadow_collector.py
 
-Tests cover next-open accounting, SPY benchmark replay, artifact/config provenance binding, activation-record validation, rejection of injected provenance, hash-chain tampering, partial trailing writes, concurrent reader/writer access, semantic decision/transition ordering, duplicate and skipped sessions, restart/retry behavior, and AST-based rejection of broker execution imports and order/position endpoint calls.
+Tests cover next-open accounting, SPY benchmark replay, artifact/config provenance binding, activation-record validation, rejection of injected provenance, hash-chain tampering, partial trailing writes, concurrent reader/writer access, semantic decision/transition ordering, recomputation of portfolio and benchmark accounting after hash-chain recomputation, duplicate and skipped sessions, restart/retry behavior, and AST-based rejection of broker execution imports and order/position endpoint calls.
 
 Passing tests is not broker certification or evidence of profitability.
 

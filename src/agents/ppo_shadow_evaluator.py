@@ -89,7 +89,7 @@ def evaluate_shadow_holdout(ledger_path, report_path=None):
 
 
 def _evaluate_locked(ledger_path, output, records):
-    replay = replay_shadow_records(records)
+    replay = replay_shadow_records(records, PPOShadowSnapshotStore(ledger_path, create=False))
     if replay["transition_count"] != HOLDOUT_RETURN_SESSIONS:
         raise ValueError(
             f"Final evaluation requires exactly {HOLDOUT_RETURN_SESSIONS} completed return-bearing sessions; "

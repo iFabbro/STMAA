@@ -1,58 +1,74 @@
 # STMAA — Stato del progetto e lavoro residuo
 
-**Ultimo riesame documentale:** 8 novembre 2026  
+**Ultimo allineamento:** 27 novembre 2026  
 **Repository:** `iFabbro/STMAA`  
-**Documento operativo principale:** [README.md](README.md)
+**Riferimento `main`:** `66fb4466958728bfb385153725c7dc75efde8faf`  
+**Documentazione primaria di uso e configurazione:** [README.md](README.md)  
+**Registro di evidenza audit:** [A08 Evidence Dossier Register](docs/audit/A08_EVIDENCE_DOSSIER_REGISTER.md)
 
-## Scopo e stato
+## Stato e perimetro
 
-STMAA è un framework sperimentale per ricerca, training PPO, backtesting, controlli di rischio e integrazione Alpaca Paper. Il repository non rappresenta un prodotto certificato, non dimostra redditività e non deve essere usato con capitale reale.
+STMAA è un framework sperimentale/alpha per ricerca quantitativa, PPO, backtesting, controlli del rischio e integrazione Alpaca Paper. Non è certificato, non ha dimostrato redditività robusta e non è autorizzato per il trading live. Il superamento di CI, test o audit circoscritti non costituisce una garanzia di sicurezza assoluta o di performance futura.
 
-Questa roadmap sostituisce le note storiche di giugno 2026. Descrive lo stato verificato nel repository al momento dell'ultimo riesame; il README resta la fonte primaria per installazione, configurazione e uso. Per i dettagli delle attività residue e delle relative evidenze consultare [STMAA_RESIDUAL_WORK_REGISTER.md](docs/STMAA_RESIDUAL_WORK_REGISTER.md).
+Il sistema ha raggiunto una base tecnica ampia: pipeline dati, contratti PPO, backtesting e benchmark, risk overlay, broker executor Paper-only, percorsi DAY/OPG, persistenza e riconciliazione, dashboard locale e raccolta shadow read-only. La presenza di questi componenti non significa che il prodotto sia completo o pronto per utenti esterni.
 
-## Componenti presenti
+## Stato degli audit
 
-| Area | Implementazione presente | Limite da tenere esplicito |
-|---|---|---|
-| Market data | Adapter Alpaca, processing, feature engineering e contratti versionati dei dati | La correttezza del feed e la continuità operativa richiedono verifica nell'ambiente configurato |
-| PPO | Training, manifest e metadati degli artefatti, hash e controlli di compatibilità | Un artefatto caricabile non dimostra validità statistica o redditività |
-| Backtesting | Ambiente e motore di backtest con costi e vincoli di esecuzione modellati | I risultati dipendono da dati, ipotesi e protocollo; non sono previsioni |
-| Risk management | Overlay, limiti nozionali, circuit breaker e blocchi fail-closed | I limiti implementati non sostituiscono il monitoraggio e la verifica Paper |
-| Broker execution | Executor Alpaca con stato persistito, identificativi idempotenti, gestione ambiguità, ordini pendenti/parziali e riconciliazione | Ambito corrente: singolo host e Paper; nessun coordinamento distribuito |
-| DAY / OPG | Percorsi separati, preflight e recupero persistito | Non equivalgono a validazione operativa prolungata |
-| Persistence | Stato esecuzione su file e monitoraggio SQLite | Backup, restore e runbook operativi restano da completare |
-| Terminal dashboard | Overview, Portfolio, Orders & Executions e System, basati su fonti locali | È una vista locale di evidenze persistite, non un terminale broker live |
-| Paper soak | Monitor, shadow runner, provider read-only, stop controller e report | Il soak continuo di 48 ore non risulta ancora eseguito e accettato |
+| Audit | Stato | Valutazione | Residuo principale |
+|---|---|---:|---|
+| A01 — Software Engineering & Architecture | CLOSED — PASS WITH RESIDUAL RISKS | — | Report originale e mappa finding/remediation/retest non ancora recuperati nel dossier A08. |
+| A02 — Security & Supply Chain | CLOSED — PARTIAL | 6,5/10 | A02-DEP-01 aperto: PyTorch 2.2.2 su macOS Intel non è stato rimediato. |
+| A03 — AI Governance & Model Risk | CLOSED — PASS WITH RESIDUAL RISKS | 8/10 | Holdout PRE-FREEZE / NOT ACTIVE; raccolta non autorizzata. |
+| A04 — Quantitative & Statistical Validation | CLOSED — PASS WITH RESIDUAL RISKS | 7/10 | Seed sensitivity, nessun vantaggio economico robusto dimostrato, costi elevati; comparator exposure-matched multi-seed INCONCLUSIVE. |
+| A05 — Data Governance & Provenance | CLOSED — PASS WITH RESIDUAL RISKS | 7,5/10 | Provenienza persistita ma non centralizzata; i metadati non provano da soli la verità della fonte upstream. |
+| A06 — Execution Safety & Broker Boundary | CLOSED — PASS WITH RESIDUAL RISKS | 8/10 | Lock host-local, race guard-to-SDK, OPG senza catch-up automatico; nessun fault-injection broker reale o retest locale completo su macOS 12.7.6. |
+| A07 — Operational Resilience & Reliability | CLOSED — PASS WITH RESIDUAL RISKS | 8/10 | Soak read-only di 48 ore completato; report automatico INCOMPLETE per il predicato coverage e gap heartbeat massimo di 165.285 secondi. |
+| A08 — Audit Readiness & Evidence Dossier | IN PROGRESS | — | Consolidare evidenze, finding, remediation, retest e rischi residui; preservare i gap non dimostrati. |
 
-## Installazione e verifiche
+I dettagli e le fonti per ciascun audit sono nel registro A08 e nei report originali disponibili. Dove il report originale o il retest non è recuperato, il registro lo dichiara come gap: non inferire una catena di evidenza mancante.
 
-Il progetto dichiara Python `>=3.12,<3.13` e usa `uv.lock` per la risoluzione riproducibile delle dipendenze. I comandi canonici sono:
+## Risultati quantitativi PPO: limiti
 
-```bash
-uv sync --locked
-uv sync --locked --group dev
-uv run --locked pytest src/tests tests -q
-uv run --locked ruff check .
-```
+Il benchmark multi-seed copre 3 seed (42, 7, 21), 11 fold per seed e 33 esecuzioni PPO. I risultati sono descrittivi e mostrano sensibilità al seed, costi di negoziazione elevati e assenza di un vantaggio economico robusto dimostrato. Il comparator exposure-matched equal-weight multi-seed resta INCONCLUSIVE dove manca il payload di risultato; il confronto matched single-seed del seed 42 è una verifica separata e non può essere estesa agli altri seed.
 
-La CI principale esegue la suite su Linux, macOS Intel e Apple Silicon, oltre a Ruff e al controllo del lock file. Per i passaggi completi di installazione, configurazione e preflight consultare il README; non duplicare qui istruzioni che possono divergere.
+Il campione storico non autorizza ottimizzazione opportunistica, scelta retrospettiva del seed o dichiarazioni di redditività. Nessun tuning/retraining PPO va avviato senza un protocollo approvato e una motivazione basata su evidenza.
 
-## Priorità operative
+## Stato operativo e sicurezza
 
-1. **Consolidamento tecnico:** workflow manuali Alpaca allineati a Python 3.12 e `uv.lock`; validazione semantica dashboard completata; documentazione e register aggiornati. Resta da applicare e verificare la protezione effettiva di `main`.
-2. **Verifica locale della dashboard:** eseguire installazione pulita e prova su macOS supportato, verificando navigazione, refresh manuale, fonti mancanti/obsolete/invalid e assenza di chiamate broker dalla UI.
-3. **Paper preflight e soak:** controllare configurazione, modello compatibile, identità account Paper e stop conditions; solo dopo avviare un nuovo run continuo di 48 ore secondo il protocollo in `docs/PAPER_SOAK_MONITOR.md`. Un test breve non sostituisce il requisito di 48 ore.
-4. **Onboarding downloader:** rendere ripetibile il percorso clone → installazione → configurazione → training/verifica artefatto → diagnostica → preflight read-only → monitoraggio.
-5. **Qualità quantitativa PPO:** definire un protocollo di valutazione out-of-sample con benchmark, costi/turnover, drawdown, stabilità per periodi e seed e criteri espliciti di rifiuto/promozione.
+- Perimetro corrente: Alpaca Paper, fail-closed e nessun live trading.
+- Limite nozionale lordo operativo documentato: 1.000 USD aggregati DAY/OPG, con posizioni e riserve BUY pendenti incluse.
+- Il broker execution lock è host-local: è ammesso il modello single-host/single-active-executor; il coordinamento multi-host non è implementato.
+- Le mutazioni broker non fanno parte del lavoro documentale A08. Ogni eventuale test Paper con ordini richiede autorizzazione esplicita separata.
+- La dashboard usa provider locali read-only; le scritture di audit di sessione restano nel lifecycle di `hub.py`.
+- Holdout A03: PRE-FREEZE / NOT ACTIVE / COLLECTION NOT AUTHORIZED.
 
-## Limiti e lavoro differito
+### Soak A07
 
-- Nessuna autorizzazione implicita a usare capitale reale o a dichiarare il sistema pronto per il live trading.
-- Il broker execution lock è host-local; l'esecuzione multi-host richiede un servizio coordinatore separato ed è differita.
-- Il Paper soak di 48 ore è una verifica operativa ancora aperta.
-- Mancano ancora definizioni e prove complete per alert esterni, backup/restore, rotazione credenziali, ownership/escalation e gestione incidenti.
-- La dashboard non interroga il broker e non deve essere descritta come fonte di stato live.
+La Roadmap di progetto registra il run read-only di 48 ore `8b6f062e-472f-4e3b-88d9-b692763c61a5`, sul commit `001a66cddf134ea7c5344ff292a1c08d0458c198`, con 2.641 heartbeat e 2.641 shadow observations. Il report automatico resta `INCOMPLETE` per il criterio coverage; due retry market-data sono stati recuperati e l'integrità SQLite è stata riportata `ok`. A07 è stato chiuso con rischi residui secondo la Roadmap di progetto. Questi dati sono riportati dalla Roadmap/handoff: non sono stati rieseguiti durante questo riallineamento. Il report storico A07 relativo al tentativo precedente va preservato, non sovrascritto.
 
-## Regole di modifica
+## Gap di prodotto ancora aperti
 
-Ogni intervento deve essere isolato in un branch e una pull request dedicati. Nessuna modifica diretta a `main`. Prima del merge devono risultare verdi i controlli CI, test, lint e secrets scan applicabili. Le verifiche che coinvolgono Alpaca devono rispettare il perimetro Paper autorizzato; le prove read-only non devono inviare, cancellare, sostituire o chiudere ordini.
+Questi punti sono limiti concreti da distinguere dalla chiusura degli audit:
+
+1. **Distribuzione del modello PPO:** il repository non distribuisce ancora ai nuovi checkout un artefatto PPO pre-addestrato, versionato e verificato. Il modello presente nell'ambiente locale di sviluppo non è un pacchetto installabile per ogni utente.
+2. **Rischio dipendenze su macOS Intel:** PyTorch 2.2.2 resta un finding aperto (A02-DEP-01); la compatibilità della piattaforma non equivale alla risoluzione dell'advisory.
+3. **Evidenza A08 incompleta:** report A01/A02 e pacchetto artefatti del run A07 non sono ancora tutti collegati/recuperati nel dossier. Le lacune devono restare esplicite finché non è disponibile la fonte primaria.
+4. **Validazione quantitativa:** i risultati non dimostrano un edge robusto; il comparator exposure-matched multi-seed è inconclusivo. Holdout prospettico non attivo e non autorizzato.
+5. **Limiti operativi A06:** coordinamento multi-host assente, nessun test fault-injection contro broker reale e nessun retest locale completo sul Mac Intel macOS 12.7.6.
+6. **Runbook e operatività di prodotto:** procedure di distribuzione/aggiornamento del modello, gestione backup/restore e gestione incidenti devono essere definite prima di un impiego esterno affidabile. Non sono state validate come capacità complete dal presente riallineamento.
+
+Questi gap non sono una nuova audit campaign né autorizzano automaticamente nuovi workstream. La loro priorità e il relativo perimetro vanno decisi dopo il completamento di A08.
+
+## Prossime azioni approvate
+
+1. **Completare A08:** mantenere il registro aggiornato con collegamenti verificabili a report, finding, PR, commit e retest; non colmare i gap con test o documenti inventati.
+2. **Chiudere il riallineamento documentale:** mantenere coerenti README, questa roadmap e registro A08 con lo stato effettivo del repository.
+3. **Dopo A08:** presentare all'utente una proposta ordinata per i gap di prodotto, separando blocker di sicurezza, prerequisiti di distribuzione e miglioramenti opzionali. Nessun nuovo sviluppo fuori dal perimetro approvato prima della decisione.
+
+## Regole permanenti
+
+- Ogni modifica passa da branch dedicato e PR; nessuna modifica diretta a `main`.
+- Verificare diff e controlli CI richiesti prima del merge. Il merge richiede autorizzazione esplicita dell'utente.
+- Non dichiarare CI, test, audit o verifiche superati se il relativo risultato non è stato osservato.
+- Preservare `.env`, runtime, modelli, cap, configurazione protetta e holdout.
+- Nessun Live Trading e nessuna mutazione broker senza autorizzazione esplicita per uno specifico test Alpaca Paper controllato.

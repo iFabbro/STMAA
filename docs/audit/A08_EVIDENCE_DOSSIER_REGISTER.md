@@ -137,7 +137,12 @@ These audits are summarized here to maintain the A08 cross-register, not to reop
 
 1. **A01:** original report and primary finding evidence remain missing. Finding descriptions/IDs were recovered from prior audit context. Related PRs #179, #228, #297, #356 and #362 are verified historical artifacts, but no finding-specific remediation/retest mapping is proven.
 2. **A02:** original report and exact PyTorch advisory identifiers/rationale remain missing. `A02-DEP-01` is still open; PR #354 is a compatibility mitigation, not closure. Scheduled Gitleaks run failure is verified at job level, but detailed log output remains unavailable.
-3. **A07:** later 48-hour run package is referenced by the supplied Roadmap, but run artifacts were not independently fetched from repository storage in this pass. Historical report remains preserved and explicitly superseded for disp## Overall A08 status
+3. **A07:** later 48-hour run package is referenced by the supplied Roadmap, but run artifacts were not independently fetched from repository storage in this pass. Historical report remains preserved and explicitly superseded for disposition by later evidence.
+4. **A04:** exposure-matched equal-weight multi-seed comparator remains inconclusive; draft PR #375 is not merged and is not confirmed evidence.
+5. **A03:** holdout remains PRE-FREEZE / NOT ACTIVE / COLLECTION NOT AUTHORIZED; this is a deliberate authorization gate, not a missing audit-evidence gap.
+6. **A06:** residual risks remain as listed in its final report/handoff; no live broker fault injection or local macOS 12.7.6 retest claimed.
+
+## Overall A08 status
 
 **IN PROGRESS — initial register merged through PR #398; Roadmap/README alignment merged through PR #399; A03 evidence consolidation merged through PR #400.** Current `main` baseline checked for this revision is `0b9aba255e5b40265bab0f10dc0df9782e4c8741`. A01/A02 artifact recovery has improved the traceability register but has not recovered either original report or proven finding-specific remediation/retest chains. Publication does not close A08. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
 

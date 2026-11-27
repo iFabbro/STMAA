@@ -24,19 +24,21 @@
       },
       "historical_multi_seed_report": {
         "value": "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "assistant-exchange:reports/assistant_exchange/latest/manifest.json"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/manifest.json"
         ],
-        "note": "The exchange manifest declares this report and its SHA-256; raw report bytes were not available through the file-content response during this review."
+        "note": "Raw UTF-8 report bytes retrieved from the assistant-exchange branch by immutable Git blob SHA. Independently computed SHA-256 and byte length match the exchange manifest exactly; JSON structure and all 33 seed/fold rows were cross-checked against the benchmark report."
       },
       "historical_benchmark_report": {
         "value": "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json",
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "assistant-exchange:reports/assistant_exchange/latest/manifest.json"
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/manifest.json"
         ],
-        "note": "The exchange manifest declares this report and its SHA-256; raw report bytes were not available through the file-content response during this review."
+        "note": "Raw UTF-8 report bytes retrieved from the assistant-exchange branch by immutable Git blob SHA. Independently computed SHA-256 and byte length match the exchange manifest exactly; seed/fold mirrors and execution fingerprints were checked."
       },
       "seeds": {
         "value": [
@@ -44,11 +46,12 @@
           7,
           21
         ],
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "report filenames",
-          "assistant-exchange manifest"
-        ]
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "Both raw reports declare seeds [42, 7, 21]; each contains 3 seed groups × 11 folds = 33 seed/fold rows."
       },
       "seed_selection_rule": {
         "value": "All declared seeds are evaluated independently; no seed may be selected post hoc as the sole representative without an explicitly documented reason.",
@@ -67,11 +70,12 @@
           "NVDA",
           "META"
         ],
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "existing PPO report summary",
-          "docs/PPO_BENCHMARK.md"
-        ]
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "Both raw reports declare AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA and META. This verifies report universe only; point-in-time membership and survivorship bias remain unresolved."
       },
       "benchmark_ticker": {
         "value": "SPY",
@@ -94,12 +98,12 @@
       },
       "historical_coverage": {
         "value": {
-          "start": "2018-01-30",
-          "end": "2026-11-06",
-          "observations": 2206
+          "start": "2018-01-30 05:00:00",
+          "end": "2026-11-09 05:00:00",
+          "observations": 2207
         },
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
-        "note": "Dates and observation count are reported for the existing multi-seed walk-forward evidence; re-check against raw report before release."
+        "status": "CONFIRMED",
+        "note": "Both raw reports declare these exact timestamp boundaries and 2,207 observations. This supersedes the earlier unverified summary of 2,206 observations ending 2026-11-06."
       },
       "date_boundary_semantics": {
         "value": "Not yet fully specified for the protocol; walk_forward.py CLI defines --start-date inclusive and --end-date exclusive.",
@@ -149,39 +153,43 @@
     "temporal_design": {
       "method": {
         "value": "expanding_window",
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "docs/PPO_WALK_FORWARD.md",
-          "existing walk-forward report summary"
-        ]
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "The raw walk-forward report declares expanding_window."
       },
       "fold_count": {
         "value": 11,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "Both reports contain 11 folds."
       },
       "minimum_training_observations": {
         "value": 756,
-        "status": "CODE_DEFAULT_ONLY",
+        "status": "CONFIRMED",
         "source": [
-          "walk_forward.py"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ],
-        "note": "CLI default; confirm the exact value in the historical report before treating it as run fact."
+        "note": "The raw report declares min_train_size=756 and first-fold training_observations=756."
       },
       "test_observations": {
         "value": 126,
-        "status": "CODE_DEFAULT_ONLY",
+        "status": "CONFIRMED",
         "source": [
-          "walk_forward.py"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ],
-        "note": "CLI default; confirm the exact value in the historical report before treating it as run fact."
+        "note": "The raw report declares test_size=126; all 11 fold layouts use 126 test observations."
       },
       "step_observations": {
         "value": 126,
-        "status": "CODE_DEFAULT_ONLY",
+        "status": "CONFIRMED",
         "source": [
-          "walk_forward.py"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ],
-        "note": "When omitted, implementation uses the test window size; confirm historical report metadata."
+        "note": "The raw report declares step_size=126."
       },
       "fold_order_and_overlap": {
         "value": "Chronological expanding training windows; test windows are chronological and non-overlapping; each fold trains a fresh PPO agent.",
@@ -217,6 +225,15 @@
         "source": [
           "docs/PPO_WALK_FORWARD.md"
         ]
+      },
+      "seed_fold_run_count": {
+        "value": 33,
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "Three seeds × eleven folds; 33 distinct seed/fold result rows in each report."
       }
     },
     "model_and_observation_contract": {
@@ -292,55 +309,49 @@
       },
       "requested_timesteps_per_fold": {
         "value": 50000,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "runtime_timesteps_per_fold": {
-        "value": 51200,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
-        "note": "Reported runtime count after PPO rollout-step alignment; preserve separately from requested timesteps."
+        "value": null,
+        "status": "UNKNOWN",
+        "note": "The raw multi-seed walk-forward report confirms 50,000 requested timesteps per fold per seed, but does not contain a runtime-aligned timestep count. The previously reported 51,200 is not independently established by these report bytes."
       },
       "learning_rate": {
         "value": 0.0003,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "src/backtest/walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "n_steps": {
         "value": 2048,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "src/backtest/walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "batch_size": {
         "value": 64,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "src/backtest/walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "n_epochs": {
         "value": 10,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "src/backtest/walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "gamma": {
         "value": 0.99,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED",
+        "status": "CONFIRMED",
         "source": [
-          "src/backtest/walk_forward.py default",
-          "existing run summary"
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json"
         ]
       },
       "other_optimizer_and_policy_parameters": {
@@ -353,23 +364,43 @@
       "initial_capital": {
         "value": 100000,
         "currency": "USD",
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ]
       },
       "max_position_weight": {
         "value": 0.2,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ]
       },
       "max_gross_exposure": {
         "value": 0.5,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ]
       },
       "transaction_cost_rate": {
         "value": 0.001,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ]
       },
       "slippage_rate": {
         "value": 0.0005,
-        "status": "REPORTED_NOT_BYTE_REVERIFIED"
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ]
       },
       "cost_application": {
         "value": "Turnover-based costs; benchmark documentation states equal transaction-cost and slippage rates are applied at entry and at rebalancing where applicable.",
@@ -443,7 +474,8 @@
           "source": [
             "docs/PPO_BENCHMARK.md",
             "benchmark_walk_forward.py"
-          ]
+          ],
+          "note": "The comparator methodology is defined in code, but the historical multi-seed benchmark report marks it INCONCLUSIVE in all 11 folds and contains no comparator result payload. Thus historical exposure-matched results have not been demonstrated by this report."
         },
         "spy_50pct_exposure": {
           "value": "SPY buy-and-hold at fixed 50% gross exposure.",
@@ -465,7 +497,16 @@
       "multi_seed_exposure_matching": {
         "value": "Exposure matching must be calculated separately for each seed from that seed's own PPO trace; never borrow or reuse another seed's exposure schedule.",
         "status": "APPROVAL_REQUIRED",
-        "note": "This is required to preserve seed-specific policy exposure and must be explicitly confirmed in the protocol review."
+        "note": "The raw benchmark report has INCONCLUSIVE status in all 11 folds for the exposure-matched equal-weight comparator, despite containing complete per-seed PPO traces. Resolve the missing comparator output before treating this benchmark as complete."
+      },
+      "historical_execution_alignment_audit": {
+        "value": "All 11 benchmark fold execution identities are PASS; all 33 seed/fold execution-data fingerprints match the corresponding benchmark fold fingerprint; test dates and observation counts agree across the two reports.",
+        "status": "CONFIRMED",
+        "source": [
+          "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json"
+        ],
+        "note": "Verifies report-to-report alignment and declared execution fingerprints, not provenance or correctness of the underlying market-data snapshot."
       }
     },
     "metrics_and_inference": {
@@ -661,6 +702,48 @@
     "no_retraining_no_regeneration": true,
     "no_broker_access": true,
     "no_historical_report_mutation": true,
-    "release_requires_explicit_user_approval": true
+    "release_requires_explicit_user_approval": true,
+    "report_verification": {
+      "method": "Retrieved raw UTF-8 report contents from immutable Git blob SHAs, independently computed SHA-256 over exact UTF-8 bytes, compared byte lengths and SHA-256 values with exchange manifest declarations, parsed both JSON documents, and cross-checked all seed/fold result rows.",
+      "exchange_branch": "assistant-exchange",
+      "exchange_manifest": {
+        "path": "reports/assistant_exchange/latest/manifest.json",
+        "git_blob_sha": "e934b07df869e4cf0a243c0fe0ab501055f2dbb0",
+        "sha256": "929c9154bf8aa8024f364a595db43543039b282f8aa9771ef6cdeb93eb331473",
+        "published_at_utc": "2026-11-17T00:20:00.495358+00:00"
+      },
+      "reports": [
+        {
+          "path": "reports/assistant_exchange/latest/ppo_benchmark_multiseed_20261110_42_7_21.json",
+          "git_blob_sha": "7ee96cea2b9892c74ff8b7f320a335561914328a",
+          "bytes": 19042863,
+          "sha256": "1de9cf019d13f4572c63b64c48876c6a3a46e05b3ad808aa4bf92aab487833ce",
+          "manifest_sha256_match": true
+        },
+        {
+          "path": "reports/assistant_exchange/latest/ppo_walk_forward_multiseed_20261110_42_7_21.json",
+          "git_blob_sha": "fb7236f6b71542b16ed87d152fc9bdb2dca36944",
+          "bytes": 6009264,
+          "sha256": "ab5de9bb36c53f9c27f1c720864bbd5de30bfdce5d44527c8099515b6881f9e7",
+          "manifest_sha256_match": true
+        }
+      ],
+      "cross_report_checks": {
+        "seed_fold_pairs": 33,
+        "metric_mismatches": 0,
+        "seed_comparison_mirror_mismatches": 0,
+        "execution_fingerprint_mismatches": 0,
+        "fold_date_mismatches": 0,
+        "observation_count_mismatches": 0,
+        "benchmark_fold_execution_identity_pass": 11,
+        "exposure_matched_equal_weight_inconclusive_folds": 11,
+        "seed_comparison_mirrors_checked": 33
+      },
+      "scope_limitations": [
+        "These checks verify report bytes and internal/cross-report consistency; they do not execute the repository auditor scripts.",
+        "The reports do not establish immutable market-data snapshot identity, provider/feed revision lineage, point-in-time universe membership, or complete PPO artifact identity.",
+        "The historical exposure-matched equal-weight comparator is INCONCLUSIVE in all 11 folds."
+      ]
+    }
   }
 }

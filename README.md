@@ -738,7 +738,7 @@ Questo checkpoint prevale sugli handoff datati in precedenza. STMAA resta un fra
 | A04 — Quantitative & Statistical Validation | PASS WITH RESIDUAL RISKS, 7/10 | Sensibilità al seed, nessun vantaggio economico robusto dimostrato e costi elevati. Il comparator exposure-matched multi-seed resta INCONCLUSIVE; non estendere il risultato single-seed a tutti i seed. |
 | A05 — Data Governance & Provenance | PASS WITH RESIDUAL RISKS, 7,5/10 | Provenienza persistita ma non centralizzata; hash e metadati non provano da soli la verità della fonte upstream. |
 | A06 — Execution Safety & Broker Boundary | PASS WITH RESIDUAL RISKS, 8/10 | Lock host-local, race residua guard-to-SDK, OPG senza catch-up automatico, nessun fault-injection broker reale né retest locale completo su macOS 12.7.6. |
-| A07 — Operational Resilience & Reliability | PASS WITH RESIDUAL RISKS, 8/10 | Soak read-only di 48 ore completato; report automatico INCOMPLETE per il criterio coverage e gap heartbeat massimo di 165,285 secondi. |
+| A07 — Operational Resilience & Reliability | PASS WITH RESIDUAL RISKS, 8/10 | Soak read-only di 48 ore completato; report automatico INCOMPLETE per il criterio coverage e gap heartbeat massimo di 165.285 secondi. |
 
 A08 — Audit Readiness & Evidence Dossier è **IN PROGRESS**. Il registro iniziale è stato pubblicato in PR #398; la pubblicazione non equivale alla chiusura dell'audit. Restano da consolidare le catene di evidenza A01/A02 e il pacchetto di artefatti del run A07, senza inventare o ricostruire prove mancanti.
 

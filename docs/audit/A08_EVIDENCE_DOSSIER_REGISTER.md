@@ -1,9 +1,9 @@
 # STMAA A08 — Audit Readiness & Evidence Dossier
 
-**Version:** Working register 0.4 (A01/A02 evidence recovery; A03 consolidated)
+**Version:** Working register 0.5 (A01/A02 CI primary artifacts recovered; A03 consolidated)
 **Date:** 27 November 2026
 **Repository:** `iFabbro/STMAA`
-**Repository reference checked:** `main` at `0b9aba255e5b40265bab0f10dc0df9782e4c8741` (post-merge PR #400)
+**Repository reference checked:** `main` at `9b2e8c80f223efb1ddf6724448dcad48c0484e10` (post-merge PR #401)
 **Purpose:** evidence traceability for A01–A07; not a new audit, certification, or readiness claim.
 
 ## Evidence conventions
@@ -42,26 +42,36 @@
 The five PR merge commits above were compared with the reported A01 baseline; each is an ancestor of `001a66c...`. Their presence in the baseline is verified, but their inclusion does not prove they were authored as A01 remediation or retested against A01 acceptance criteria.
 
 **A01 CI evidence verified on the exact reported baseline:**
-- CI run [45048291683](https://github.com/iFabbro/STMAA/actions/runs/45048291683): completed success; Ubuntu, macOS 15 Intel, macOS 15 ARM and Ruff jobs all success.
+- CI run [45048291683](https://github.com/iFabbro/STMAA/actions/runs/45048291683): completed success; Ubuntu, macOS 15 Intel, macOS 15 ARM and Ruff jobs all success. The three platform test jobs each report **1,591 passed** (Intel: 1 warning); no failed tests.
 - Secrets scan [45048291733](https://github.com/iFabbro/STMAA/actions/runs/45048291733): completed success.
 - Security Static Analysis [45048291750](https://github.com/iFabbro/STMAA/actions/runs/45048291750): Bandit and Semgrep jobs success.
 - Security Baseline push [45048291800](https://github.com/iFabbro/STMAA/actions/runs/45048291800): Gitleaks and Python dependency audit jobs success.
 
+**Primary coverage artifacts recovered from CI run 45048291683 (baseline SHA above):**
+
+| Runner / artifact | Lines covered | Branches covered | Artifact |
+|---|---:|---:|---|
+| Ubuntu / `coverage-ubuntu-latest` | 7,081 / 20,612 (34.35%) | 2,483 / 3,698 (67.14%) | [14763733900](https://github.com/iFabbro/STMAA/actions/runs/45048291683) |
+| macOS Intel / `coverage-macos-15-intel` | 7,082 / 20,612 (34.36%) | 2,482 / 3,698 (67.12%) | [14764139921](https://github.com/iFabbro/STMAA/actions/runs/45048291683) |
+| macOS 15 / `coverage-macos-15` | 7,082 / 20,612 (34.36%) | 2,482 / 3,698 (67.12%) | [14764512823](https://github.com/iFabbro/STMAA/actions/runs/45048291683) |
+
+The retained `coverage.xml` files were downloaded and their root counters inspected. At the A01 baseline, `pyproject.toml` `[tool.coverage.report]` contains `show_missing = true` and `skip_covered = true`, but no `fail_under` threshold. These artifacts substantiate coverage reporting and the absence of an enforced minimum; they do not prove an A01-specific retest or finding closure.
+
 | Traceability element | Evidence / status |
 |---|---|
-| Original report | **Gap:** exact A01 report path/content not recovered from the current GitHub `docs/audit/` directory, repository search or supplied project files. |
+| Original report | **Gap:** exact A01 report path/content not recovered from the current GitHub `docs/audit/` directory, repository code search, supplied project files, Project Library search, or prior conversation records. |
 | Findings | Finding IDs, descriptions, severities and OPTIONAL classification recovered from prior audit context; original finding evidence and report linkage remain unavailable. |
 | Remediation PR/commit | Related historical PRs listed above; no finding-specific remediation chain is proven. |
-| Retest | Baseline CI/security workflow results verified. No A01-specific retest was run in this evidence-recovery pass; no finding-specific retest artifact recovered. |
+| Retest | Baseline CI/security workflow results and coverage artifacts verified. The 1,591-test platform runs are general CI evidence, not finding-specific A01 retests. No A01-specific retest artifact recovered. |
 | Branch protection | Current `main` reports `protected=false`; rulesets list is empty. This is current-state evidence only. |
 | Final status | Closed per prior audit outcome; no audit reopened. |
-| Residual evidence gap | Original report, finding-level source evidence, explicit PR mapping and A01-specific retest records. |
+| Residual evidence gap | Original report, finding-level source evidence from the audit itself, explicit PR mapping and A01-specific retest records. CI coverage artifacts improve baseline evidence but do not replace the missing report. |
 
 ## A02 — Security & Supply Chain
 
 **Disposition reported:** CLOSED — PARTIAL, score 6.5/10.
 **Audit baseline reported:** `001a66cddf134ea7c5344ff292a1c08d0458c198`; macOS Intel, Python 3.12.13.
-**Open residual:** `A02-DEP-01` — PyTorch 2.2.2 on Intel macOS; not remediated. The original report/advisory identifiers were not recovered, so this register does not invent CVE/advisory IDs or severity beyond the recorded finding.
+**Open residual:** `A02-DEP-01` — PyTorch 2.2.2 on Intel macOS; not remediated. The original report and its advisory-to-finding mapping were not recovered. Independent official PyTorch advisories applicable to 2.2.2 are recorded below as corroborating external evidence, not attributed to the original audit.
 
 | Traceability element | Evidence / status |
 |---|---|
@@ -71,9 +81,12 @@ The five PR merge commits above were compared with the reported A01 baseline; ea
 | PR #354 validation | PR reports on macOS Intel: `uv lock --check`, `uv sync --locked --group dev`, `uv pip check` passed; `uv run --locked pytest src/tests tests -q`: 1,487 passed. Reported in PR metadata; not rerun in this pass. |
 | Security control infrastructure | PR [#353](https://github.com/iFabbro/STMAA/pull/353), merge `9da81114eed48b5f4860a7a46129cc0f5bc63a13`, adds the Security Baseline workflow (locked dependency audit/pip-audit and full-history Gitleaks). PR [#355](https://github.com/iFabbro/STMAA/pull/355), merge `005640aed76d716b5e7d1c26c742117bdfe13db1`, adds Bandit and Semgrep. These establish scanning controls; neither is a remediation of A02-DEP-01. |
 | Baseline CI/security runs | CI [45048291683](https://github.com/iFabbro/STMAA/actions/runs/45048291683) success (Ubuntu/macOS Intel/macOS ARM/Ruff); Secrets scan [45048291733](https://github.com/iFabbro/STMAA/actions/runs/45048291733) success; Static Analysis [45048291750](https://github.com/iFabbro/STMAA/actions/runs/45048291750) success; Security Baseline push [45048291800](https://github.com/iFabbro/STMAA/actions/runs/45048291800) success (Gitleaks and dependency audit). All refer to baseline `001a66c...`. |
-| Scheduled Security Baseline | [Run 45198477329](https://github.com/iFabbro/STMAA/actions/runs/45198477329), same baseline `001a66c...`, completed failure: Python dependency audit job **success**, Gitleaks secret scan job **failure**. The supplied Roadmap reports this as a historical-commit finding in `src/execution/broker_executor.py` at commit `7f52b0da517f68afd468ca2ed5ed8454f5b2ea21`; the detailed Gitleaks log was not retrievable in this pass, so that location remains Roadmap-reported rather than independently confirmed here. This failure is separate from A02-DEP-01 and must not be conflated with the successful push-triggered run. |
+| Scheduled Security Baseline | [Run 45198477329](https://github.com/iFabbro/STMAA/actions/runs/45198477329), same baseline `001a66c...`, completed failure. Job [137775212971](https://github.com/iFabbro/STMAA/actions/runs/45198477329) failed at Gitleaks step. Its retained log and SARIF artifact [14827964127](https://github.com/iFabbro/STMAA/actions/runs/45198477329) independently confirm a Gitleaks alert under rule `generic-api-key`, file `src/execution/broker_executor.py`, line 267 (columns 26–65), historical commit `7f52b0da517f68afd468ca2ed5ed8454f5b2ea21`, fingerprint `7f52b0da517f68afd468ca2ed5ed8454f5b2ea21:src/execution/broker_executor.py:generic-api-key:267`; scan log reports 1,989 commits scanned. The SARIF snippet is redacted. Direct inspection of that exact source line shows only keyword arguments passing `self.api_key` and `self.api_secret`, not a literal credential. Therefore the Gitleaks detection event is verified, but a true secret disclosure is **not established**; this may be a false positive and remains unclassified without the unredacted secret-validation context. It is separate from A02-DEP-01. |
+| Push Security Baseline contrast | [Run 45048291800](https://github.com/iFabbro/STMAA/actions/runs/45048291800) succeeded; its Gitleaks job scanned one commit and reported no leaks. This push result does not negate the scheduled full-history finding above. |
+| Dependency audit scope limitation | Job [137287601574](https://github.com/iFabbro/STMAA/actions/runs/45048291800) ran `pip-audit==2.10.1` on `ubuntu-latest` and reported “No known vulnerabilities found”. The workflow defines the dependency-audit job only on Ubuntu. At this baseline, the dependency marker selects `torch==2.13.0` outside macOS Intel and retains `torch==2.2.2` specifically for macOS x86_64. Therefore this successful Linux pip-audit run does **not** establish that the Intel-specific PyTorch 2.2.2 dependency was audited or cleared. |
+| Independent upstream advisory cross-check (not attribution to the missing A02 report) | The official PyTorch advisory [GHSA-53q9-r3pm-6pq6 / CVE-2025-32434](https://github.com/pytorch/pytorch/security/advisories/GHSA-53q9-r3pm-6pq6) lists affected versions `<=2.5.1` and patched version `2.6.0`; [GHSA-63cw-57p8-fm3p / CVE-2026-24747](https://github.com/pytorch/pytorch/security/advisories/GHSA-63cw-57p8-fm3p) lists affected versions `<=2.9.1` and patched versions `>=2.10.0`. PyTorch 2.2.2 falls inside both published affected-version ranges. This independently supports the existence of security exposure in the pinned version, but the original A02 report is unavailable, so it does **not** prove which advisory/advisories were cited by the original auditor or whether these were the complete rationale for A02-DEP-01. |
 | Final status | PARTIAL / A02-DEP-01 remains open. PR #354 does not remediate PyTorch 2.2.2 on Intel. |
-| Residual evidence gap | Original A02 report, exact advisory IDs/rationale, full Gitleaks finding output and any A02-specific retest/acceptance record. |
+| Residual evidence gap | Original A02 report and exact mapping of `A02-DEP-01` to upstream advisories; platform-matched Intel dependency-audit evidence; no A02-specific retest/acceptance record. The two official PyTorch advisories above independently affect 2.2.2 but cannot substitute for the missing audit record. Gitleaks output is recovered (log + SARIF). |
 
 No A02 tests, dependency scans, broker operations or remediation were rerun/performed in this evidence-recovery pass. Existing CI/workflow evidence is reused as recorded above.
 
@@ -135,8 +148,8 @@ These audits are summarized here to maintain the A08 cross-register, not to reop
 
 ## Consolidated open evidence gaps / residuals
 
-1. **A01:** original report and primary finding evidence remain missing. Finding descriptions/IDs were recovered from prior audit context. Related PRs #179, #228, #297, #356 and #362 are verified historical artifacts, but no finding-specific remediation/retest mapping is proven.
-2. **A02:** original report and exact PyTorch advisory identifiers/rationale remain missing. `A02-DEP-01` is still open; PR #354 is a compatibility mitigation, not closure. Scheduled Gitleaks run failure is verified at job level, but detailed log output remains unavailable.
+1. **A01:** original report and finding-level audit evidence remain missing. The exact-baseline CI jobs (1,591 passed on each platform) and coverage XML artifacts are now recovered; measured line coverage is 34.35–34.36%, branch coverage 67.12–67.14%, with no configured `fail_under`. These are baseline quality artifacts, not finding-specific retests. Related PRs #179, #228, #297, #356 and #362 remain contextual only; no finding-specific remediation/retest mapping is proven.
+2. **A02:** original report and its exact advisory mapping remain missing. Independent official PyTorch advisories GHSA-53q9-r3pm-6pq6 (CVE-2025-32434) and GHSA-63cw-57p8-fm3p (CVE-2026-24747) both list affected ranges that include 2.2.2; this corroborates exposure but is not attributed to the missing report. `A02-DEP-01` is still open; PR #354 is a compatibility mitigation, not closure. Scheduled Gitleaks alert is now independently verified from its log and SARIF at `broker_executor.py:267`, commit `7f52b0d...`; the source line passes variable attributes rather than a visible literal credential, so a true leak is not established and the alert may be a false positive. The successful dependency audit ran on Ubuntu and resolved the non-Intel PyTorch marker, so it does not clear the Intel-specific dependency.
 3. **A07:** later 48-hour run package is referenced by the supplied Roadmap, but run artifacts were not independently fetched from repository storage in this pass. Historical report remains preserved and explicitly superseded for disposition by later evidence.
 4. **A04:** exposure-matched equal-weight multi-seed comparator remains inconclusive; draft PR #375 is not merged and is not confirmed evidence.
 5. **A03:** holdout remains PRE-FREEZE / NOT ACTIVE / COLLECTION NOT AUTHORIZED; this is a deliberate authorization gate, not a missing audit-evidence gap.
@@ -144,8 +157,8 @@ These audits are summarized here to maintain the A08 cross-register, not to reop
 
 ## Overall A08 status
 
-**IN PROGRESS — initial register merged through PR #398; Roadmap/README alignment merged through PR #399; A03 evidence consolidation merged through PR #400.** Current `main` baseline checked for this revision is `0b9aba255e5b40265bab0f10dc0df9782e4c8741`. A01/A02 artifact recovery has improved the traceability register but has not recovered either original report or proven finding-specific remediation/retest chains. Publication does not close A08. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
+**IN PROGRESS — initial register merged through PR #398; Roadmap/README alignment merged through PR #399; A03 evidence consolidation merged through PR #400; A01/A02 evidence inventory updated through PR #401 and further documented in this revision (PR #402).** Current `main` baseline checked for this revision is `9b2e8c80f223efb1ddf6724448dcad48c0484e10`. CI primary artifacts add exact coverage and Gitleaks evidence, but neither original A01/A02 report has been recovered and no unsupported finding-specific remediation/retest chain is asserted. Publication does not close A08. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
 
 ## Next step
 
-Review this A08 evidence update and its PR checks. Do not infer direct A01 remediation links from related historical PRs. Keep A02-DEP-01 open until primary advisory evidence and a separately authorized remediation/retest exist. Continue looking only for primary A01/A02 audit records or finding-level artifacts; if none are recoverable, preserve the gaps explicitly rather than reconstructing them by assumption. A08 remains IN PROGRESS.
+Review the A01/A02 primary CI artifacts now recorded here. Do not infer direct A01 remediation links from related historical PRs. Keep A02-DEP-01 open until the original advisory evidence and a separately authorized remediation/retest exist. The original A01/A02 reports were not found in the current repository tree, GitHub code/issue search, Project Library, or prior conversation records; if no additional primary record is available, preserve these report gaps rather than reconstructing them by assumption. A08 remains IN PROGRESS.

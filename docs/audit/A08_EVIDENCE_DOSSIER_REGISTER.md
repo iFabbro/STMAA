@@ -1,9 +1,9 @@
 # STMAA A08 — Audit Readiness & Evidence Dossier
 
-**Version:** Working register 0.5 (A01/A02 CI primary artifacts recovered; A03 consolidated)
+**Version:** Working register 0.6 (A01–A07 cross-audit evidence and provenance consolidated)
 **Date:** 27 November 2026
 **Repository:** `iFabbro/STMAA`
-**Repository reference checked:** `main` at `9b2e8c80f223efb1ddf6724448dcad48c0484e10` (post-merge PR #401)
+**Repository reference checked:** `main` at `73187e8a7c5a7ef2140d7d94fb452b47f706d0be` (post-merge PR #402)
 **Purpose:** evidence traceability for A01–A07; not a new audit, certification, or readiness claim.
 
 ## Evidence conventions
@@ -138,13 +138,63 @@ No A02 tests, dependency scans, broker operations or remediation were rerun/perf
 | Final status | CLOSED — PASS WITH RESIDUAL RISKS, 8/10, per report. |
 | Remaining gate | Holdout freeze/activation remains unauthorized and is not an A08 evidence gap or closure condition for A03. |
 
-## A04–A06 cross-register references
+## A04 — Quantitative & Statistical Validation
 
-These audits are summarized here to maintain the A08 cross-register, not to reopen them:
+**Disposition reported in the latest supplied Roadmap:** CLOSED — PASS WITH RESIDUAL RISKS, score 7/10. A08 does not repeat the benchmark or authorize PPO tuning/retraining.
 
-- **A04:** benchmark audit closed per Roadmap. The multi-seed exposure-matched equal-weight comparator remains INCONCLUSIVE where no result payload exists; the separate seed-42 single-seed matched comparison must not be generalized to all seeds. Draft PR #375 remains unmerged and is not confirmed evidence.
-- **A05:** finding A05-F01 mitigated by PR #384, merge `db01b78cfcc485b5488f08d91b091bcc27b08ad8`; retest/CI reported green. Residual limitations remain.
-- **A06:** PRs #386, #387, #388; merge baseline `82a24d4a9a56cb77f154674409ea975edbd9e91e`; closed with residual risks per Roadmap. No live broker fault-injection claimed.
+**Roadmap-reported benchmark evidence (not independently re-read from the JSON payloads in this pass):**
+- Source files named by the Roadmap: `reports/ppo_benchmark_multiseed_20261110_42_7_21.json` and `reports/ppo_benchmark_comparison_matched_20261110.json`. These files are not present in the tracked GitHub tree at the A08 baseline; the tracked repository contains methodology documentation (`docs/PPO_BENCHMARK.md`, `docs/PPO_BENCHMARK_METHODOLOGY_AUDIT.md`), not these run payloads.
+- Roadmap reports a 2,207-row × 112-column snapshot whose SHA-256 matched the `processed.sha256` in manifest `4e8f9eac*.json`; both benchmark reports had 11 folds. Multi-seed PPO evaluation used seeds 42, 7 and 21, 11 folds each (33 PPO executions).
+- Reported mean-per-fold results: PPO seed 42 return 5.644%, volatility 14.295%, Sharpe 0.976, Sortino 1.524, max drawdown -8.639%, costs USD 2,354.74; seed 7 return 2.998%, volatility 13.683%, Sharpe 0.675, Sortino 1.147, max drawdown -10.198%, costs USD 2,380.71; seed 21 return 2.019%, volatility 14.454%, Sharpe 0.419, Sortino 0.624, max drawdown -9.600%, costs USD 2,315.40. Equal-weight static: 5.664% return, Sharpe 0.945, costs USD 75.00; equal-weight at PPO exposure: 5.377% return, Sharpe 1.091, costs USD 645.92; SPY 50%: 3.501% return, Sharpe 1.123; SPY 100%: 6.998% return, Sharpe 1.156.
+- The matched exposure comparator applies to seed 42 only; do not generalize it across all three seeds. Fold averages are descriptive independent all-cash simulations, not a compounded continuous track record.
+- Interpretation in the Roadmap: seed sensitivity; robust economic advantage not established; trading costs high versus static equal-weight; no formal significance tests or confidence intervals.
+
+| Finding | Severity | Roadmap-reported disposition |
+|---|---|---|
+| A04-F01 — seed sensitivity | Medium | Residual risk |
+| A04-F02 — robust economic advantage over benchmarks not demonstrated | Medium | Residual risk |
+| A04-F03 — trading costs high versus static equal-weight | Medium | Residual risk |
+| A04-F04 — descriptive statistical evidence only; no formal significance test/CI | Low | Residual risk |
+
+**Evidence limitation:** the final A04 report and named JSON payloads were not found in the tracked GitHub tree or the available Project Library search. The metrics and finding inventory above are therefore **Roadmap-reported**, not independently verified from the original report/payloads in this A08 pass. The methodology docs do not replace run artifacts. PR #375 remains unmerged and is not treated as merged remediation or proof of closure.
+
+## A05 — Data Integrity & Data Governance
+
+**Disposition reported in the latest supplied Roadmap:** CLOSED — PASS WITH RESIDUAL RISKS, score 7.5/10.
+
+- **A05-F01 — Medium:** dataset provenance was insufficiently reconstructable and date-only local files could collide.
+- **Remediation:** PR [#384](https://github.com/iFabbro/STMAA/pull/384), merge `db01b78cfcc485b5488f08d91b091bcc27b08ad8`. It adds content-addressed raw/processed snapshots and a JSON manifest binding request/contract, SHA-256, schema, dimensions, acquisition timestamp and Git revision; provenance references are propagated into training metadata, walk-forward and benchmark outputs.
+- **Retest evidence:** PR head `e800489480911edf915c1d4cabe559e697cbbf42`; all nine PR checks independently queried on 27 Nov 2026 completed success (Ubuntu, macOS Intel, macOS ARM, Ruff, dependency audit, Gitleaks, Bandit, Semgrep and the additional Gitleaks check). Merge commit verified above. No separate post-merge workflow result is claimed.
+- **Residual risks:** snapshots/manifests remain local and Git-ignored; SHA-256 proves integrity of archived bytes, not independent truth/correctness of Alpaca's upstream response; historical acquisitions before the change are not retroactively covered.
+- **Evidence limitation:** the A05 final audit report/data-control matrix was not found in the tracked GitHub tree or available Project Library search. The finding, disposition and residuals above are Roadmap-reported; PR #384 and its CI state are independently verified.
+
+## A06 — Risk Controls & Execution Safety
+
+**Disposition:** CLOSED — PASS WITH RESIDUAL RISKS, score 8/10, for source review and offline/mock retest scope only.
+
+**Primary report supplied in this Project conversation:** `STMAA_A06_FINAL_AUDIT_REPORT_2026-11-25.md` (inspected for this consolidation); it is not present as a tracked report under `docs/audit/` in the current repository tree.
+
+- Baseline/merge: PR #388, head `fc3b0ecdae02938b82aa6c3fbf5ad55275afe738`, merge commit `82a24d4a9a56cb77f154674409ea975edbd9e91e`.
+- **A06-F01 — Medium:** stop signal was not an execution interlock. Remediated by PRs #386/#388; direct mocked boundary regressions cover DAY submit, OPG submit, liquidation cancel and emergency close.
+- **A06-F02 — Medium:** pre-submit guard rejection misclassified as ambiguous submission. Remediated by PR #387; DAY clears only the exact proven-unsubmitted intent; OPG records not-submitted state without a needless broker lookup.
+- **A06-F03 — Medium:** emergency close guard rejection left a false unresolved intent. Remediated by PR #388; exact unsubmitted close intent is cleaned up; persistence failure restores unresolved state and remains fail-closed.
+- **Retest:** `src/tests/test_a06_stop_interlock_mutation_boundaries.py` adds five mocked regressions. PR-head CI run `45654569534` passed Ubuntu/macOS Intel/macOS ARM and Ruff; Gitleaks, dependency audit, Bandit and Semgrep workflows also passed. The merge commit has no separately reported workflow run in the inspected evidence.
+- **Control review:** aggregate USD 1,000 exposure cap and pending BUY reserve; DAY/OPG sizing/preflight; Paper endpoint/client identity; stop interlock; state persistence/reconciliation; drawdown provenance; host-local execution lock.
+- **Residual risks:** guard-to-SDK race; host-local (not distributed) lock; manual OPG recovery for skipped/partial batches; ambiguous broker outcomes may require operator reconciliation; no real Alpaca mutation/fault-injection test; no local macOS 12.7.6 iMac retest. No broker mutation or Live Trading was performed.
+
+## A07 — Operational Resilience & Reliability
+
+**Disposition reported in the latest supplied Roadmap:** CLOSED — PASS WITH RESIDUAL RISKS, score 8/10. No soak rerun is authorized or required absent new material evidence or explicit request.
+
+**Chronology must remain explicit:**
+- The tracked report `docs/audit/A07_OPERATIONAL_RESILIENCE_REPORT.md` (report date 20 Nov 2026; source commit `8e7ae5e293608952190d39e02e295257dd18ac24`; run `6c538292-6ddf-497c-be8f-1a929b3f1911`) records a failed/short run of 105,672.817 seconds, approximately 29h 21m, ending after DNS resolution failures and stop-controller activation. Preserve this report unchanged as the historical first run.
+- The later supplied Roadmap records a distinct run `8b6f062e-472f-4e3b-88d9-b692763c61a5`, baseline `001a66cddf134ea7c5344ff292a1c08d0458c198`, Paper read-only provider, start `2026-11-22T17:29:49.895084Z`, terminal `2026-11-24T17:29:41.003017Z`, elapsed monotonic 172,800.005 seconds, terminal `completed/duration_elapsed`.
+- Later-run counts: 2,641 heartbeats and 2,641 shadow observations; two recovered market-data retry warnings; SQLite integrity check `ok`; no reported ERROR, terminal failure, stop trigger, persistent market-data-unavailable observation or unrecovered outage. Maximum heartbeat gap 165.285 seconds, temporally associated with recovered retries.
+- The automatic acceptance report remained `INCOMPLETE` (exit 2) solely because `heartbeat_and_observation_coverage_sufficient` was false. The Roadmap interprets this as a criterion/loop-semantics limitation and records A07-01/A07-02 Low as residual risks; it does not rewrite the automatic report to PASS.
+- A Paper account snapshot at `2026-11-24T18:07:54.795489Z` reportedly showed ACTIVE, equity/cash USD 100,000, zero positions and zero orders. This is a point-in-time post-run snapshot, not evidence for every instant of the soak.
+
+**Evidence limitation:** the later run's raw event/database/report artifacts were not found in the tracked repository tree in this pass. Its detailed metrics and final disposition are **Roadmap-reported**, not independently reconstructed from the raw soak database/logs. Do not conflate the later completed run with the earlier failed run in the tracked A07 report.
+
 
 ## Consolidated open evidence gaps / residuals
 
@@ -157,8 +207,8 @@ These audits are summarized here to maintain the A08 cross-register, not to reop
 
 ## Overall A08 status
 
-**IN PROGRESS — initial register merged through PR #398; Roadmap/README alignment merged through PR #399; A03 evidence consolidation merged through PR #400; A01/A02 evidence inventory updated through PR #401 and further documented in this revision (PR #402).** Current `main` baseline checked for this revision is `9b2e8c80f223efb1ddf6724448dcad48c0484e10`. CI primary artifacts add exact coverage and Gitleaks evidence, but neither original A01/A02 report has been recovered and no unsupported finding-specific remediation/retest chain is asserted. Publication does not close A08. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
+**IN PROGRESS — register history: PRs #398–#402; this revision consolidates A04–A07 evidence/provenance on main after PR #402.** Current `main` baseline checked for this revision is `73187e8a7c5a7ef2140d7d94fb452b47f706d0be`. The register now distinguishes directly inspected GitHub/Project evidence from Roadmap-reported outcomes and missing raw artifacts. Original A01/A02 reports, A04 benchmark JSON payloads, A05 final report/data-control matrix and the raw later A07 soak package remain unavailable in the tracked repository/available Project Library; those gaps are not reconstructed by assumption. Publication does not close A08. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit, benchmark, soak or test was rerun; no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
 
 ## Next step
 
-Review the A01/A02 primary CI artifacts now recorded here. Do not infer direct A01 remediation links from related historical PRs. Keep A02-DEP-01 open until the original advisory evidence and a separately authorized remediation/retest exist. The original A01/A02 reports were not found in the current repository tree, GitHub code/issue search, Project Library, or prior conversation records; if no additional primary record is available, preserve these report gaps rather than reconstructing them by assumption. A08 remains IN PROGRESS.
+Perform the final A08 consistency/readiness pass against this register and the current Roadmap/README: verify that every audit disposition, finding, remediation, retest and residual risk is represented without overstating source strength; preserve the evidence gaps listed above; then prepare the internal A08 closeout decision and readiness status. Do not rerun A01–A07, the A04 benchmark or the A07 soak, and do not close A02-DEP-01. No source, configuration, runtime, model, holdout or broker operation is part of this step.

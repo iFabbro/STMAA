@@ -1,9 +1,9 @@
 # STMAA A08 — Audit Readiness & Evidence Dossier
 
-**Version:** Draft 0.1
+**Version:** Working register 0.2 (initial publication merged; dossier still in progress)
 **Date:** 27 November 2026
 **Repository:** `iFabbro/STMAA`
-**Repository reference checked:** `main` commit `570d154030725a4589774ca2b9c44a4bb95508ab` (GitHub tree)
+**Repository reference checked:** `main` commit `66fb4466958728bfb385153725c7dc75efde8faf` (includes PR #398 publication of this register)
 **Purpose:** evidence traceability for A01–A07; not a new audit, certification, or readiness claim.
 
 ## Evidence conventions
@@ -54,7 +54,7 @@
 | Finding | Severity | Retest / evidence | Disposition |
 |---|---|---|---|
 | A07-01 — automated coverage threshold does not align with sleep-after-work loop semantics | Low | Run duration and 2,641 heartbeat/observation counts reported; automated coverage predicate remains false and report INCOMPLETE. No runner/threshold change or rerun. | Closed as audit residual risk, per Roadmap |
-| A07-02 — maximum heartbeat gap 165,285 seconds, temporally associated with recovered market-data retries | Low | Retry-recovered warning events and run evidence reported; no terminal failure, persistent unavailable observation, stop-safety event or session failure recorded. | Closed as audit residual risk, per Roadmap |
+| A07-02 — maximum heartbeat gap 165.285 seconds, temporally associated with recovered market-data retries | Low | Retry-recovered warning events and run evidence reported; no terminal failure, persistent unavailable observation, stop-safety event or session failure recorded. | Closed as audit residual risk, per Roadmap |
 
 | Traceability element | Evidence / status |
 |---|---|
@@ -71,7 +71,7 @@
 These audits are summarized here to maintain the A08 cross-register, not to reopen them:
 
 - **A03:** final report `docs/audit/A03_AI_GOVERNANCE_MODEL_RISK_REPORT.md`; PRs #389, #390, #391, #394, #395 and #396. Final report states PASS WITH RESIDUAL RISKS (8/10); holdout remains PRE-FREEZE / NOT ACTIVE / COLLECTION NOT AUTHORIZED. Detailed linkage is in the A03 report.
-- **A04:** benchmark audit closed per handoff. Exposure-matched equal-weight result is INCONCLUSIVE where reported; draft PR #375 remains unmerged and must not be presented as confirmed evidence.
+- **A04:** benchmark audit closed per Roadmap. The multi-seed exposure-matched equal-weight comparator remains INCONCLUSIVE where no result payload exists; the separate seed-42 single-seed matched comparison must not be generalized to all seeds. Draft PR #375 remains unmerged and is not confirmed evidence.
 - **A05:** finding A05-F01 mitigated by PR #384, merge `db01b78cfcc485b5488f08d91b091bcc27b08ad8`; retest/CI reported green. Residual limitations remain.
 - **A06:** PRs #386, #387, #388; merge baseline `82a24d4a9a56cb77f154674409ea975edbd9e91e`; closed with residual risks per Roadmap. No live broker fault-injection claimed.
 
@@ -86,8 +86,8 @@ These audits are summarized here to maintain the A08 cross-register, not to reop
 
 ## Overall A08 status
 
-**DRAFT — traceability consolidation in progress.** This document is a versionable evidence register draft. It is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
+**IN PROGRESS — initial register published.** The initial A08 register was merged through PR #398 (main commit `66fb4466958728bfb385153725c7dc75efde8faf`). Publication does not close A08: evidence gaps and residual risks below remain open for traceability. This document is not a certification, compliance attestation, release authorization or live-trading readiness statement. No audit was rerun and no source, model, configuration, `.env`, runtime, holdout or broker state was changed.
 
 ## Next step
 
-Place this document in the repository on a dedicated branch and submit a documentation-only PR for review. Before merging, cross-link the original A01/A02 reports if their locations become available, and attach/reference the final A07 run evidence artifacts without changing the historical A07 report.
+Continue the A08 evidence consolidation in a dedicated branch/PR. Resolve only evidence links that can be grounded in repository artifacts or supplied primary records. The original A01/A02 reports and the final A07 run package remain explicit gaps until their source artifacts are made available; do not search unrelated systems, infer missing finding chains, or overwrite the historical A07 report. Keep A04's multi-seed comparator INCONCLUSIVE unless the original result payload is recovered. A08 remains IN PROGRESS until its approved traceability deliverables are complete and reviewed.
